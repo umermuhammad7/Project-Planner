@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "HomeThread",
+    "slug": "homethread",
+    "scheme": "homethread",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.homethread.app"
+    },
+    "android": {
+      "package": "com.homethread.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F4EF"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
