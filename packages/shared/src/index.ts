@@ -102,6 +102,34 @@ export const completeChoreSchema = z.object({
   photoUrl: z.url().optional().nullable()
 });
 
+export const createListSchema = z.object({
+  title: z.string().min(1).max(80),
+  type: listTypeSchema.default("custom"),
+  color: hexColorSchema.optional().nullable(),
+  icon: z.string().max(80).optional().nullable(),
+  isShared: z.boolean().default(true)
+});
+
+export const updateListSchema = createListSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one list field is required"
+);
+
+export const createListItemSchema = z.object({
+  content: z.string().min(1).max(160),
+  category: z.string().max(80).optional().nullable(),
+  quantity: z.string().max(40).optional().nullable(),
+  sortOrder: z.int().min(0).max(100000).optional()
+});
+
+export const updateListItemSchema = z.object({
+  content: z.string().min(1).max(160).optional(),
+  category: z.string().max(80).optional().nullable(),
+  quantity: z.string().max(40).optional().nullable(),
+  isChecked: z.boolean().optional(),
+  sortOrder: z.int().min(0).max(100000).optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one list item field is required");
+
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
@@ -112,3 +140,7 @@ export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 export type CreateChoreInput = z.infer<typeof createChoreSchema>;
 export type UpdateChoreInput = z.infer<typeof updateChoreSchema>;
 export type CompleteChoreInput = z.infer<typeof completeChoreSchema>;
+export type CreateListInput = z.infer<typeof createListSchema>;
+export type UpdateListInput = z.infer<typeof updateListSchema>;
+export type CreateListItemInput = z.infer<typeof createListItemSchema>;
+export type UpdateListItemInput = z.infer<typeof updateListItemSchema>;

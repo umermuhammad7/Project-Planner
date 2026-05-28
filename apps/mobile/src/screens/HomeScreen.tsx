@@ -7,7 +7,8 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TabKey } from "../types";
 
 export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
-  const { members, events, chores, shoppingItems, sendDigestToThread } = useHomeThreadStore();
+  const { familyName, members, events, chores, shoppingItems, sendDigestToThread, syncSource, syncMessage, isHydrating } =
+    useHomeThreadStore();
   const openChores = chores.filter((chore) => !chore.completed);
   const openItems = shoppingItems.filter((item) => !item.checked);
 
@@ -16,7 +17,8 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.kicker}>HomeThread</Text>
-          <Text style={styles.title}>Today is covered</Text>
+          <Text style={styles.title}>{familyName}</Text>
+          <Text style={styles.subhead}>Today is covered</Text>
         </View>
         <View style={styles.memberStack}>
           {members.slice(0, 3).map((member) => (
@@ -31,11 +33,12 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
             <Ionicons name="chatbubbles" size={22} color={colors.primary} />
           </View>
           <View style={styles.heroCopy}>
-            <Pill label="Texting ready" tone="primary" icon="sparkles" />
+            <Pill label={syncSource === "api" ? "Local API connected" : "Texting ready"} tone="primary" icon="sparkles" />
             <Text style={styles.heroTitle}>Send the family one clean update.</Text>
             <Text style={styles.heroText}>
               Plans, chores, and shopping stay in sync even when someone only checks the family text thread.
             </Text>
+            <Text style={styles.syncText}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
           </View>
         </Row>
         <View style={styles.heroActions}>
@@ -110,6 +113,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     lineHeight: 36
   },
+  subhead: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 4
+  },
   memberStack: {
     flexDirection: "row",
     gap: spacing.xs
@@ -136,6 +145,11 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 15,
     lineHeight: 21
+  },
+  syncText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800"
   },
   heroActions: {
     flexDirection: "row",

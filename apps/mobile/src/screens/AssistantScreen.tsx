@@ -14,7 +14,7 @@ const examples = [
 ];
 
 export function AssistantScreen() {
-  const { commitDraft } = useHomeThreadStore();
+  const { commitDraft, isSaving, saveMessage } = useHomeThreadStore();
   const [prompt, setPrompt] = useState(examples[0]);
   const [draft, setDraft] = useState<AssistantDraft>(() => parseFamilyText(examples[0]));
   const [saved, setSaved] = useState(false);
@@ -56,13 +56,15 @@ export function AssistantScreen() {
         </View>
         <Text style={styles.draftTitle}>{draft.title}</Text>
         <Text style={styles.meta}>{draft.detail}</Text>
+        <Text style={styles.saveStatus}>{saveMessage}</Text>
         <View style={styles.saveRow}>
           <PrimaryButton
-            label={saved ? "Saved" : "Save to HomeThread"}
-            icon={saved ? "checkmark" : "add"}
+            label={isSaving ? "Saving..." : saved ? "Saved" : "Save to HomeThread"}
+            icon={isSaving ? "sync" : saved ? "checkmark" : "add"}
             onPress={() => {
-              commitDraft(draft);
-              setSaved(true);
+              void commitDraft(draft).then(() => {
+                setSaved(true);
+              });
             }}
           />
         </View>
@@ -130,6 +132,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     marginTop: spacing.sm
+  },
+  saveStatus: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.md
   },
   saveRow: {
     marginTop: spacing.lg

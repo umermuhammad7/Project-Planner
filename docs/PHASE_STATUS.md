@@ -15,6 +15,8 @@ The repository now contains a usable Expo mobile MVP/prototype for the main fami
 - Family text thread
 - SMS digest launcher
 - Pasted-text quick-add parser
+- Local database hydration for plans, chores, and groceries
+- Quick-add persistence into the local database when the dev API is available
 - App naming and design system
 
 ## Completed From Phase 1
@@ -30,21 +32,22 @@ The repository now contains a usable Expo mobile MVP/prototype for the main fami
 - Generated initial SQL migration
 - Supabase JWT auth plugin foundation
 - Family membership/admin guard foundation
-- Routes for `/auth/*`, `/families/*`, `/members/*`, `/events/*`, and `/chores/*`
+- Routes for `/auth/*`, `/families/*`, `/members/*`, `/events/*`, `/chores/*`, and `/lists/*`
 - Basic push token registration route
 - Events, chores, lists, members, and text-thread data models
 - Local state for the primary mobile workflow
 - Welcome, login/register shell, and 4-step onboarding shell
 - Offline banner component
 - Texting-first quick-add and digest experience
+- Local PostgreSQL `HomeThread` database connected, migrated, and seeded
+- Mobile hydration from the local API for the seeded family
+- Grocery list item create/check/delete flow verified against the local database
 
 ## Still Needed For Phase 1 Production
 
-- Connect the backend to the real provisioned PostgreSQL/Supabase project
-- Run the migration against the real database
 - Verify Supabase JWTs against real mobile auth tokens
 - Replace local mobile auth/onboarding demo state with Supabase Auth
-- Wire mobile screens to API/TanStack Query instead of mock data
+- Finish wiring every mobile screen to API/TanStack Query instead of the current hybrid store
 - Add event and chore forms against the API
 - Add real-time sync for events and chores
 - Add offline queue persistence
@@ -53,15 +56,17 @@ The repository now contains a usable Expo mobile MVP/prototype for the main fami
 - Deploy backend to Railway
 - Internal TestFlight / Play Store internal testing build
 
-## Current Local Database Blocker
+## Local Database Status
 
-The local PostgreSQL server on port 5432 is reachable, but authentication failed for `postgres`. To finish the local migration, set the correct pgAdmin username/password in `apps/backend/.env` and run:
+The local PostgreSQL database `HomeThread` is connected and working with the backend on this laptop.
 
-```bash
-npm --workspace apps/backend run db:check
-npm run db:migrate
-npm --workspace apps/backend run db:seed
-```
+Validated locally:
+
+- `npm --workspace apps/backend run db:check`
+- `npm run db:migrate`
+- `npm --workspace apps/backend run db:seed`
+- `npm --workspace apps/backend run verify:dev`
+- direct `POST`, `PATCH`, and `DELETE` requests against `/api/v1/families/:familyId/lists/:listId/items`
 
 ## Later Handoff Phases Not Done Yet
 
@@ -71,4 +76,4 @@ npm --workspace apps/backend run db:seed
 
 ## Honest Status
 
-All work is **not** done. Phase 1 is now properly underway with real foundations, but it still needs database credentials, migration execution, Supabase mobile auth wiring, API-backed mobile screens, realtime/offline behavior, and deployment before it can be called Phase 1 complete.
+All work is **not** done. Phase 1 now has a real local database path and live mobile-to-backend sync for the main family loop, but it still needs Supabase mobile auth wiring, broader API coverage in the app, realtime/offline behavior, notifications, deployment, and app-store testing before it can be called Phase 1 complete.

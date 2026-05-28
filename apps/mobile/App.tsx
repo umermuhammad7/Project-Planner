@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
 
 import { IconButton } from "./src/components/Primitives";
@@ -13,6 +13,7 @@ import { ListsScreen } from "./src/screens/ListsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
+import { useHomeThreadStore } from "./src/store/useHomeThreadStore";
 import { TabKey } from "./src/types";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -29,6 +30,14 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
 export default function App() {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
+  const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
+
+  useEffect(() => {
+    if (hasCompletedOnboarding) {
+      void hydrateFromBackend();
+    }
+  }, [hasCompletedOnboarding, hydrateFromBackend]);
+
   const content = useMemo(() => {
     if (activeTab === "plan") return <PlanScreen />;
     if (activeTab === "chores") return <ChoresScreen />;

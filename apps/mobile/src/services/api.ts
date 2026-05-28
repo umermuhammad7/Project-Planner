@@ -1,10 +1,12 @@
 declare const process: {
   env: {
     EXPO_PUBLIC_API_URL?: string;
+    EXPO_PUBLIC_DEV_AUTH_TOKEN?: string;
   };
 };
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+const DEV_AUTH_TOKEN = process.env.EXPO_PUBLIC_DEV_AUTH_TOKEN ?? "homethread-dev-token";
 
 export type ApiResult<T> = {
   data?: T;
@@ -20,6 +22,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       ...options,
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${DEV_AUTH_TOKEN}`,
         ...options.headers
       }
     });

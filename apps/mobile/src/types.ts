@@ -2,6 +2,7 @@ export type MemberRole = "parent" | "kid" | "caregiver";
 
 export type FamilyMember = {
   id: string;
+  userId?: string | null;
   name: string;
   initials: string;
   color: string;
@@ -30,6 +31,7 @@ export type Chore = {
 
 export type ShoppingItem = {
   id: string;
+  backendListId?: string;
   title: string;
   category: string;
   addedBy: string;
@@ -56,3 +58,5 @@ export type AssistantDraft = {
 };
 
 export type TabKey = "home" | "plan" | "chores" | "lists" | "thread" | "add";
+
+export type SyncSource = "mock" | "api";

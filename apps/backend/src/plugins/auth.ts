@@ -21,6 +21,14 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     return sendError(reply, 401, "Missing bearer token", "AUTH_REQUIRED");
   }
 
+  if (env.NODE_ENV !== "production" && token === env.DEV_AUTH_TOKEN) {
+    request.currentUser = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "dev@homethread.local"
+    };
+    return;
+  }
+
   if (!supabase) {
     if (env.NODE_ENV === "production") {
       return sendError(reply, 500, "Supabase is not configured", "AUTH_NOT_CONFIGURED");
