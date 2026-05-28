@@ -1,12 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, Pill, Row, SectionTitle } from "../components/Primitives";
+import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
-  const { shoppingItems, members, toggleShoppingItem } = useHomeThreadStore();
+  const { shoppingItems, members, toggleShoppingItem, refreshFromBackend, isHydrating, isSaving, saveMessage } = useHomeThreadStore();
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
     groups[item.category] = [...(groups[item.category] ?? []), item];
     return groups;
@@ -16,6 +16,11 @@ export function ListsScreen() {
     <View>
       <Text style={styles.title}>Lists</Text>
       <Text style={styles.subtitle}>Groceries and errands that survive the jump between app and family texts.</Text>
+
+      <View style={styles.actionRow}>
+        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
+      </View>
+      <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
 
       {Object.entries(grouped).map(([category, items]) => (
         <View key={category}>
@@ -64,6 +69,17 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 15,
     lineHeight: 22,
+    marginTop: spacing.sm
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.lg
+  },
+  statusText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
     marginTop: spacing.sm
   },
   stack: {

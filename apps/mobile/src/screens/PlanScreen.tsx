@@ -1,23 +1,89 @@
-import { StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 
-import { Card, MemberAvatar, Pill, Row, SectionTitle } from "../components/Primitives";
-import { colors, spacing } from "../constants/theme";
+import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function PlanScreen() {
-  const { events, members } = useHomeThreadStore();
+  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage } = useHomeThreadStore();
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
+  const [startTime, setStartTime] = useState("");
+
+  const canSubmit = useMemo(() => title.trim().length > 0, [title]);
 
   return (
     <View>
       <Text style={styles.title}>Family plan</Text>
       <Text style={styles.subtitle}>A shared timeline that still works when the update travels by text.</Text>
 
+      <View style={styles.actionRow}>
+        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
+        <PrimaryButton
+          label={showForm ? "Close" : "New event"}
+          icon={showForm ? "close" : "add"}
+          tone="dark"
+          onPress={() => setShowForm((value) => !value)}
+        />
+      </View>
+      <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      {showForm ? (
+        <Card>
+          <Text style={styles.formTitle}>Create event</Text>
+          <TextInput
+            accessibilityLabel="Event title"
+            placeholder="Title"
+            placeholderTextColor={colors.muted}
+            value={title}
+            onChangeText={setTitle}
+            style={styles.input}
+          />
+          <TextInput
+            accessibilityLabel="Event location"
+            placeholder="Location (optional)"
+            placeholderTextColor={colors.muted}
+            value={location}
+            onChangeText={setLocation}
+            style={styles.input}
+          />
+          <TextInput
+            accessibilityLabel="Event start time"
+            placeholder='Start time (optional, "18:00")'
+            placeholderTextColor={colors.muted}
+            value={startTime}
+            onChangeText={setStartTime}
+            style={styles.input}
+          />
+          <View style={styles.formActions}>
+            <PrimaryButton
+              label={isSaving ? "Creating..." : "Create"}
+              icon="checkmark"
+              onPress={() => {
+                if (!canSubmit || isSaving) return;
+                void createEvent({ title, location, startTime }).then((ok) => {
+                  if (!ok) return;
+                  setTitle("");
+                  setLocation("");
+                  setStartTime("");
+                  setShowForm(false);
+                });
+              }}
+            />
+          </View>
+        </Card>
+      ) : null}
+
       <SectionTitle title="People" />
       <View style={styles.peopleRow}>
         {members.map((member) => (
           <Card key={member.id}>
             <View style={styles.personCard}>
-              <MemberAvatar member={member} />
+              <View style={[styles.avatarDot, { backgroundColor: member.color }]}>
+                <Text style={styles.avatarText}>{member.initials}</Text>
+              </View>
               <Text style={styles.personName}>{member.name}</Text>
               <Pill label={member.role} tone="neutral" />
             </View>
@@ -71,6 +137,36 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
+  actionRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.lg
+  },
+  statusText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.sm
+  },
+  formTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: spacing.md
+  },
+  input: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 16,
+    padding: spacing.md,
+    marginTop: spacing.sm
+  },
+  formActions: {
+    marginTop: spacing.lg
+  },
   peopleRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -80,6 +176,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
     minWidth: 112
+  },
+  avatarDot: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 38,
+    justifyContent: "center",
+    width: 38
+  },
+  avatarText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900"
   },
   personName: {
     color: colors.ink,

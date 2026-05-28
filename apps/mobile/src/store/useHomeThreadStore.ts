@@ -31,6 +31,9 @@ type HomeThreadState = {
   isSaving: boolean;
   saveMessage: string;
   hydrateFromBackend: () => Promise<void>;
+  refreshFromBackend: () => Promise<void>;
+  createEvent: (input: { title: string; location?: string; startTime?: string }) => Promise<boolean>;
+  createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<boolean>;
   toggleChore: (id: string) => void;
   toggleShoppingItem: (id: string) => Promise<void>;
   importText: (body: string) => AssistantDraft;
@@ -99,6 +102,113 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${choresResult.data.chores.length} chores, and ${groceryList?.items.length ?? 0} list items from local database`,
       isHydrating: false
     });
+  },
+  refreshFromBackend: async () => {
+    await get().hydrateFromBackend();
+  },
+  createEvent: async ({ title, location, startTime }) => {
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({
+        saveMessage: "Backend sync is unavailable — event was not created",
+      });
+      return false;
+    }
+
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      set({ saveMessage: "Event title is required" });
+      return false;
+    }
+
+    const trimmedTime = startTime?.trim() ?? "";
+    const startAt = trimmedTime ? inferStartDateTime(trimmedTime) : defaultEventStartAt();
+    if (trimmedTime && !startAt) {
+      set({ saveMessage: 'Start time must be blank or like "18:00" (24h)' });
+      return false;
+    }
+
+    set({ isSaving: true, saveMessage: "Creating event..." });
+
+    const endAt = new Date(startAt!.getTime() + 60 * 60 * 1000);
+    const result = await apiRequest<{ event: BackendEventRecord }>(`/families/${state.familyId}/events`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: normalizedTitle,
+        description: null,
+        location: location?.trim() ? location.trim() : null,
+        startAt: startAt!.toISOString(),
+        endAt: endAt.toISOString(),
+        allDay: false,
+        memberIds: []
+      })
+    });
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create event" });
+      return false;
+    }
+
+    set((current) => ({
+      events: [mapEvent(result.data!.event, [], "manual"), ...current.events],
+      isSaving: false,
+      saveMessage: "Saved event to local database"
+    }));
+
+    return true;
+  },
+  createChore: async ({ title, dueTime, assignedTo, starsValue }) => {
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({
+        saveMessage: "Backend sync is unavailable — chore was not created",
+      });
+      return false;
+    }
+
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      set({ saveMessage: "Chore title is required" });
+      return false;
+    }
+
+    const normalizedDueTime = normalizeDueTime(dueTime);
+    if (dueTime?.trim() && normalizedDueTime === null) {
+      set({ saveMessage: 'Due time must be like "18:00" (24h)' });
+      return false;
+    }
+
+    set({ isSaving: true, saveMessage: "Creating chore..." });
+
+    const fallbackAssignee =
+      state.members.find((member) => member.role === "kid")?.id ?? state.currentMemberId;
+
+    const result = await apiRequest<{ chore: BackendChoreRecord }>(`/families/${state.familyId}/chores`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: normalizedTitle,
+        description: null,
+        icon: null,
+        starsValue: starsValue ?? 2,
+        assignedTo: assignedTo ?? fallbackAssignee ?? null,
+        recurrenceRule: null,
+        dueTime: normalizedDueTime,
+        isActive: true
+      })
+    });
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create chore" });
+      return false;
+    }
+
+    set((current) => ({
+      chores: [mapChore(result.data!.chore), ...current.chores],
+      isSaving: false,
+      saveMessage: "Saved chore to local database"
+    }));
+
+    return true;
   },
   toggleChore: (id) => {
     set((state) => ({
@@ -667,4 +777,39 @@ function formatCategory(value: string | null) {
     .filter(Boolean)
     .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
     .join(" ");
+}
+
+function defaultEventStartAt() {
+  const now = new Date();
+  const date = new Date(now);
+  const minutes = date.getMinutes();
+  if (minutes !== 0) {
+    date.setHours(date.getHours() + 1);
+  }
+  date.setMinutes(0, 0, 0);
+  return date;
+}
+
+function inferStartDateTime(value: string) {
+  const parsed = parseTimeHHMM(value);
+  if (!parsed) return null;
+
+  const now = new Date();
+  const date = new Date(now);
+  date.setHours(parsed.hours, parsed.minutes, 0, 0);
+  return date;
+}
+
+function normalizeDueTime(value?: string) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (/^([01]\d|2[0-3]):[0-5]\d$/u.test(trimmed)) return `${trimmed}:00`;
+  if (/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/u.test(trimmed)) return trimmed;
+  return null;
+}
+
+function parseTimeHHMM(value: string) {
+  const match = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/u);
+  if (!match) return null;
+  return { hours: Number(match[1]), minutes: Number(match[2]) };
 }
