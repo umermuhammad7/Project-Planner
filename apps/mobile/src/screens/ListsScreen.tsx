@@ -15,6 +15,7 @@ export function ListsScreen() {
     shoppingItems,
     members,
     toggleShoppingItem,
+    clearCheckedShoppingItems,
     refreshFromBackend,
     isHydrating,
     isSaving,
@@ -29,6 +30,7 @@ export function ListsScreen() {
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
   const canCreateList = useMemo(() => newListTitle.trim().length > 0, [newListTitle]);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
+  const checkedCount = shoppingItems.filter((item) => item.checked).length;
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
     groups[item.category] = [...(groups[item.category] ?? []), item];
     return groups;
@@ -50,6 +52,17 @@ export function ListsScreen() {
 
       <View style={styles.actionRow}>
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
+        {checkedCount > 0 ? (
+          <PrimaryButton
+            label={isSaving ? "Clearing..." : `Clear checked (${checkedCount})`}
+            icon="trash"
+            tone="dark"
+            onPress={() => {
+              if (isSaving) return;
+              void clearCheckedShoppingItems();
+            }}
+          />
+        ) : null}
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
 

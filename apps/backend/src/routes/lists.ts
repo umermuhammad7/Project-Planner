@@ -177,6 +177,27 @@ export async function listsRoutes(app: FastifyInstance) {
     return { item };
   });
 
+  app.post("/:listId/clear-checked", async (request, reply) => {
+    const { familyId, listId } = listParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const list = await db.query.lists.findFirst({
+      where: and(eq(lists.familyId, familyId), eq(lists.id, listId))
+    });
+
+    if (!list) {
+      return sendError(reply, 404, "List not found", "LIST_NOT_FOUND");
+    }
+
+    const deleted = await db
+      .delete(listItems)
+      .where(and(eq(listItems.listId, listId), eq(listItems.isChecked, true)))
+      .returning({ id: listItems.id });
+
+    return { deletedCount: deleted.length };
+  });
+
   app.delete("/:listId/items/:itemId", async (request, reply) => {
     const { familyId, listId, itemId } = itemParamsSchema.parse(request.params);
     const membership = await requireFamilyMember(request, reply, familyId);

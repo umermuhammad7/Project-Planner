@@ -340,4 +340,67 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.listItemsByListId["list-camping"]).toEqual([]);
     expect(state.saveMessage).toBe("Created Camping weekend");
   });
+
+  it("clears checked items from the active list after backend confirmation", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      selectedListId: "list-grocery",
+      listItemsByListId: {
+        "list-grocery": [
+          {
+            id: "item-milk",
+            backendListId: "list-grocery",
+            title: "Milk",
+            category: "Dairy",
+            addedBy: "member-parent",
+            checked: false
+          },
+          {
+            id: "item-eggs",
+            backendListId: "list-grocery",
+            title: "Eggs",
+            category: "Dairy",
+            addedBy: "member-parent",
+            checked: true
+          }
+        ]
+      },
+      shoppingItems: [
+        {
+          id: "item-milk",
+          backendListId: "list-grocery",
+          title: "Milk",
+          category: "Dairy",
+          addedBy: "member-parent",
+          checked: false
+        },
+        {
+          id: "item-eggs",
+          backendListId: "list-grocery",
+          title: "Eggs",
+          category: "Dairy",
+          addedBy: "member-parent",
+          checked: true
+        }
+      ]
+    });
+
+    apiRequestMock.mockResolvedValue({
+      data: {
+        deletedCount: 1
+      }
+    });
+
+    await useHomeThreadStore.getState().clearCheckedShoppingItems();
+
+    const state = useHomeThreadStore.getState();
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/families/family-1/lists/list-grocery/clear-checked",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(state.shoppingItems.map((item) => item.title)).toEqual(["Milk"]);
+    expect(state.listItemsByListId["list-grocery"]?.map((item) => item.title)).toEqual(["Milk"]);
+    expect(state.saveMessage).toBe("Cleared 1 checked item");
+  });
 });

@@ -56,6 +56,7 @@ type HomeThreadState = {
   completeChore: (id: string) => Promise<void>;
   toggleChore: (id: string) => void;
   toggleShoppingItem: (id: string) => Promise<void>;
+  clearCheckedShoppingItems: () => Promise<void>;
   selectList: (listId: string) => void;
   createList: (input: { title: string; type: FamilyList["type"] }) => Promise<boolean>;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
@@ -492,6 +493,57 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         saveMessage: `${target.title} updated`
       };
     });
+  },
+  clearCheckedShoppingItems: async () => {
+    const state = get();
+    const listId = state.selectedListId ?? null;
+    const checkedItems = state.shoppingItems.filter((item) => item.checked);
+    if (!listId || checkedItems.length === 0) {
+      return;
+    }
+
+    const nextShoppingItems = state.shoppingItems.filter((item) => !item.checked);
+    set((current) => ({
+      shoppingItems: nextShoppingItems,
+      listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextShoppingItems)
+    }));
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({ saveMessage: "Cleared checked items locally" });
+      return;
+    }
+
+    set({ isSaving: true, saveMessage: "Clearing checked items..." });
+
+    const result = await apiRequest<{ deletedCount: number }>(
+      `/families/${state.familyId}/lists/${listId}/clear-checked`,
+      {
+        method: "POST",
+        body: JSON.stringify({})
+      }
+    );
+
+    if (!result.data) {
+      set((current) => ({
+        shoppingItems: state.shoppingItems,
+        listItemsByListId: replaceListItems(current.listItemsByListId, listId, state.shoppingItems),
+        isSaving: false,
+        saveMessage: result.error?.message ?? "Failed to clear checked items"
+      }));
+      return;
+    }
+
+    set((current) => ({
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Cleared ${checkedItems.length} checked item${checkedItems.length === 1 ? "" : "s"}`
+        }),
+        ...current.textUpdates
+      ],
+      isSaving: false,
+      saveMessage: `Cleared ${checkedItems.length} checked item${checkedItems.length === 1 ? "" : "s"}`
+    }));
   },
   createShoppingItem: async ({ title, category }) => {
     const trimmed = title.trim();
