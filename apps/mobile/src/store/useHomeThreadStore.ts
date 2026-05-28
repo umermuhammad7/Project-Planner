@@ -167,6 +167,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set((current) => ({
       events: [mapEvent(result.data!.event, memberIds, "manual"), ...current.events],
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Added event: ${normalizedTitle}`,
+          convertedTo: "event"
+        }),
+        ...current.textUpdates
+      ],
       isSaving: false,
       saveMessage: "Saved event to local database"
     }));
@@ -220,6 +228,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set((current) => ({
       chores: [mapChore(result.data!.chore), ...current.chores],
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Added chore: ${normalizedTitle}`,
+          convertedTo: "chore"
+        }),
+        ...current.textUpdates
+      ],
       isSaving: false,
       saveMessage: "Saved chore to local database"
     }));
@@ -286,10 +302,21 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     // Success: keep the local completed state. Do not fake reward balance updates here.
+    const actorName = resolveMemberName(current.members, memberId) ?? "HomeThread";
     set({
       isSaving: false,
       saveMessage: `${target.title} completed`
     });
+
+    set((state) => ({
+      textUpdates: [
+        makeActivityUpdate({
+          author: actorName,
+          body: `Completed chore: ${target.title}`
+        }),
+        ...state.textUpdates
+      ]
+    }));
   },
   toggleChore: (id) => {
     set((state) => ({
@@ -349,6 +376,13 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       shoppingItems: current.shoppingItems.map((item) =>
         item.id === id ? mapShoppingItem(updatedItem, target.backendListId!, fallbackMemberId) : item
       ),
+      textUpdates: [
+        makeActivityUpdate({
+          author: resolveMemberName(state.members, state.currentMemberId) ?? "HomeThread",
+          body: `${nextChecked ? "Checked off" : "Reopened"} ${target.title}`
+        }),
+        ...current.textUpdates
+      ],
       isSaving: false,
       saveMessage: `${target.title} updated`
     }));
@@ -394,6 +428,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     set((current) => ({
       groceryListId: current.groceryListId ?? listId,
       shoppingItems: [mapShoppingItem(result.data!.item, listId, fallbackMemberId), ...current.shoppingItems],
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Added list item: ${trimmed}`,
+          convertedTo: "list"
+        }),
+        ...current.textUpdates
+      ],
       isSaving: false,
       saveMessage: "Saved list item to local database"
     }));
@@ -952,4 +994,20 @@ function formatISODate(value: Date) {
 function dedupeMemberIds(memberIds?: string[]) {
   if (!memberIds || memberIds.length === 0) return [];
   return Array.from(new Set(memberIds.filter(Boolean)));
+}
+
+function makeActivityUpdate(input: { author: string; body: string; convertedTo?: TextUpdate["convertedTo"] }): TextUpdate {
+  return {
+    id: `activity-${Date.now()}`,
+    direction: "outbound",
+    author: input.author,
+    body: input.body,
+    createdAt: "Now",
+    convertedTo: input.convertedTo
+  };
+}
+
+function resolveMemberName(members: FamilyMember[], memberId: string | null) {
+  if (!memberId) return null;
+  return members.find((member) => member.id === memberId)?.name ?? null;
 }
