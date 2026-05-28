@@ -65,6 +65,7 @@ type HomeThreadState = {
   createList: (input: { title: string; type: FamilyList["type"] }) => Promise<boolean>;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
   createMeal: (input: { dayOfWeek: number; mealType: MealPlanItem["mealType"]; title: string; notes?: string }) => Promise<boolean>;
+  removeMeal: (id: string) => Promise<void>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
   sendDigestToThread: () => string;
@@ -688,6 +689,56 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
 
     return true;
+  },
+  removeMeal: async (id) => {
+    const state = get();
+    const nextMeals = state.meals.filter((meal) => meal.id !== id);
+    if (nextMeals.length === state.meals.length) {
+      return;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({
+        meals: nextMeals,
+        saveMessage: "Removed meal locally in prototype mode"
+      });
+      return;
+    }
+
+    set({ isSaving: true, saveMessage: "Removing meal..." });
+
+    const result = await apiRequest<BackendMealsResponse>(`/families/${state.familyId}/meals`, {
+      method: "POST",
+      body: JSON.stringify({
+        weekStart: state.mealWeekStart,
+        items: nextMeals.map((meal) => ({
+          dayOfWeek: meal.dayOfWeek,
+          mealType: meal.mealType,
+          customTitle: meal.title,
+          notes: meal.notes ?? null,
+          recipeId: null
+        }))
+      })
+    });
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to remove meal" });
+      return;
+    }
+
+    set((current) => ({
+      meals: result.data!.items.map(mapMeal),
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: "Updated the meal plan",
+          convertedTo: "meal"
+        }),
+        ...current.textUpdates
+      ],
+      isSaving: false,
+      saveMessage: "Updated meal plan"
+    }));
   },
   importText: (body) => {
     const draft = parseFamilyText(body);

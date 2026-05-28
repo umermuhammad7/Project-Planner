@@ -495,4 +495,66 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.meals.map((meal) => meal.title)).toEqual(["Sheet-pan chicken fajitas", "Pasta night"]);
     expect(state.saveMessage).toBe("Saved meal plan to local database");
   });
+
+  it("removes a meal plan item from the active week", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      mealWeekStart: "2026-05-25",
+      meals: [
+        {
+          id: "meal-1",
+          dayOfWeek: 0,
+          mealType: "dinner",
+          title: "Sheet-pan chicken fajitas",
+          notes: "Double peppers"
+        },
+        {
+          id: "meal-2",
+          dayOfWeek: 2,
+          mealType: "dinner",
+          title: "Pasta night"
+        }
+      ]
+    });
+
+    apiRequestMock.mockResolvedValue({
+      data: {
+        weekStart: "2026-05-25",
+        items: [
+          {
+            id: "meal-2",
+            dayOfWeek: 2,
+            mealType: "dinner",
+            customTitle: "Pasta night",
+            notes: null
+          }
+        ]
+      }
+    });
+
+    await useHomeThreadStore.getState().removeMeal("meal-1");
+
+    const state = useHomeThreadStore.getState();
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/families/family-1/meals",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          weekStart: "2026-05-25",
+          items: [
+            {
+              dayOfWeek: 2,
+              mealType: "dinner",
+              customTitle: "Pasta night",
+              notes: null,
+              recipeId: null
+            }
+          ]
+        })
+      })
+    );
+    expect(state.meals.map((meal) => meal.title)).toEqual(["Pasta night"]);
+    expect(state.saveMessage).toBe("Updated meal plan");
+  });
 });

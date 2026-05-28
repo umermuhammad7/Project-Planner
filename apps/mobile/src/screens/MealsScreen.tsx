@@ -10,7 +10,7 @@ const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const mealTypes: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 
 export function MealsScreen() {
-  const { meals, mealWeekStart, createMeal, isSaving, saveMessage, syncSource, syncMessage } = useHomeThreadStore();
+  const { meals, mealWeekStart, createMeal, removeMeal, isSaving, saveMessage, syncSource, syncMessage } = useHomeThreadStore();
   const [title, setTitle] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [mealType, setMealType] = useState<MealType>("dinner");
@@ -109,6 +109,15 @@ export function MealsScreen() {
                       <Text style={styles.itemTitle}>{item.title}</Text>
                       <Text style={styles.itemMeta}>{item.notes ?? "Ready for the week"}</Text>
                     </View>
+                    <PrimaryButton
+                      label="Remove"
+                      icon="trash"
+                      tone="dark"
+                      onPress={() => {
+                        if (isSaving) return;
+                        void removeMeal(item.id);
+                      }}
+                    />
                   </Row>
                 </Card>
               ))}
