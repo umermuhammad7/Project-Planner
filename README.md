@@ -46,6 +46,8 @@ cp apps/backend/.env.example apps/backend/.env
 npm run backend:dev
 ```
 
+Local pgAdmin/Postgres setup is documented in `docs/LOCAL_DATABASE.md`.
+
 Database migration generation:
 
 ```bash

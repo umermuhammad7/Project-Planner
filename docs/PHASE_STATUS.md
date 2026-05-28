@@ -53,6 +53,16 @@ The repository now contains a usable Expo mobile MVP/prototype for the main fami
 - Deploy backend to Railway
 - Internal TestFlight / Play Store internal testing build
 
+## Current Local Database Blocker
+
+The local PostgreSQL server on port 5432 is reachable, but authentication failed for `postgres`. To finish the local migration, set the correct pgAdmin username/password in `apps/backend/.env` and run:
+
+```bash
+npm --workspace apps/backend run db:check
+npm run db:migrate
+npm --workspace apps/backend run db:seed
+```
+
 ## Later Handoff Phases Not Done Yet
 
 - Phase 2 smart features: AI meal planning, calendar sync, travel-time reminders, widgets
