@@ -8,7 +8,7 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { AssistantDraft } from "../types";
 
 export function ThreadScreen() {
-  const { textUpdates, importText, sendDigestToThread } = useHomeThreadStore();
+  const { textUpdates, importText, commitDraft, sendDigestToThread, isSaving, saveMessage } = useHomeThreadStore();
   const [body, setBody] = useState("Grandma can grab bananas after Noah soccer at 5");
   const [lastDraft, setLastDraft] = useState<AssistantDraft | null>(null);
   const [lastDigest, setLastDigest] = useState<string | null>(null);
@@ -81,9 +81,19 @@ export function ThreadScreen() {
             }}
           />
           <PrimaryButton
+            label={isSaving ? "Saving..." : "Save to app"}
+            icon="checkmark"
+            tone="dark"
+            onPress={() => {
+              if (!lastDraft || isSaving) return;
+              void commitDraft(lastDraft).then(() => {
+                setLastDraft(null);
+              });
+            }}
+          />
+          <PrimaryButton
             label="Open SMS"
             icon="chatbubble"
-            tone="dark"
             onPress={() => {
               const digest = lastDigest ?? sendDigestToThread();
               setLastDigest(digest);
@@ -91,6 +101,7 @@ export function ThreadScreen() {
             }}
           />
         </View>
+        <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
         {lastDraft ? (
           <View style={styles.result}>
             <Pill label={lastDraft.kind} tone="mint" />
@@ -162,6 +173,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.md
+  },
+  statusText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.sm
   },
   preview: {
     backgroundColor: colors.canvas,

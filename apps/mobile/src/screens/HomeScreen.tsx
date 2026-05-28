@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
@@ -12,15 +13,18 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
     members,
     events,
     chores,
-    shoppingItems,
-    sendDigestToThread,
     refreshFromBackend,
     syncSource,
     syncMessage,
     isHydrating
   } = useHomeThreadStore();
+  const listItemsByListId = useHomeThreadStore((state) => state.listItemsByListId);
   const openChores = chores.filter((chore) => !chore.completed);
-  const openItems = shoppingItems.filter((item) => !item.checked);
+  const allListItems = useMemo(
+    () => Object.values(listItemsByListId).flat(),
+    [listItemsByListId]
+  );
+  const openItems = allListItems.filter((item) => !item.checked);
 
   return (
     <View>

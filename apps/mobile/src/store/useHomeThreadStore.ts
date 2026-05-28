@@ -9,16 +9,34 @@ import {
   textUpdates as initialTexts
 } from "../data/mockFamily";
 import { apiRequest } from "../services/api";
-import { AssistantDraft, Chore, FamilyMember, PlanEvent, ShoppingItem, SyncSource, TextUpdate } from "../types";
+import {
+  AssistantDraft,
+  Chore,
+  FamilyList,
+  FamilyMember,
+  PlanEvent,
+  ShoppingItem,
+  SyncSource,
+  TextUpdate
+} from "../types";
 import { createDigest, parseFamilyText } from "../utils/textParser";
 
 const defaultFamilyId = "00000000-0000-4000-8000-000000000201";
+const mockGroceryListId = "mock-grocery-list";
 const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+const initialMockLists: FamilyList[] = [{ id: mockGroceryListId, title: "Groceries", type: "grocery", icon: "basket" }];
+const initialMockListItemsByListId: Record<string, ShoppingItem[]> = {
+  [mockGroceryListId]: initialShopping.map((item) => ({ ...item, backendListId: mockGroceryListId }))
+};
 
 type HomeThreadState = {
   familyId: string | null;
   currentMemberId: string | null;
   groceryListId: string | null;
+  lists: FamilyList[];
+  selectedListId: string | null;
+  listItemsByListId: Record<string, ShoppingItem[]>;
   familyName: string;
   members: FamilyMember[];
   events: PlanEvent[];
@@ -38,6 +56,7 @@ type HomeThreadState = {
   completeChore: (id: string) => Promise<void>;
   toggleChore: (id: string) => void;
   toggleShoppingItem: (id: string) => Promise<void>;
+  selectList: (listId: string) => void;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
@@ -47,13 +66,16 @@ type HomeThreadState = {
 export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   familyId: defaultFamilyId,
   currentMemberId: null,
-  groceryListId: null,
+  groceryListId: mockGroceryListId,
+  lists: initialMockLists,
+  selectedListId: mockGroceryListId,
+  listItemsByListId: initialMockListItemsByListId,
   familyName: "The Parker Home",
   members: initialMembers,
   events: initialEvents,
   chores: initialChores,
   completedChoreIds: {},
-  shoppingItems: initialShopping,
+  shoppingItems: initialMockListItemsByListId[mockGroceryListId] ?? [],
   textUpdates: initialTexts,
   syncSource: "mock",
   syncMessage: "Using local prototype data",
@@ -94,8 +116,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     const currentMember = familyResult.data.members.find((member) => member.userId) ?? familyResult.data.members[0] ?? null;
-    const groceryList =
-      listsResult.data.lists.find((list) => list.type === "grocery") ?? listsResult.data.lists[0] ?? null;
+    const memberId = currentMember?.id ?? "family";
+    const backendLists = listsResult.data.lists;
+    const groceryList = backendLists.find((list) => list.type === "grocery") ?? backendLists[0] ?? null;
+    const listItemsByListId = buildListItemsByListId(backendLists, memberId);
+    const previous = get();
+    const selectedListId =
+      previous.selectedListId && listItemsByListId[previous.selectedListId]
+        ? previous.selectedListId
+        : groceryList?.id ?? backendLists[0]?.id ?? null;
+    const totalListItems = Object.values(listItemsByListId).reduce((sum, items) => sum + items.length, 0);
     const completedChoreIds = get().completedChoreIds;
     const hydratedChores = choresResult.data.chores
       .map(mapChore)
@@ -105,15 +135,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       familyId: familyResult.data.family.id,
       currentMemberId: currentMember?.id ?? null,
       groceryListId: groceryList?.id ?? null,
+      lists: backendLists.map(mapList),
+      selectedListId,
+      listItemsByListId,
       familyName: familyResult.data.family.name,
       members: familyResult.data.members.map(mapMember),
       events: eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? [])),
       chores: hydratedChores,
-      shoppingItems: groceryList
-        ? groceryList.items.map((item) => mapShoppingItem(item, groceryList.id, currentMember?.id ?? "family"))
-        : [],
+      shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       syncSource: "api",
-      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${choresResult.data.chores.length} chores, and ${groceryList?.items.length ?? 0} list items from local database`,
+      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
       isHydrating: false
     });
   },
@@ -325,6 +356,13 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       )
     }));
   },
+  selectList: (listId) => {
+    const state = get();
+    set({
+      selectedListId: listId,
+      shoppingItems: state.listItemsByListId[listId] ?? []
+    });
+  },
   toggleShoppingItem: async (id) => {
     const target = get().shoppingItems.find((item) => item.id === id);
     if (!target) {
@@ -333,11 +371,18 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const nextChecked = !target.checked;
 
-    set((state) => ({
-      shoppingItems: state.shoppingItems.map((item) =>
+    const listId = target.backendListId ?? get().selectedListId;
+    set((state) => {
+      const nextShoppingItems = state.shoppingItems.map((item) =>
         item.id === id ? { ...item, checked: nextChecked } : item
-      )
-    }));
+      );
+      return {
+        shoppingItems: nextShoppingItems,
+        listItemsByListId: listId
+          ? replaceListItems(state.listItemsByListId, listId, nextShoppingItems)
+          : state.listItemsByListId
+      };
+    });
 
     const state = get();
     if (state.syncSource !== "api" || !state.familyId || !target.backendListId) {
@@ -360,32 +405,42 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     );
 
     if (!result.data) {
-      set((current) => ({
-        shoppingItems: current.shoppingItems.map((item) =>
+      set((current) => {
+        const revertedItems = current.shoppingItems.map((item) =>
           item.id === id ? { ...item, checked: target.checked } : item
-        ),
-        isSaving: false,
-        saveMessage: "List sync fell back to local mode for this change"
-      }));
+        );
+        return {
+          shoppingItems: revertedItems,
+          listItemsByListId: listId
+            ? replaceListItems(current.listItemsByListId, listId, revertedItems)
+            : current.listItemsByListId,
+          isSaving: false,
+          saveMessage: "List sync fell back to local mode for this change"
+        };
+      });
       return;
     }
 
     const updatedItem = result.data.item;
     const fallbackMemberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
-    set((current) => ({
-      shoppingItems: current.shoppingItems.map((item) =>
+    set((current) => {
+      const nextShoppingItems = current.shoppingItems.map((item) =>
         item.id === id ? mapShoppingItem(updatedItem, target.backendListId!, fallbackMemberId) : item
-      ),
-      textUpdates: [
-        makeActivityUpdate({
-          author: resolveMemberName(state.members, state.currentMemberId) ?? "HomeThread",
-          body: `${nextChecked ? "Checked off" : "Reopened"} ${target.title}`
-        }),
-        ...current.textUpdates
-      ],
-      isSaving: false,
-      saveMessage: `${target.title} updated`
-    }));
+      );
+      return {
+        shoppingItems: nextShoppingItems,
+        listItemsByListId: replaceListItems(current.listItemsByListId, target.backendListId!, nextShoppingItems),
+        textUpdates: [
+          makeActivityUpdate({
+            author: resolveMemberName(state.members, state.currentMemberId) ?? "HomeThread",
+            body: `${nextChecked ? "Checked off" : "Reopened"} ${target.title}`
+          }),
+          ...current.textUpdates
+        ],
+        isSaving: false,
+        saveMessage: `${target.title} updated`
+      };
+    });
   },
   createShoppingItem: async ({ title, category }) => {
     const trimmed = title.trim();
@@ -402,9 +457,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set({ isSaving: true, saveMessage: "Adding item..." });
 
-    const listId = await ensureGroceryListId(state);
+    const ensuredList = await ensureActiveListId(state);
+    const listId = ensuredList?.id ?? null;
     if (!listId) {
-      set({ isSaving: false, saveMessage: "Unable to resolve grocery list — item was not added" });
+      set({ isSaving: false, saveMessage: "Unable to resolve list — item was not added" });
       return false;
     }
 
@@ -425,20 +481,32 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     const fallbackMemberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
-    set((current) => ({
-      groceryListId: current.groceryListId ?? listId,
-      shoppingItems: [mapShoppingItem(result.data!.item, listId, fallbackMemberId), ...current.shoppingItems],
-      textUpdates: [
-        makeActivityUpdate({
-          author: "HomeThread",
-          body: `Added list item: ${trimmed}`,
-          convertedTo: "list"
-        }),
-        ...current.textUpdates
-      ],
-      isSaving: false,
-      saveMessage: "Saved list item to local database"
-    }));
+    const mappedItem = mapShoppingItem(result.data!.item, listId, fallbackMemberId);
+    set((current) => {
+      const nextListItems = [mappedItem, ...(current.listItemsByListId[listId] ?? [])];
+      const nextSelectedListId = current.selectedListId ?? listId;
+      const nextLists =
+        ensuredList?.createdList && !current.lists.some((list) => list.id === ensuredList.createdList!.id)
+          ? [...current.lists, ensuredList.createdList]
+          : current.lists;
+      return {
+        groceryListId: current.groceryListId ?? (current.lists.find((list) => list.type === "grocery")?.id ?? listId),
+        lists: nextLists,
+        selectedListId: nextSelectedListId,
+        listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
+        shoppingItems: nextSelectedListId === listId ? nextListItems : current.shoppingItems,
+        textUpdates: [
+          makeActivityUpdate({
+            author: "HomeThread",
+            body: `Added list item: ${trimmed}`,
+            convertedTo: "list"
+          }),
+          ...current.textUpdates
+        ],
+        isSaving: false,
+        saveMessage: "Saved list item to local database"
+      };
+    });
 
     return true;
   },
@@ -487,7 +555,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const digest = createDigest({
       events: state.events,
       chores: state.chores,
-      items: state.shoppingItems
+      items: flattenListItems(state.listItemsByListId, state.shoppingItems)
     });
 
     set((current) => ({
@@ -560,7 +628,8 @@ type BackendListRecord = {
   id: string;
   title: string;
   type: string;
-  items: BackendListItemRecord[];
+  icon?: string | null;
+  items?: BackendListItemRecord[];
 };
 
 type BackendListsResponse = {
@@ -572,6 +641,7 @@ type PersistedDraft = {
   chore?: Chore;
   shoppingItem?: ShoppingItem;
   groceryListId?: string;
+  createdList?: FamilyList;
 };
 
 async function persistDraftToApi(draft: AssistantDraft, state: HomeThreadState): Promise<PersistedDraft | null> {
@@ -628,14 +698,14 @@ async function persistDraftToApi(draft: AssistantDraft, state: HomeThreadState):
     };
   }
 
-  const ensuredList = await ensureGroceryListId(state);
+  const ensuredList = await ensureActiveListId(state);
   if (!ensuredList) {
     return null;
   }
 
   const content = stripShoppingPrefix(draft.title);
   const result = await apiRequest<{ item: BackendListItemRecord }>(
-    `/families/${state.familyId}/lists/${ensuredList}/items`,
+    `/families/${state.familyId}/lists/${ensuredList.id}/items`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -650,25 +720,38 @@ async function persistDraftToApi(draft: AssistantDraft, state: HomeThreadState):
   }
 
   return {
-    groceryListId: ensuredList,
+    groceryListId: ensuredList.id,
+    createdList: ensuredList.createdList,
     shoppingItem: mapShoppingItem(
       result.data.item,
-      ensuredList,
+      ensuredList.id,
       state.currentMemberId ?? state.members[0]?.id ?? "family"
     )
   };
 }
 
-async function ensureGroceryListId(state: HomeThreadState): Promise<string | null> {
+async function ensureActiveListId(state: HomeThreadState): Promise<{ id: string; createdList?: FamilyList } | null> {
+  if (state.selectedListId) {
+    return { id: state.selectedListId };
+  }
+
   if (state.groceryListId) {
-    return state.groceryListId;
+    return { id: state.groceryListId };
+  }
+
+  return ensureGroceryListId(state);
+}
+
+async function ensureGroceryListId(state: HomeThreadState): Promise<{ id: string; createdList?: FamilyList } | null> {
+  if (state.groceryListId) {
+    return { id: state.groceryListId };
   }
 
   if (!state.familyId) {
     return null;
   }
 
-  const result = await apiRequest<{ list: { id: string } }>(`/families/${state.familyId}/lists`, {
+  const result = await apiRequest<{ list: Omit<BackendListRecord, "items"> }>(`/families/${state.familyId}/lists`, {
     method: "POST",
     body: JSON.stringify({
       title: "Groceries",
@@ -678,7 +761,43 @@ async function ensureGroceryListId(state: HomeThreadState): Promise<string | nul
     })
   });
 
-  return result.data?.list.id ?? null;
+  if (!result.data?.list.id) {
+    return null;
+  }
+
+  return {
+    id: result.data.list.id,
+    createdList: mapList(result.data.list)
+  };
+}
+
+function buildListItemsByListId(lists: BackendListRecord[], memberId: string) {
+  return lists.reduce<Record<string, ShoppingItem[]>>((grouped, list) => {
+    grouped[list.id] = (list.items ?? []).map((item) => mapShoppingItem(item, list.id, memberId));
+    return grouped;
+  }, {});
+}
+
+function replaceListItems(
+  record: Record<string, ShoppingItem[]>,
+  listId: string,
+  items: ShoppingItem[]
+): Record<string, ShoppingItem[]> {
+  return { ...record, [listId]: items };
+}
+
+function flattenListItems(record: Record<string, ShoppingItem[]>, fallback: ShoppingItem[]) {
+  const flattened = Object.values(record).flat();
+  return flattened.length > 0 ? flattened : fallback;
+}
+
+function mapList(list: BackendListRecord): FamilyList {
+  return {
+    id: list.id,
+    title: list.title,
+    type: list.type,
+    icon: list.icon ?? null
+  };
 }
 
 function applyPersistedDraft(
@@ -705,9 +824,23 @@ function applyPersistedDraft(
   }
 
   if (persisted.shoppingItem) {
+    const listId = persisted.groceryListId ?? state.selectedListId ?? state.groceryListId;
+    const nextListItems = listId
+      ? [persisted.shoppingItem, ...(state.listItemsByListId[listId] ?? [])]
+      : state.shoppingItems;
+    const selectedListId = state.selectedListId ?? listId ?? null;
+    const lists =
+      persisted.createdList && !state.lists.some((list) => list.id === persisted.createdList!.id)
+        ? [...state.lists, persisted.createdList]
+        : state.lists;
     return {
       groceryListId: persisted.groceryListId ?? state.groceryListId,
-      shoppingItems: [persisted.shoppingItem, ...state.shoppingItems],
+      lists,
+      selectedListId,
+      listItemsByListId: listId
+        ? replaceListItems(state.listItemsByListId, listId, nextListItems)
+        : state.listItemsByListId,
+      shoppingItems: listId && selectedListId === listId ? nextListItems : state.shoppingItems,
       isSaving: false,
       saveMessage: "Saved list item to local database",
       syncMessage: "HomeThread is synced with your local database"
@@ -756,17 +889,19 @@ function applyLocalDraft(state: HomeThreadState, draft: AssistantDraft): Partial
     };
   }
 
+  const listId = state.selectedListId ?? state.groceryListId ?? mockGroceryListId;
+  const localItem: ShoppingItem = {
+    id,
+    backendListId: listId,
+    title: stripShoppingPrefix(draft.title),
+    category: inferListCategory(draft.title),
+    addedBy: state.currentMemberId ?? state.members[0]?.id ?? "family",
+    checked: false
+  };
+  const nextListItems = [localItem, ...(state.listItemsByListId[listId] ?? [])];
   return {
-    shoppingItems: [
-      {
-        id,
-        title: stripShoppingPrefix(draft.title),
-        category: inferListCategory(draft.title),
-        addedBy: state.currentMemberId ?? state.members[0]?.id ?? "family",
-        checked: false
-      },
-      ...state.shoppingItems
-    ]
+    listItemsByListId: replaceListItems(state.listItemsByListId, listId, nextListItems),
+    shoppingItems: state.selectedListId === listId ? nextListItems : state.shoppingItems
   };
 }
 
@@ -1012,3 +1147,5 @@ function resolveMemberName(members: FamilyMember[], memberId: string | null) {
   if (!memberId) return null;
   return members.find((member) => member.id === memberId)?.name ?? null;
 }
+
+

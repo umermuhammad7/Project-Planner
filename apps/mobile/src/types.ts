@@ -38,6 +38,13 @@ export type ShoppingItem = {
   checked: boolean;
 };
 
+export type FamilyList = {
+  id: string;
+  title: string;
+  type: string;
+  icon?: string | null;
+};
+
 export type TextUpdate = {
   id: string;
   direction: "inbound" | "outbound";

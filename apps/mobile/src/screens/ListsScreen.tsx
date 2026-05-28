@@ -8,6 +8,9 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
   const {
+    lists,
+    selectedListId,
+    selectList,
     shoppingItems,
     members,
     toggleShoppingItem,
@@ -21,6 +24,7 @@ export function ListsScreen() {
   } = useHomeThreadStore();
   const [newItem, setNewItem] = useState("");
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
+  const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
     groups[item.category] = [...(groups[item.category] ?? []), item];
     return groups;
@@ -45,8 +49,34 @@ export function ListsScreen() {
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
 
+      {lists.length > 0 ? (
+        <>
+          <Text style={styles.pickerLabel}>List</Text>
+          <View style={styles.pickerRow}>
+            {lists.map((list) => {
+              const selected = list.id === selectedListId;
+              return (
+                <Pressable
+                  key={list.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${selected ? "Selected" : "Select"} ${list.title} list`}
+                  onPress={() => selectList(list.id)}
+                >
+                  <Pill label={list.title} tone={selected ? "primary" : "neutral"} />
+                </Pressable>
+              );
+            })}
+          </View>
+          {activeList ? (
+            <Text style={styles.listHint}>
+              {activeList.type === "grocery" ? "Grocery list" : activeList.type} - {shoppingItems.length} items shown
+            </Text>
+          ) : null}
+        </>
+      ) : null}
+
       <Card>
-        <Text style={styles.formTitle}>Add item</Text>
+        <Text style={styles.formTitle}>Add item{activeList ? ` to ${activeList.title}` : ""}</Text>
         <TextInput
           accessibilityLabel="New list item"
           placeholder="e.g. Oat milk"
@@ -166,6 +196,24 @@ const styles = StyleSheet.create({
   },
   formActions: {
     marginTop: spacing.lg
+  },
+  pickerLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: spacing.md
+  },
+  pickerRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  listHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: spacing.sm
   },
   stack: {
     gap: spacing.md
