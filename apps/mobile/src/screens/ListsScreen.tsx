@@ -7,8 +7,18 @@ import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
-  const { shoppingItems, members, toggleShoppingItem, refreshFromBackend, isHydrating, isSaving, saveMessage, createShoppingItem } =
-    useHomeThreadStore();
+  const {
+    shoppingItems,
+    members,
+    toggleShoppingItem,
+    refreshFromBackend,
+    isHydrating,
+    isSaving,
+    saveMessage,
+    createShoppingItem,
+    syncSource,
+    syncMessage
+  } = useHomeThreadStore();
   const [newItem, setNewItem] = useState("");
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
@@ -20,6 +30,15 @@ export function ListsScreen() {
     <View>
       <Text style={styles.title}>Lists</Text>
       <Text style={styles.subtitle}>Groceries and errands that survive the jump between app and family texts.</Text>
+
+      <View style={styles.statusRow}>
+        <Pill
+          label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
+          tone={syncSource === "api" ? "primary" : "neutral"}
+          icon={syncSource === "api" ? "sparkles" : "information-circle"}
+        />
+        <Text style={styles.syncNote}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
+      </View>
 
       <View style={styles.actionRow}>
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
@@ -110,6 +129,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.lg
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginTop: spacing.md
+  },
+  syncNote: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800"
   },
   statusText: {
     color: colors.primary,

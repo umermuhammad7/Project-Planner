@@ -29,22 +29,30 @@ export function createDigest(input: {
   chores: { title: string; completed: boolean }[];
   items: { title: string; checked: boolean }[];
 }): string {
-  const eventLine = input.events.map((event) => `${event.time} ${event.title}`).join(", ");
-  const choreLine = input.chores
-    .filter((chore) => !chore.completed)
-    .map((chore) => chore.title)
-    .join(", ");
-  const listLine = input.items
-    .filter((item) => !item.checked)
-    .slice(0, 4)
-    .map((item) => item.title)
-    .join(", ");
+  const upcomingEvents = input.events.slice(0, 3);
+  const openChores = input.chores.filter((chore) => !chore.completed);
+  const openItems = input.items.filter((item) => !item.checked).slice(0, 4);
+
+  const eventLine =
+    upcomingEvents.length > 0 ? upcomingEvents.map((event) => `- ${event.time} ${event.title}`).join("\n") : "- (none)";
+  const choreLine =
+    openChores.length > 0 ? openChores.slice(0, 4).map((chore) => `- ${chore.title}`).join("\n") : "- (none)";
+  const listLine = openItems.length > 0 ? openItems.map((item) => `- ${item.title}`).join("\n") : "- (none)";
 
   return [
-    `HomeThread today: ${eventLine || "no timed plans"}.`,
-    choreLine ? `Still due: ${choreLine}.` : "Chores are clear.",
-    listLine ? `Shopping: ${listLine}.` : "Shopping list is clear."
-  ].join(" ");
+    "HomeThread digest (local):",
+    "",
+    `Plans (${upcomingEvents.length}/${input.events.length} shown):`,
+    eventLine,
+    "",
+    `Chores due (${openChores.length}):`,
+    choreLine,
+    "",
+    `Shopping open (${openItems.length}${input.items.length > openItems.length ? "+" : ""}):`,
+    listLine,
+    "",
+    "Open the app for details."
+  ].join("\n");
 }
 
 function detectKind(lower: string): DraftKind {

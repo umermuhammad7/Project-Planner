@@ -1,19 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Linking, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { useState } from "react";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { AssistantDraft } from "../types";
-import { useState } from "react";
 
 export function ThreadScreen() {
   const { textUpdates, importText, sendDigestToThread } = useHomeThreadStore();
   const [body, setBody] = useState("Grandma can grab bananas after Noah soccer at 5");
   const [lastDraft, setLastDraft] = useState<AssistantDraft | null>(null);
+  const [lastDigest, setLastDigest] = useState<string | null>(null);
 
-  const sendSms = async () => {
-    const digest = sendDigestToThread();
+  const openSms = async (digest: string) => {
     const separator = Platform.OS === "ios" ? "&" : "?";
     const url = `sms:${separator}body=${encodeURIComponent(digest)}`;
     const canOpen = await Linking.canOpenURL(url);
@@ -26,6 +26,39 @@ export function ThreadScreen() {
     <View>
       <Text style={styles.title}>Family thread</Text>
       <Text style={styles.subtitle}>Use SMS as the bridge, not the source of chaos.</Text>
+
+      <SectionTitle title="Digest" />
+      <Card>
+        <Text style={styles.label}>Send a clean summary</Text>
+        <Text style={styles.meta}>
+          This is an in-app digest entry. If you want, you can also open your SMS app with the digest pre-filled.
+        </Text>
+        <View style={styles.actions}>
+          <PrimaryButton
+            label="Send digest to thread"
+            icon="send"
+            onPress={() => {
+              const digest = sendDigestToThread();
+              setLastDigest(digest);
+            }}
+          />
+          <PrimaryButton
+            label="Open SMS"
+            icon="chatbubble"
+            tone="dark"
+            onPress={() => {
+              if (!lastDigest) return;
+              void openSms(lastDigest);
+            }}
+          />
+        </View>
+        {lastDigest ? (
+          <View style={styles.preview}>
+            <Pill label="preview" tone="neutral" />
+            <Text style={styles.previewText}>{lastDigest}</Text>
+          </View>
+        ) : null}
+      </Card>
 
       <SectionTitle title="Text import" />
       <Card>
@@ -47,7 +80,16 @@ export function ThreadScreen() {
               }
             }}
           />
-          <PrimaryButton label="Open SMS" icon="chatbubble" tone="dark" onPress={sendSms} />
+          <PrimaryButton
+            label="Open SMS"
+            icon="chatbubble"
+            tone="dark"
+            onPress={() => {
+              const digest = lastDigest ?? sendDigestToThread();
+              setLastDigest(digest);
+              void openSms(digest);
+            }}
+          />
         </View>
         {lastDraft ? (
           <View style={styles.result}>
@@ -120,6 +162,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.md
+  },
+  preview: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.md
+  },
+  previewText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18
   },
   result: {
     backgroundColor: colors.mintSoft,

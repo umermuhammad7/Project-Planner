@@ -7,7 +7,7 @@ import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ChoresScreen() {
-  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage } =
+  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage } =
     useHomeThreadStore();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -19,6 +19,15 @@ export function ChoresScreen() {
     <View>
       <Text style={styles.title}>Chores</Text>
       <Text style={styles.subtitle}>Small, visible wins with rewards that kids can understand.</Text>
+
+      <View style={styles.statusRow}>
+        <Pill
+          label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
+          tone={syncSource === "api" ? "primary" : "neutral"}
+          icon={syncSource === "api" ? "sparkles" : "information-circle"}
+        />
+        <Text style={styles.syncNote}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
+      </View>
 
       <View style={styles.actionRow}>
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
@@ -164,6 +173,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.lg
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginTop: spacing.md
+  },
+  syncNote: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800"
   },
   statusText: {
     color: colors.primary,

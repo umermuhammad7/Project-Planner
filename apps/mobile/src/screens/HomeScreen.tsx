@@ -7,8 +7,18 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TabKey } from "../types";
 
 export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
-  const { familyName, members, events, chores, shoppingItems, sendDigestToThread, syncSource, syncMessage, isHydrating } =
-    useHomeThreadStore();
+  const {
+    familyName,
+    members,
+    events,
+    chores,
+    shoppingItems,
+    sendDigestToThread,
+    refreshFromBackend,
+    syncSource,
+    syncMessage,
+    isHydrating
+  } = useHomeThreadStore();
   const openChores = chores.filter((chore) => !chore.completed);
   const openItems = shoppingItems.filter((item) => !item.checked);
 
@@ -33,24 +43,38 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
             <Ionicons name="chatbubbles" size={22} color={colors.primary} />
           </View>
           <View style={styles.heroCopy}>
-            <Pill label={syncSource === "api" ? "Local API connected" : "Texting ready"} tone="primary" icon="sparkles" />
+            <Pill
+              label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
+              tone={syncSource === "api" ? "primary" : "neutral"}
+              icon={syncSource === "api" ? "sparkles" : "information-circle"}
+            />
             <Text style={styles.heroTitle}>Send the family one clean update.</Text>
             <Text style={styles.heroText}>
-              Plans, chores, and shopping stay in sync even when someone only checks the family text thread.
+              {syncSource === "api"
+                ? "Plans, chores, and shopping are backed by your local HomeThread database."
+                : "Plans, chores, and shopping are using local prototype data. Connect the local backend to sync changes."}
             </Text>
             <Text style={styles.syncText}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
           </View>
         </Row>
         <View style={styles.heroActions}>
           <PrimaryButton
-            label="Send digest"
-            icon="send"
+            label={isHydrating ? "Refreshing..." : "Refresh"}
+            icon="sync"
+            tone="dark"
             onPress={() => {
-              sendDigestToThread();
+              if (isHydrating) return;
+              void refreshFromBackend();
+            }}
+          />
+          <PrimaryButton
+            label="Digest"
+            icon="chatbubbles"
+            onPress={() => {
               goTo("thread");
             }}
           />
-          <PrimaryButton label="Quick add" icon="add" tone="dark" onPress={() => goTo("add")} />
+          <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
         </View>
       </Card>
 
