@@ -35,7 +35,12 @@ export function MealsScreen() {
   const [recipeIngredients, setRecipeIngredients] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [mealType, setMealType] = useState<MealType>("dinner");
-  const canSave = useMemo(() => title.trim().length > 0, [title]);
+  const [plannedRecipeId, setPlannedRecipeId] = useState<string | null>(null);
+  const plannedRecipe = useMemo(
+    () => recipes.find((recipe) => recipe.id === plannedRecipeId) ?? null,
+    [plannedRecipeId, recipes]
+  );
+  const canSave = useMemo(() => Boolean(plannedRecipeId) || title.trim().length > 0, [plannedRecipeId, title]);
   const canSaveRecipe = useMemo(
     () => recipeTitle.trim().length > 0 && parseIngredientNames(recipeIngredients).length > 0,
     [recipeIngredients, recipeTitle]
@@ -48,6 +53,19 @@ export function MealsScreen() {
     }));
   }, [meals]);
 
+  async function savePlannedMeal() {
+    const ok = await createMeal({
+      dayOfWeek,
+      mealType,
+      title: plannedRecipe?.title ?? title,
+      recipeId: plannedRecipeId
+    });
+    if (ok) {
+      setTitle("");
+      setPlannedRecipeId(null);
+    }
+  }
+
   return (
     <View>
       <Text style={styles.title}>Meals</Text>
@@ -59,7 +77,7 @@ export function MealsScreen() {
           tone={syncSource === "api" ? "primary" : "neutral"}
         />
         <Text style={styles.syncNote}>
-          Week of {mealWeekStart} • {syncMessage}
+          Week of {mealWeekStart} - {syncMessage}
         </Text>
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
@@ -130,21 +148,48 @@ export function MealsScreen() {
 
       <Card>
         <Text style={styles.formTitle}>Add meal</Text>
-        <TextInput
-          accessibilityLabel="Meal title"
-          placeholder="e.g. Turkey tacos"
-          placeholderTextColor={colors.muted}
-          value={title}
-          onChangeText={setTitle}
-          style={styles.input}
-          returnKeyType="done"
-          onSubmitEditing={() => {
-            if (!canSave || isSaving) return;
-            void createMeal({ dayOfWeek, mealType, title }).then((ok) => {
-              if (ok) setTitle("");
-            });
-          }}
-        />
+        {recipes.length > 0 ? (
+          <>
+            <Text style={styles.pickerLabel}>From saved recipe (optional)</Text>
+            <View style={styles.pickerRow}>
+              <Pressable accessibilityRole="button" onPress={() => setPlannedRecipeId(null)}>
+                <Pill label="Custom title" tone={plannedRecipeId === null ? "primary" : "neutral"} />
+              </Pressable>
+              {recipes.map((recipe) => {
+                const selected = plannedRecipeId === recipe.id;
+                return (
+                  <Pressable
+                    key={recipe.id}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setPlannedRecipeId(recipe.id);
+                      setTitle("");
+                    }}
+                  >
+                    <Pill label={recipe.title} tone={selected ? "mint" : "neutral"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+        {plannedRecipe ? (
+          <Text style={styles.selectedRecipeNote}>Planning: {plannedRecipe.title}</Text>
+        ) : (
+          <TextInput
+            accessibilityLabel="Meal title"
+            placeholder="e.g. Turkey tacos"
+            placeholderTextColor={colors.muted}
+            value={title}
+            onChangeText={setTitle}
+            style={styles.input}
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              if (!canSave || isSaving) return;
+              void savePlannedMeal();
+            }}
+          />
+        )}
         <Text style={styles.pickerLabel}>Day</Text>
         <View style={styles.pickerRow}>
           {dayLabels.map((label, index) => {
@@ -173,9 +218,7 @@ export function MealsScreen() {
             icon="restaurant"
             onPress={() => {
               if (!canSave || isSaving) return;
-              void createMeal({ dayOfWeek, mealType, title }).then((ok) => {
-                if (ok) setTitle("");
-              });
+              void savePlannedMeal();
             }}
           />
         </View>
@@ -316,6 +359,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginTop: spacing.md
+  },
+  selectedRecipeNote: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: spacing.md,
+    padding: spacing.md
   },
   stack: {
     gap: spacing.md
