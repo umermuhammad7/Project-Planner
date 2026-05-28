@@ -23,6 +23,7 @@ type HomeThreadState = {
   members: FamilyMember[];
   events: PlanEvent[];
   chores: Chore[];
+  completedChoreIds: Record<string, true>;
   shoppingItems: ShoppingItem[];
   textUpdates: TextUpdate[];
   syncSource: SyncSource;
@@ -34,8 +35,10 @@ type HomeThreadState = {
   refreshFromBackend: () => Promise<void>;
   createEvent: (input: { title: string; location?: string; startTime?: string }) => Promise<boolean>;
   createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<boolean>;
+  completeChore: (id: string) => Promise<void>;
   toggleChore: (id: string) => void;
   toggleShoppingItem: (id: string) => Promise<void>;
+  createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
   sendDigestToThread: () => string;
@@ -49,6 +52,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   members: initialMembers,
   events: initialEvents,
   chores: initialChores,
+  completedChoreIds: {},
   shoppingItems: initialShopping,
   textUpdates: initialTexts,
   syncSource: "mock",
@@ -86,6 +90,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const currentMember = familyResult.data.members.find((member) => member.userId) ?? familyResult.data.members[0] ?? null;
     const groceryList =
       listsResult.data.lists.find((list) => list.type === "grocery") ?? listsResult.data.lists[0] ?? null;
+    const completedChoreIds = get().completedChoreIds;
+    const hydratedChores = choresResult.data.chores
+      .map(mapChore)
+      .map((chore) => (completedChoreIds[chore.id] ? { ...chore, completed: true } : chore));
 
     set({
       familyId: familyResult.data.family.id,
@@ -94,7 +102,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       familyName: familyResult.data.family.name,
       members: familyResult.data.members.map(mapMember),
       events: eventsResult.data.events.map((event) => mapEvent(event)),
-      chores: choresResult.data.chores.map(mapChore),
+      chores: hydratedChores,
       shoppingItems: groceryList
         ? groceryList.items.map((item) => mapShoppingItem(item, groceryList.id, currentMember?.id ?? "family"))
         : [],
@@ -210,6 +218,71 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     return true;
   },
+  completeChore: async (id) => {
+    const current = get();
+    const target = current.chores.find((chore) => chore.id === id);
+    if (!target) return;
+
+    // If already completed (or we're reopening), we have no backend "uncomplete" route yet.
+    if (target.completed) {
+      set({ saveMessage: "Reopen is not available yet" });
+      return;
+    }
+
+    // Optimistic UI completion.
+    set((state) => ({
+      chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: true } : chore)),
+      completedChoreIds: { ...state.completedChoreIds, [id]: true }
+    }));
+
+    if (current.syncSource !== "api" || !current.familyId) {
+      set({ saveMessage: "Backend sync is unavailable — chore marked complete locally only" });
+      return;
+    }
+
+    const memberId = current.currentMemberId ?? current.members[0]?.id ?? null;
+    if (!memberId) {
+      // Revert: we can't claim a completion without an actor id.
+      set((state) => ({
+        chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: false } : chore)),
+        completedChoreIds: Object.fromEntries(Object.entries(state.completedChoreIds).filter(([key]) => key !== id)),
+        saveMessage: "Missing family member id — completion not recorded"
+      }));
+      return;
+    }
+
+    set({ isSaving: true, saveMessage: `Completing ${target.title}...` });
+
+    const result = await apiRequest<{ completion: unknown; reward: unknown }>(
+      `/families/${current.familyId}/chores/${id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          memberId,
+          dueDate: formatISODate(new Date()),
+          notes: null,
+          photoUrl: null
+        })
+      }
+    );
+
+    if (!result.data) {
+      // Revert optimistic completion on failure.
+      set((state) => ({
+        chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: false } : chore)),
+        completedChoreIds: Object.fromEntries(Object.entries(state.completedChoreIds).filter(([key]) => key !== id)),
+        isSaving: false,
+        saveMessage: result.error?.message ?? "Failed to record completion"
+      }));
+      return;
+    }
+
+    // Success: keep the local completed state. Do not fake reward balance updates here.
+    set({
+      isSaving: false,
+      saveMessage: `${target.title} completed`
+    });
+  },
   toggleChore: (id) => {
     set((state) => ({
       chores: state.chores.map((chore) =>
@@ -271,6 +344,53 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       isSaving: false,
       saveMessage: `${target.title} updated`
     }));
+  },
+  createShoppingItem: async ({ title, category }) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      set({ saveMessage: "Item name is required" });
+      return false;
+    }
+
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({ saveMessage: "Backend sync is unavailable — item was not added" });
+      return false;
+    }
+
+    set({ isSaving: true, saveMessage: "Adding item..." });
+
+    const listId = await ensureGroceryListId(state);
+    if (!listId) {
+      set({ isSaving: false, saveMessage: "Unable to resolve grocery list — item was not added" });
+      return false;
+    }
+
+    const result = await apiRequest<{ item: BackendListItemRecord }>(
+      `/families/${state.familyId}/lists/${listId}/items`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: trimmed,
+          category: category ?? inferListCategory(trimmed)
+        })
+      }
+    );
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add item" });
+      return false;
+    }
+
+    const fallbackMemberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
+    set((current) => ({
+      groceryListId: current.groceryListId ?? listId,
+      shoppingItems: [mapShoppingItem(result.data!.item, listId, fallbackMemberId), ...current.shoppingItems],
+      isSaving: false,
+      saveMessage: "Saved list item to local database"
+    }));
+
+    return true;
   },
   importText: (body) => {
     const draft = parseFamilyText(body);
@@ -812,4 +932,11 @@ function parseTimeHHMM(value: string) {
   const match = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/u);
   if (!match) return null;
   return { hours: Number(match[1]), minutes: Number(match[2]) };
+}
+
+function formatISODate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

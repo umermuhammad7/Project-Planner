@@ -7,7 +7,7 @@ import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ChoresScreen() {
-  const { chores, members, toggleChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage } =
+  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage } =
     useHomeThreadStore();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -75,8 +75,10 @@ export function ChoresScreen() {
             <Pressable
               key={chore.id}
               accessibilityRole="button"
-              accessibilityLabel={`${chore.completed ? "Reopen" : "Complete"} ${chore.title}`}
-              onPress={() => toggleChore(chore.id)}
+              accessibilityLabel={`${chore.completed ? "Completed" : "Complete"} ${chore.title}${
+                chore.completed ? ". Reopen is not available yet." : ""
+              }`}
+              onPress={() => void completeChore(chore.id)}
             >
               <Card>
                 <Row>

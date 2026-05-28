@@ -1,12 +1,16 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
-import { colors, spacing } from "../constants/theme";
+import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
-  const { shoppingItems, members, toggleShoppingItem, refreshFromBackend, isHydrating, isSaving, saveMessage } = useHomeThreadStore();
+  const { shoppingItems, members, toggleShoppingItem, refreshFromBackend, isHydrating, isSaving, saveMessage, createShoppingItem } =
+    useHomeThreadStore();
+  const [newItem, setNewItem] = useState("");
+  const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
     groups[item.category] = [...(groups[item.category] ?? []), item];
     return groups;
@@ -21,6 +25,37 @@ export function ListsScreen() {
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <Card>
+        <Text style={styles.formTitle}>Add item</Text>
+        <TextInput
+          accessibilityLabel="New list item"
+          placeholder="e.g. Oat milk"
+          placeholderTextColor={colors.muted}
+          value={newItem}
+          onChangeText={setNewItem}
+          style={styles.input}
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            if (!canAdd || isSaving) return;
+            void createShoppingItem({ title: newItem }).then((ok) => {
+              if (ok) setNewItem("");
+            });
+          }}
+        />
+        <View style={styles.formActions}>
+          <PrimaryButton
+            label={isSaving ? "Adding..." : "Add"}
+            icon="add"
+            onPress={() => {
+              if (!canAdd || isSaving) return;
+              void createShoppingItem({ title: newItem }).then((ok) => {
+                if (ok) setNewItem("");
+              });
+            }}
+          />
+        </View>
+      </Card>
 
       {Object.entries(grouped).map(([category, items]) => (
         <View key={category}>
@@ -81,6 +116,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: spacing.sm
+  },
+  formTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: spacing.md
+  },
+  input: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 16,
+    padding: spacing.md,
+    marginTop: spacing.sm
+  },
+  formActions: {
+    marginTop: spacing.lg
   },
   stack: {
     gap: spacing.md
