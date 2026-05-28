@@ -1,0 +1,114 @@
+import { z } from "zod";
+
+export const uuidSchema = z.uuid();
+export const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/u, "Expected a hex color like #4F6AF0");
+
+export const memberRoleSchema = z.enum(["admin", "member", "child"]);
+export const subscriptionStatusSchema = z.enum(["free", "plus", "cancelled"]);
+export const listTypeSchema = z.enum(["grocery", "todo", "packing", "custom"]);
+export const externalCalendarSourceSchema = z.enum(["google", "apple", "outlook"]);
+export const completionScopeSchema = z.enum(["this", "future", "all"]).default("this");
+
+export const errorResponseSchema = z.object({
+  error: z.string(),
+  code: z.string()
+});
+
+export const userProfileSchema = z.object({
+  displayName: z.string().min(1).max(80),
+  avatarUrl: z.url().optional().nullable(),
+  phone: z.string().max(32).optional().nullable(),
+  timezone: z.string().min(1).max(80).default("UTC"),
+  locale: z.string().min(2).max(12).default("en")
+});
+
+export const pushTokenSchema = z.object({
+  pushToken: z.string().min(8).max(256)
+});
+
+export const createFamilySchema = z.object({
+  name: z.string().min(1).max(80),
+  avatarUrl: z.url().optional().nullable()
+});
+
+export const updateFamilySchema = createFamilySchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one family field is required"
+);
+
+export const joinFamilySchema = z.object({
+  inviteCode: z.string().min(4).max(12)
+});
+
+export const createMemberSchema = z.object({
+  displayName: z.string().min(1).max(80),
+  avatarUrl: z.url().optional().nullable(),
+  color: hexColorSchema,
+  role: memberRoleSchema.default("member"),
+  isVirtual: z.boolean().default(true),
+  dateOfBirth: z.iso.date().optional().nullable()
+});
+
+export const updateMemberSchema = createMemberSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one member field is required"
+);
+
+export const createEventSchema = z.object({
+  title: z.string().min(1).max(160),
+  description: z.string().max(2000).optional().nullable(),
+  location: z.string().max(240).optional().nullable(),
+  locationLat: z.number().min(-90).max(90).optional().nullable(),
+  locationLng: z.number().min(-180).max(180).optional().nullable(),
+  startAt: z.iso.datetime(),
+  endAt: z.iso.datetime(),
+  allDay: z.boolean().default(false),
+  color: hexColorSchema.optional().nullable(),
+  recurrenceRule: z.string().max(500).optional().nullable(),
+  recurrenceEndAt: z.iso.datetime().optional().nullable(),
+  memberIds: z.array(uuidSchema).default([])
+});
+
+export const updateEventSchema = createEventSchema.partial().extend({
+  memberIds: z.array(uuidSchema).optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one event field is required");
+
+export const listEventsQuerySchema = z.object({
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  memberId: uuidSchema.optional()
+});
+
+export const createChoreSchema = z.object({
+  title: z.string().min(1).max(140),
+  description: z.string().max(1000).optional().nullable(),
+  icon: z.string().max(80).optional().nullable(),
+  starsValue: z.int().min(0).max(100).default(1),
+  assignedTo: uuidSchema.optional().nullable(),
+  recurrenceRule: z.string().max(500).optional().nullable(),
+  dueTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/u).optional().nullable(),
+  isActive: z.boolean().default(true)
+});
+
+export const updateChoreSchema = createChoreSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one chore field is required"
+);
+
+export const completeChoreSchema = z.object({
+  memberId: uuidSchema,
+  dueDate: z.iso.date(),
+  notes: z.string().max(1000).optional().nullable(),
+  photoUrl: z.url().optional().nullable()
+});
+
+export type UserProfileInput = z.infer<typeof userProfileSchema>;
+export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
+export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
+export type CreateMemberInput = z.infer<typeof createMemberSchema>;
+export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
+export type CreateEventInput = z.infer<typeof createEventSchema>;
+export type UpdateEventInput = z.infer<typeof updateEventSchema>;
+export type CreateChoreInput = z.infer<typeof createChoreSchema>;
+export type UpdateChoreInput = z.infer<typeof updateChoreSchema>;
+export type CompleteChoreInput = z.infer<typeof completeChoreSchema>;

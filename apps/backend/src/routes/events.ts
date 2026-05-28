@@ -1,0 +1,190 @@
+import {
+  completionScopeSchema,
+  createEventSchema,
+  listEventsQuerySchema,
+  updateEventSchema,
+  uuidSchema
+} from "@homethread/shared";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { FastifyInstance } from "fastify";
+import { z } from "zod";
+
+import { db } from "../db/client.js";
+import { eventMembers, events } from "../db/schema.js";
+import { requireAuth } from "../plugins/auth.js";
+import { requireFamilyMember } from "../plugins/familyAccess.js";
+
+const familyParamsSchema = z.object({
+  familyId: uuidSchema
+});
+
+const eventParamsSchema = familyParamsSchema.extend({
+  eventId: uuidSchema
+});
+
+const scopeQuerySchema = z.object({
+  scope: completionScopeSchema
+});
+
+export async function eventsRoutes(app: FastifyInstance) {
+  app.addHook("preHandler", requireAuth);
+
+  app.get("/", async (request, reply) => {
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const query = listEventsQuerySchema.parse(request.query);
+    const filters = [eq(events.familyId, familyId)];
+    if (query.from) filters.push(gte(events.startAt, new Date(query.from)));
+    if (query.to) filters.push(lte(events.startAt, new Date(query.to)));
+
+    const rows = await db.query.events.findMany({
+      where: and(...filters),
+      orderBy: asc(events.startAt)
+    });
+
+    if (!query.memberId) {
+      return { events: rows };
+    }
+
+    const memberships = await db.query.eventMembers.findMany({
+      where: eq(eventMembers.memberId, query.memberId)
+    });
+    const ids = new Set(memberships.map((item) => item.eventId));
+
+    return { events: rows.filter((event) => ids.has(event.id)) };
+  });
+
+  app.post("/", async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const body = createEventSchema.parse(request.body);
+    const result = await db.transaction(async (tx) => {
+      const [event] = await tx
+        .insert(events)
+        .values({
+          familyId,
+          title: body.title,
+          description: body.description,
+          location: body.location,
+          locationLat: body.locationLat?.toString(),
+          locationLng: body.locationLng?.toString(),
+          startAt: new Date(body.startAt),
+          endAt: new Date(body.endAt),
+          allDay: body.allDay,
+          color: body.color,
+          recurrenceRule: body.recurrenceRule,
+          recurrenceEndAt: body.recurrenceEndAt ? new Date(body.recurrenceEndAt) : null,
+          createdBy: currentUser.id
+        })
+        .returning();
+
+      if (body.memberIds.length > 0) {
+        await tx.insert(eventMembers).values(
+          body.memberIds.map((memberId) => ({
+            eventId: event.id,
+            memberId
+          }))
+        );
+      }
+
+      return event;
+    });
+
+    return reply.status(201).send({ event: result });
+  });
+
+  app.get("/upcoming", async (request, reply) => {
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const rows = await db.query.events.findMany({
+      where: and(eq(events.familyId, familyId), gte(events.startAt, new Date())),
+      orderBy: asc(events.startAt),
+      limit: 10
+    });
+
+    return { events: rows };
+  });
+
+  app.get("/countdowns", async (request, reply) => {
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const rows = await db.query.events.findMany({
+      where: and(eq(events.familyId, familyId), sql`${events.countdownLabel} is not null`),
+      orderBy: asc(events.startAt)
+    });
+
+    return { events: rows };
+  });
+
+  app.get("/:eventId", async (request, reply) => {
+    const { familyId, eventId } = eventParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const event = await db.query.events.findFirst({
+      where: and(eq(events.familyId, familyId), eq(events.id, eventId))
+    });
+
+    return { event };
+  });
+
+  app.patch("/:eventId", async (request, reply) => {
+    const { familyId, eventId } = eventParamsSchema.parse(request.params);
+    scopeQuerySchema.parse(request.query);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const body = updateEventSchema.parse(request.body);
+    const [event] = await db
+      .update(events)
+      .set({
+        title: body.title,
+        description: body.description,
+        location: body.location,
+        locationLat: body.locationLat?.toString(),
+        locationLng: body.locationLng?.toString(),
+        startAt: body.startAt ? new Date(body.startAt) : undefined,
+        endAt: body.endAt ? new Date(body.endAt) : undefined,
+        allDay: body.allDay,
+        color: body.color,
+        recurrenceRule: body.recurrenceRule,
+        recurrenceEndAt: body.recurrenceEndAt ? new Date(body.recurrenceEndAt) : undefined,
+        updatedAt: new Date()
+      })
+      .where(and(eq(events.familyId, familyId), eq(events.id, eventId)))
+      .returning();
+
+    if (body.memberIds) {
+      await db.delete(eventMembers).where(eq(eventMembers.eventId, eventId));
+      if (body.memberIds.length > 0) {
+        await db.insert(eventMembers).values(
+          body.memberIds.map((memberId) => ({
+            eventId,
+            memberId
+          }))
+        );
+      }
+    }
+
+    return { event };
+  });
+
+  app.delete("/:eventId", async (request, reply) => {
+    const { familyId, eventId } = eventParamsSchema.parse(request.params);
+    scopeQuerySchema.parse(request.query);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    await db.delete(events).where(and(eq(events.familyId, familyId), eq(events.id, eventId)));
+    return { deleted: true };
+  });
+}

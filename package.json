@@ -2,13 +2,24 @@
   "name": "homethread",
   "private": true,
   "workspaces": [
-    "apps/mobile"
+    "apps/mobile",
+    "apps/backend",
+    "packages/shared"
   ],
   "scripts": {
     "start": "npm --workspace apps/mobile run start",
     "android": "npm --workspace apps/mobile run android",
     "ios": "npm --workspace apps/mobile run ios",
     "web": "npm --workspace apps/mobile run web",
-    "typecheck": "npm --workspace apps/mobile run typecheck"
+    "backend:dev": "npm --workspace apps/backend run dev",
+    "backend:start": "npm --workspace apps/backend run start",
+    "db:generate": "npm --workspace apps/backend run db:generate",
+    "db:migrate": "npm --workspace apps/backend run db:migrate",
+    "test": "npm --workspace apps/backend run test",
+    "typecheck": "npm --workspaces --if-present run typecheck"
+  },
+  "overrides": {
+    "fast-uri": "3.1.2",
+    "esbuild": "0.25.12"
   }
 }

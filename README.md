@@ -12,6 +12,9 @@ HomeThread is a mobile-first family planning app based on the original FamilySyn
 - Text thread screen for family SMS-style digests and pasted-message import
 - Assistant quick-add screen that can parse natural family text into event, chore, or list drafts
 - Shared product/design source of truth in `DESIGN.md`
+- Shared validation/types package in `packages/shared`
+- Fastify/Drizzle backend foundation in `apps/backend`
+- Initial SQL migration in `apps/backend/drizzle`
 
 ## Source Spec
 
@@ -34,6 +37,19 @@ For a phone-sized desktop preview on Windows:
 
 ```powershell
 .\scripts\open-phone-preview.ps1
+```
+
+Backend development:
+
+```bash
+cp apps/backend/.env.example apps/backend/.env
+npm run backend:dev
+```
+
+Database migration generation:
+
+```bash
+npm run db:generate
 ```
 
 ## Project Layout

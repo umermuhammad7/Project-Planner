@@ -5,12 +5,14 @@ import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, V
 
 import { IconButton } from "./src/components/Primitives";
 import { colors, spacing } from "./src/constants/theme";
+import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
+import { WelcomeScreen } from "./src/screens/WelcomeScreen";
 import { TabKey } from "./src/types";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -25,6 +27,7 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
 ];
 
 export default function App() {
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const content = useMemo(() => {
     if (activeTab === "plan") return <PlanScreen />;
@@ -47,19 +50,22 @@ export default function App() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {content}
+          <OfflineBanner visible={false} />
+          {hasCompletedOnboarding ? content : <WelcomeScreen onComplete={() => setHasCompletedOnboarding(true)} />}
         </ScrollView>
-        <View style={styles.tabBar}>
-          {tabs.map((tab) => (
-            <IconButton
-              key={tab.key}
-              icon={tab.icon}
-              label={tab.label}
-              onPress={() => setActiveTab(tab.key)}
-              selected={activeTab === tab.key}
-            />
-          ))}
-        </View>
+        {hasCompletedOnboarding ? (
+          <View style={styles.tabBar}>
+            {tabs.map((tab) => (
+              <IconButton
+                key={tab.key}
+                icon={tab.icon}
+                label={tab.label}
+                onPress={() => setActiveTab(tab.key)}
+                selected={activeTab === tab.key}
+              />
+            ))}
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
