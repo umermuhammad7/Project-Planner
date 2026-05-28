@@ -179,6 +179,11 @@ export const mealToGrocerySchema = z.object({
   message: "recipeId or mealPlanItemId is required"
 });
 
+export const mealWeekToGrocerySchema = z.object({
+  weekStart: z.iso.date().optional(),
+  listId: uuidSchema.optional()
+});
+
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
@@ -199,3 +204,4 @@ export type SaveMealPlanInput = z.infer<typeof saveMealPlanSchema>;
 export type RecipeIngredientInput = z.infer<typeof recipeIngredientSchema>;
 export type CreateRecipeInput = z.infer<typeof createRecipeSchema>;
 export type MealToGroceryInput = z.infer<typeof mealToGrocerySchema>;
+export type MealWeekToGroceryInput = z.infer<typeof mealWeekToGrocerySchema>;

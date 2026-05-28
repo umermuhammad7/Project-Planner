@@ -76,6 +76,7 @@ type HomeThreadState = {
   }) => Promise<boolean>;
   createRecipe: (input: { title: string; ingredientNames: string[] }) => Promise<boolean>;
   addMealIngredientsToGrocery: (input: { mealPlanItemId?: string; recipeId?: string }) => Promise<boolean>;
+  addWeekMealsToGrocery: () => Promise<boolean>;
   removeMeal: (id: string) => Promise<void>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
@@ -828,12 +829,26 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set({ isSaving: true, saveMessage: "Adding ingredients to grocery list..." });
 
+    const ensuredList = await ensureGroceryListId(get());
+    if (!ensuredList) {
+      set({ isSaving: false, saveMessage: "Unable to resolve grocery list" });
+      return false;
+    }
+
+    if (ensuredList.createdList) {
+      set((current) => ({
+        ...applyEnsuredGroceryListState(current, ensuredList),
+        isSaving: true,
+        saveMessage: "Adding ingredients to grocery list..."
+      }));
+    }
+
     const result = await apiRequest<BackendMealToGroceryResponse>(`/families/${state.familyId}/meals/to-grocery`, {
       method: "POST",
       body: JSON.stringify({
         mealPlanItemId,
         recipeId,
-        listId: state.groceryListId ?? undefined
+        listId: ensuredList.id
       })
     });
 
@@ -863,7 +878,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       const nextListItems = [...mappedItems, ...(current.listItemsByListId[listId] ?? [])];
       const nextSelectedListId = current.selectedListId ?? listId;
       return {
-        groceryListId: current.groceryListId ?? listId,
+        ...applyEnsuredGroceryListState(current, { id: listId, createdList: ensuredList.createdList }),
         selectedListId: nextSelectedListId,
         listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
         shoppingItems: nextSelectedListId === listId ? nextListItems : current.shoppingItems,
@@ -884,6 +899,140 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     });
 
     return result.data.added.length > 0;
+  },
+  addWeekMealsToGrocery: async () => {
+    const state = get();
+    if (state.meals.length === 0) {
+      set({ saveMessage: "No planned meals for this week" });
+      return false;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const listId = state.groceryListId ?? state.selectedListId ?? mockGroceryListId;
+      const existing = state.listItemsByListId[listId] ?? [];
+      const existingTitles = new Set(existing.map((item) => item.title.trim().toLowerCase()));
+      const seenInBatch = new Set<string>();
+      const memberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
+      const addedItems: ShoppingItem[] = [];
+      let skipped = 0;
+
+      for (const meal of state.meals) {
+        const mealIngredients = resolveLocalGroceryIngredients(state, { mealPlanItemId: meal.id });
+        if (!mealIngredients) {
+          continue;
+        }
+
+        for (const ingredient of mealIngredients) {
+          const content = formatLocalIngredient(ingredient);
+          const normalized = content.toLowerCase();
+          if (seenInBatch.has(normalized)) {
+            skipped += 1;
+            continue;
+          }
+          seenInBatch.add(normalized);
+
+          if (existingTitles.has(normalized)) {
+            skipped += 1;
+            continue;
+          }
+
+          existingTitles.add(normalized);
+          addedItems.push({
+            id: `temp-item-${Date.now()}-${content}`,
+            backendListId: listId,
+            title: content,
+            category: "Pantry",
+            addedBy: memberId,
+            checked: false
+          });
+        }
+      }
+
+      if (seenInBatch.size === 0) {
+        set({ saveMessage: "No ingredients found for this week's meals" });
+        return false;
+      }
+
+      const nextListItems = [...addedItems, ...existing];
+      set((current) => ({
+        listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
+        shoppingItems: (current.selectedListId ?? listId) === listId ? nextListItems : current.shoppingItems,
+        saveMessage: formatGroceryBridgeMessage(addedItems.length, skipped, "week")
+      }));
+      return addedItems.length > 0 || skipped > 0;
+    }
+
+    set({ isSaving: true, saveMessage: "Adding this week's ingredients..." });
+
+    const ensuredList = await ensureGroceryListId(get());
+    if (!ensuredList) {
+      set({ isSaving: false, saveMessage: "Unable to resolve grocery list" });
+      return false;
+    }
+
+    if (ensuredList.createdList) {
+      set((current) => ({
+        ...applyEnsuredGroceryListState(current, ensuredList),
+        isSaving: true,
+        saveMessage: "Adding this week's ingredients..."
+      }));
+    }
+
+    const result = await apiRequest<BackendWeekMealToGroceryResponse>(
+      `/families/${state.familyId}/meals/week-to-grocery`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          weekStart: state.mealWeekStart,
+          listId: ensuredList.id
+        })
+      }
+    );
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add this week's ingredients" });
+      return false;
+    }
+
+    const listId = result.data.listId;
+    const memberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
+    const mappedItems = result.data.added.map((item) =>
+      mapShoppingItem(
+        {
+          id: item.id,
+          content: item.content,
+          category: null,
+          quantity: null,
+          isChecked: false,
+          checkedBy: null
+        },
+        listId,
+        memberId
+      )
+    );
+
+    set((current) => {
+      const nextListItems = [...mappedItems, ...(current.listItemsByListId[listId] ?? [])];
+      const nextSelectedListId = current.selectedListId ?? listId;
+      return {
+        ...applyEnsuredGroceryListState(current, { id: listId, createdList: ensuredList.createdList }),
+        selectedListId: nextSelectedListId,
+        listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
+        shoppingItems: nextSelectedListId === listId ? nextListItems : current.shoppingItems,
+        textUpdates: [
+          makeActivityUpdate({
+            author: "HomeThread",
+            body: `Added ${result.data!.added.length} grocery items from this week's meals`,
+            convertedTo: "list"
+          }),
+          ...current.textUpdates
+        ],
+        isSaving: false,
+        saveMessage: formatGroceryBridgeMessage(result.data!.added.length, result.data!.skipped.length, "week")
+      };
+    });
+
+    return result.data.added.length > 0 || result.data.skipped.length > 0;
   },
   removeMeal: async (id) => {
     const state = get();
@@ -1092,6 +1241,14 @@ type BackendMealToGroceryResponse = {
   skipped: string[];
 };
 
+type BackendWeekMealToGroceryResponse = {
+  listId: string;
+  weekStart: string;
+  mealsProcessed: number;
+  added: Array<{ id: string; content: string }>;
+  skipped: string[];
+};
+
 type PersistedDraft = {
   event?: PlanEvent;
   chore?: Chore;
@@ -1203,6 +1360,11 @@ async function ensureGroceryListId(state: HomeThreadState): Promise<{ id: string
     return { id: state.groceryListId };
   }
 
+  const groceryFromLists = state.lists.find((list) => list.type === "grocery");
+  if (groceryFromLists) {
+    return { id: groceryFromLists.id };
+  }
+
   if (!state.familyId) {
     return null;
   }
@@ -1240,6 +1402,26 @@ function replaceListItems(
   items: ShoppingItem[]
 ): Record<string, ShoppingItem[]> {
   return { ...record, [listId]: items };
+}
+
+function applyEnsuredGroceryListState(
+  current: HomeThreadState,
+  ensured: { id: string; createdList?: FamilyList }
+): Pick<HomeThreadState, "groceryListId" | "lists" | "listItemsByListId"> {
+  const listId = ensured.id;
+  const nextLists =
+    ensured.createdList && !current.lists.some((list) => list.id === listId)
+      ? [...current.lists, ensured.createdList]
+      : current.lists;
+
+  return {
+    groceryListId: listId,
+    lists: nextLists,
+    listItemsByListId: {
+      ...current.listItemsByListId,
+      [listId]: current.listItemsByListId[listId] ?? []
+    }
+  };
 }
 
 function flattenListItems(record: Record<string, ShoppingItem[]>, fallback: ShoppingItem[]) {
@@ -1479,6 +1661,22 @@ function formatLocalIngredient(ingredient: RecipeIngredient) {
   const name = ingredient.name.trim();
   const prefix = [amount, unit].filter(Boolean).join(" ");
   return prefix ? `${prefix} ${name}`.trim() : name;
+}
+
+function formatGroceryBridgeMessage(added: number, skipped: number, scope: "meal" | "week") {
+  if (added === 0 && skipped > 0) {
+    return scope === "week"
+      ? "This week's ingredients are already on the grocery list"
+      : "Those ingredients are already on the grocery list";
+  }
+
+  const scopeLabel = scope === "week" ? "for this week" : "to grocery list";
+  const addedPart = `Added ${added} ingredient${added === 1 ? "" : "s"} ${scopeLabel}`;
+  if (skipped > 0) {
+    return `${addedPart} (${skipped} already on list)`;
+  }
+
+  return addedPart;
 }
 
 function findMemberIdsInText(rawText: string, members: FamilyMember[]) {

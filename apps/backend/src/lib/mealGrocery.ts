@@ -1,5 +1,5 @@
 import type { RecipeIngredientInput } from "@homethread/shared";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "../db/client.js";
 import { listItems, lists, mealPlanItems, mealPlans, recipes } from "../db/schema.js";
@@ -163,4 +163,44 @@ export async function addIngredientsToGroceryList(input: {
   }
 
   return { added, skipped };
+}
+
+export async function resolveWeekMealGroceryIngredients(familyId: string, weekStart: string) {
+  const plan = await db.query.mealPlans.findFirst({
+    where: and(eq(mealPlans.familyId, familyId), eq(mealPlans.weekStart, weekStart))
+  });
+
+  if (!plan) {
+    return { ingredients: [], mealsProcessed: 0 };
+  }
+
+  const items = await db.query.mealPlanItems.findMany({
+    where: eq(mealPlanItems.planId, plan.id),
+    orderBy: [asc(mealPlanItems.dayOfWeek), asc(mealPlanItems.mealType)]
+  });
+
+  const ingredients: IngredientLine[] = [];
+  const seenInBatch = new Set<string>();
+
+  for (const item of items) {
+    const resolved = await resolveMealGroceryIngredients({
+      familyId,
+      mealPlanItemId: item.id
+    });
+
+    if ("error" in resolved) {
+      continue;
+    }
+
+    for (const ingredient of resolved.ingredients) {
+      const normalized = formatIngredientContent(ingredient).toLowerCase();
+      if (seenInBatch.has(normalized)) {
+        continue;
+      }
+      seenInBatch.add(normalized);
+      ingredients.push(ingredient);
+    }
+  }
+
+  return { ingredients, mealsProcessed: items.length };
 }

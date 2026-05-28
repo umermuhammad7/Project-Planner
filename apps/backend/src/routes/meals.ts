@@ -1,4 +1,10 @@
-import { mealToGrocerySchema, mealWeekQuerySchema, saveMealPlanSchema, uuidSchema } from "@homethread/shared";
+import {
+  mealToGrocerySchema,
+  mealWeekQuerySchema,
+  mealWeekToGrocerySchema,
+  saveMealPlanSchema,
+  uuidSchema
+} from "@homethread/shared";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -9,7 +15,8 @@ import { sendError } from "../lib/http.js";
 import {
   addIngredientsToGroceryList,
   findFamilyGroceryListId,
-  resolveMealGroceryIngredients
+  resolveMealGroceryIngredients,
+  resolveWeekMealGroceryIngredients
 } from "../lib/mealGrocery.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
@@ -45,6 +52,41 @@ export async function mealsRoutes(app: FastifyInstance) {
       weekStart,
       items: await enrichMealItems(items)
     };
+  });
+
+  app.post("/week-to-grocery", async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const body = mealWeekToGrocerySchema.parse(request.body ?? {});
+    const weekStart = body.weekStart ?? currentWeekStart();
+    const resolved = await resolveWeekMealGroceryIngredients(familyId, weekStart);
+
+    if (resolved.ingredients.length === 0) {
+      return sendError(reply, 400, "No ingredients available for this week", "WEEK_HAS_NO_INGREDIENTS");
+    }
+
+    const listId = await findFamilyGroceryListId(familyId, body.listId);
+    if (!listId) {
+      return sendError(reply, 404, "Grocery list not found", "GROCERY_LIST_NOT_FOUND");
+    }
+
+    const result = await addIngredientsToGroceryList({
+      familyId,
+      listId,
+      ingredients: resolved.ingredients,
+      createdBy: currentUser.id
+    });
+
+    return reply.status(201).send({
+      listId,
+      weekStart,
+      mealsProcessed: resolved.mealsProcessed,
+      added: result.added,
+      skipped: result.skipped
+    });
   });
 
   app.post("/to-grocery", async (request, reply) => {

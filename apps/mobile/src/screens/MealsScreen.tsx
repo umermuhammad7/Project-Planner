@@ -4,7 +4,31 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { MealType } from "../types";
+import { MealType, RecipeIngredient } from "../types";
+
+const ingredientPreviewLimit = 3;
+
+function formatIngredientLabel(ingredient: RecipeIngredient) {
+  const amount = ingredient.amount?.trim();
+  const unit = ingredient.unit?.trim();
+  const name = ingredient.name.trim();
+  const prefix = [amount, unit].filter(Boolean).join(" ");
+  return prefix ? `${prefix} ${name}`.trim() : name;
+}
+
+function formatRecipeIngredientPreview(ingredients: RecipeIngredient[]) {
+  if (ingredients.length === 0) {
+    return "No ingredients listed";
+  }
+
+  const preview = ingredients.slice(0, ingredientPreviewLimit).map(formatIngredientLabel);
+  const remaining = ingredients.length - preview.length;
+  if (remaining > 0) {
+    return `${preview.join(", ")} +${remaining} more`;
+  }
+
+  return preview.join(", ");
+}
 
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const mealTypes: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
@@ -24,6 +48,7 @@ export function MealsScreen() {
     createMeal,
     createRecipe,
     addMealIngredientsToGrocery,
+    addWeekMealsToGrocery,
     removeMeal,
     isSaving,
     saveMessage,
@@ -82,6 +107,19 @@ export function MealsScreen() {
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
 
+      {meals.length > 0 ? (
+        <View style={styles.weekGroceryRow}>
+          <PrimaryButton
+            label={isSaving ? "Working..." : "Week to grocery"}
+            icon="basket"
+            onPress={() => {
+              if (isSaving) return;
+              void addWeekMealsToGrocery();
+            }}
+          />
+        </View>
+      ) : null}
+
       <Card>
         <Text style={styles.formTitle}>Save recipe</Text>
         <TextInput
@@ -125,9 +163,7 @@ export function MealsScreen() {
               <View key={recipe.id} style={styles.recipeRow}>
                 <View style={styles.fill}>
                   <Text style={styles.itemTitle}>{recipe.title}</Text>
-                  <Text style={styles.itemMeta}>
-                    {recipe.ingredients.length} ingredient{recipe.ingredients.length === 1 ? "" : "s"}
-                  </Text>
+                  <Text style={styles.itemMeta}>{formatRecipeIngredientPreview(recipe.ingredients)}</Text>
                 </View>
                 <PrimaryButton
                   label="To grocery"
@@ -309,6 +345,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: spacing.sm
+  },
+  weekGroceryRow: {
+    marginTop: spacing.md
   },
   formTitle: {
     color: colors.ink,

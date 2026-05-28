@@ -66,6 +66,11 @@ try {
       })
     : null;
 
+  const weekToGrocery = await injectJson(`/families/${devFamilyId}/meals/week-to-grocery`, {
+    method: "POST",
+    body: { weekStart: "2026-05-25" }
+  });
+
   assert.equal(health.status, 200, "health route did not return 200");
   assert.ok(isHealthPayload(health.payload), "health payload shape was invalid");
   assert.equal(health.payload.ok, true, "health check did not report ok");
@@ -111,6 +116,18 @@ try {
   assert.ok(destinationList, "meal to-grocery returned a list id that was not found");
   assert.equal(destinationList.type, "grocery", "meal to-grocery must target a grocery list");
 
+  assert.equal(weekToGrocery.status, 201, "meal week-to-grocery route did not return 201");
+  assert.ok(isWeekToGroceryPayload(weekToGrocery.payload), "meal week-to-grocery payload shape was invalid");
+  const weekToGroceryPayload = weekToGrocery.payload;
+  assert.ok(
+    weekToGroceryPayload.added.length + weekToGroceryPayload.skipped.length > 0,
+    "meal week-to-grocery did not resolve any ingredients"
+  );
+
+  const weekDestinationList = listsPayload.lists.find((list) => list.id === weekToGroceryPayload.listId);
+  assert.ok(weekDestinationList, "meal week-to-grocery returned a list id that was not found");
+  assert.equal(weekDestinationList.type, "grocery", "meal week-to-grocery must target a grocery list");
+
   console.log(
     JSON.stringify(
       {
@@ -125,7 +142,9 @@ try {
           meals: meals.payload.items.length,
           recipes: recipesPayload.recipes.length,
           groceryItemsAdded: toGroceryPayload.added.length,
-          groceryItemsSkipped: toGroceryPayload.skipped.length
+          groceryItemsSkipped: toGroceryPayload.skipped.length,
+          weekGroceryItemsAdded: weekToGroceryPayload.added.length,
+          weekGroceryItemsSkipped: weekToGroceryPayload.skipped.length
         }
       },
       null,
@@ -212,6 +231,30 @@ function isRecipesPayload(value: unknown): value is {
       typeof recipe.id === "string" &&
       typeof recipe.title === "string" &&
       Array.isArray(recipe.ingredients)
+  );
+}
+
+function isWeekToGroceryPayload(value: unknown): value is {
+  listId: string;
+  weekStart: string;
+  mealsProcessed: number;
+  added: Array<{ id: string; content: string }>;
+  skipped: string[];
+} {
+  if (
+    !isRecord(value) ||
+    typeof value.listId !== "string" ||
+    typeof value.weekStart !== "string" ||
+    typeof value.mealsProcessed !== "number" ||
+    !Array.isArray(value.added) ||
+    !Array.isArray(value.skipped)
+  ) {
+    return false;
+  }
+
+  return (
+    value.added.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.content === "string") &&
+    value.skipped.every((content) => typeof content === "string")
   );
 }
 
