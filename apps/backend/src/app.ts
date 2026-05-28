@@ -13,6 +13,7 @@ import { healthRoutes } from "./routes/health.js";
 import { listsRoutes } from "./routes/lists.js";
 import { mealsRoutes } from "./routes/meals.js";
 import { membersRoutes } from "./routes/members.js";
+import { recipesRoutes } from "./routes/recipes.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -45,6 +46,7 @@ export function buildApp() {
   app.register(choresRoutes, { prefix: "/api/v1/families/:familyId/chores" });
   app.register(listsRoutes, { prefix: "/api/v1/families/:familyId/lists" });
   app.register(mealsRoutes, { prefix: "/api/v1/families/:familyId/meals" });
+  app.register(recipesRoutes, { prefix: "/api/v1/families/:familyId/recipes" });
 
   return app;
 }

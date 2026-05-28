@@ -9,12 +9,37 @@ import { MealType } from "../types";
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const mealTypes: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 
+function parseIngredientNames(raw: string) {
+  return raw
+    .split(/[\n,]/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function MealsScreen() {
-  const { meals, mealWeekStart, createMeal, removeMeal, isSaving, saveMessage, syncSource, syncMessage } = useHomeThreadStore();
+  const {
+    meals,
+    recipes,
+    mealWeekStart,
+    createMeal,
+    createRecipe,
+    addMealIngredientsToGrocery,
+    removeMeal,
+    isSaving,
+    saveMessage,
+    syncSource,
+    syncMessage
+  } = useHomeThreadStore();
   const [title, setTitle] = useState("");
+  const [recipeTitle, setRecipeTitle] = useState("");
+  const [recipeIngredients, setRecipeIngredients] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [mealType, setMealType] = useState<MealType>("dinner");
   const canSave = useMemo(() => title.trim().length > 0, [title]);
+  const canSaveRecipe = useMemo(
+    () => recipeTitle.trim().length > 0 && parseIngredientNames(recipeIngredients).length > 0,
+    [recipeIngredients, recipeTitle]
+  );
 
   const grouped = useMemo(() => {
     return dayLabels.map((label, index) => ({
@@ -33,9 +58,75 @@ export function MealsScreen() {
           label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
           tone={syncSource === "api" ? "primary" : "neutral"}
         />
-        <Text style={styles.syncNote}>Week of {mealWeekStart} â€¢ {syncMessage}</Text>
+        <Text style={styles.syncNote}>
+          Week of {mealWeekStart} • {syncMessage}
+        </Text>
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <Card>
+        <Text style={styles.formTitle}>Save recipe</Text>
+        <TextInput
+          accessibilityLabel="Recipe title"
+          placeholder="e.g. Sheet-pan chicken fajitas"
+          placeholderTextColor={colors.muted}
+          value={recipeTitle}
+          onChangeText={setRecipeTitle}
+          style={styles.input}
+        />
+        <TextInput
+          accessibilityLabel="Recipe ingredients"
+          placeholder="Ingredients, one per line or comma-separated"
+          placeholderTextColor={colors.muted}
+          value={recipeIngredients}
+          onChangeText={setRecipeIngredients}
+          style={[styles.input, styles.multilineInput]}
+          multiline
+        />
+        <View style={styles.formActions}>
+          <PrimaryButton
+            label={isSaving ? "Saving..." : "Save recipe"}
+            icon="restaurant-outline"
+            onPress={() => {
+              if (!canSaveRecipe || isSaving) return;
+              void createRecipe({
+                title: recipeTitle,
+                ingredientNames: parseIngredientNames(recipeIngredients)
+              }).then((ok) => {
+                if (ok) {
+                  setRecipeTitle("");
+                  setRecipeIngredients("");
+                }
+              });
+            }}
+          />
+        </View>
+        {recipes.length > 0 ? (
+          <View style={styles.recipeList}>
+            {recipes.map((recipe) => (
+              <View key={recipe.id} style={styles.recipeRow}>
+                <View style={styles.fill}>
+                  <Text style={styles.itemTitle}>{recipe.title}</Text>
+                  <Text style={styles.itemMeta}>
+                    {recipe.ingredients.length} ingredient{recipe.ingredients.length === 1 ? "" : "s"}
+                  </Text>
+                </View>
+                <PrimaryButton
+                  label="To grocery"
+                  icon="basket"
+                  tone="dark"
+                  onPress={() => {
+                    if (isSaving) return;
+                    void addMealIngredientsToGrocery({ recipeId: recipe.id });
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.helperText}>Saved recipes show up here for quick grocery runs.</Text>
+        )}
+      </Card>
 
       <Card>
         <Text style={styles.formTitle}>Add meal</Text>
@@ -107,8 +198,24 @@ export function MealsScreen() {
                     </View>
                     <View style={styles.fill}>
                       <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemMeta}>{item.notes ?? "Ready for the week"}</Text>
+                      <Text style={styles.itemMeta}>
+                        {item.recipeId ? "Linked recipe" : item.notes ?? "Ready for the week"}
+                      </Text>
                     </View>
+                  </Row>
+                  <View style={styles.mealActions}>
+                    <PrimaryButton
+                      label="To grocery"
+                      icon="basket"
+                      tone="dark"
+                      onPress={() => {
+                        if (isSaving) return;
+                        void addMealIngredientsToGrocery({
+                          mealPlanItemId: item.id,
+                          recipeId: item.recipeId ?? undefined
+                        });
+                      }}
+                    />
                     <PrimaryButton
                       label="Remove"
                       icon="trash"
@@ -118,7 +225,7 @@ export function MealsScreen() {
                         void removeMeal(item.id);
                       }}
                     />
-                  </Row>
+                  </View>
                 </Card>
               ))}
             </View>
@@ -175,6 +282,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     padding: spacing.md
   },
+  multilineInput: {
+    minHeight: 96,
+    marginTop: spacing.md,
+    textAlignVertical: "top"
+  },
   pickerLabel: {
     color: colors.muted,
     fontSize: 13,
@@ -190,8 +302,29 @@ const styles = StyleSheet.create({
   formActions: {
     marginTop: spacing.lg
   },
+  recipeList: {
+    gap: spacing.md,
+    marginTop: spacing.lg
+  },
+  recipeRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  helperText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: spacing.md
+  },
   stack: {
     gap: spacing.md
+  },
+  mealActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.md
   },
   badgeWrap: {
     paddingTop: 2

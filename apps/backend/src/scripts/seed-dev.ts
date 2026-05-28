@@ -13,6 +13,7 @@ import {
   lists,
   mealPlanItems,
   mealPlans,
+  recipes,
   rewards,
   users
 } from "../db/schema.js";
@@ -34,6 +35,7 @@ const mealPlanId = "00000000-0000-4000-8000-000000000601";
 const dinnerMondayId = "00000000-0000-4000-8000-000000000611";
 const dinnerTuesdayId = "00000000-0000-4000-8000-000000000612";
 const dinnerWednesdayId = "00000000-0000-4000-8000-000000000613";
+const fajitasRecipeId = "00000000-0000-4000-8000-000000000701";
 
 try {
   await db.transaction(async (tx) => {
@@ -194,6 +196,23 @@ try {
       .onConflictDoNothing();
 
     await tx
+      .insert(recipes)
+      .values({
+        id: fajitasRecipeId,
+        familyId,
+        title: "Sheet-pan chicken fajitas",
+        ingredients: [
+          { name: "chicken thighs", amount: "1.5", unit: "lb" },
+          { name: "bell peppers", amount: "3", unit: null },
+          { name: "onion", amount: "1", unit: null },
+          { name: "fajita seasoning", amount: "2", unit: "tbsp" }
+        ],
+        instructions: [],
+        createdBy: devUserId
+      })
+      .onConflictDoNothing();
+
+    await tx
       .insert(mealPlans)
       .values({
         id: mealPlanId,
@@ -211,7 +230,8 @@ try {
           planId: mealPlanId,
           dayOfWeek: 0,
           mealType: "dinner",
-          customTitle: "Sheet-pan chicken fajitas",
+          recipeId: fajitasRecipeId,
+          customTitle: null,
           notes: "Double peppers for leftovers"
         },
         {

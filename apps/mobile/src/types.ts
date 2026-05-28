@@ -47,12 +47,25 @@ export type FamilyList = {
 
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 
+export type RecipeIngredient = {
+  name: string;
+  amount?: string | null;
+  unit?: string | null;
+};
+
+export type Recipe = {
+  id: string;
+  title: string;
+  ingredients: RecipeIngredient[];
+};
+
 export type MealPlanItem = {
   id: string;
   dayOfWeek: number;
   mealType: MealType;
   title: string;
   notes?: string;
+  recipeId?: string | null;
 };
 
 export type TextUpdate = {

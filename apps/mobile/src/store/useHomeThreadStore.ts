@@ -17,6 +17,8 @@ import {
   FamilyMember,
   MealPlanItem,
   PlanEvent,
+  Recipe,
+  RecipeIngredient,
   ShoppingItem,
   SyncSource,
   TextUpdate
@@ -44,6 +46,7 @@ type HomeThreadState = {
   events: PlanEvent[];
   mealWeekStart: string;
   meals: MealPlanItem[];
+  recipes: Recipe[];
   chores: Chore[];
   completedChoreIds: Record<string, true>;
   shoppingItems: ShoppingItem[];
@@ -64,7 +67,15 @@ type HomeThreadState = {
   selectList: (listId: string) => void;
   createList: (input: { title: string; type: FamilyList["type"] }) => Promise<boolean>;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
-  createMeal: (input: { dayOfWeek: number; mealType: MealPlanItem["mealType"]; title: string; notes?: string }) => Promise<boolean>;
+  createMeal: (input: {
+    dayOfWeek: number;
+    mealType: MealPlanItem["mealType"];
+    title: string;
+    notes?: string;
+    recipeId?: string | null;
+  }) => Promise<boolean>;
+  createRecipe: (input: { title: string; ingredientNames: string[] }) => Promise<boolean>;
+  addMealIngredientsToGrocery: (input: { mealPlanItemId?: string; recipeId?: string }) => Promise<boolean>;
   removeMeal: (id: string) => Promise<void>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
@@ -83,6 +94,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   events: initialEvents,
   mealWeekStart: "2026-05-25",
   meals: initialMealPlanItems,
+  recipes: [],
   chores: initialChores,
   completedChoreIds: {},
   shoppingItems: initialMockListItemsByListId[mockGroceryListId] ?? [],
@@ -98,15 +110,23 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       syncMessage: "Checking local HomeThread backend..."
     });
 
-    const [familyResult, eventsResult, choresResult, listsResult, mealsResult] = await Promise.all([
+    const [familyResult, eventsResult, choresResult, listsResult, mealsResult, recipesResult] = await Promise.all([
       apiRequest<BackendFamilyResponse>(`/families/${defaultFamilyId}`),
       apiRequest<BackendEventsResponse>(`/families/${defaultFamilyId}/events`),
       apiRequest<BackendChoresResponse>(`/families/${defaultFamilyId}/chores/today`),
       apiRequest<BackendListsResponse>(`/families/${defaultFamilyId}/lists`),
-      apiRequest<BackendMealsResponse>(`/families/${defaultFamilyId}/meals?weekStart=${currentWeekStart()}`)
+      apiRequest<BackendMealsResponse>(`/families/${defaultFamilyId}/meals?weekStart=${currentWeekStart()}`),
+      apiRequest<BackendRecipesResponse>(`/families/${defaultFamilyId}/recipes`)
     ]);
 
-    if (!familyResult.data || !eventsResult.data || !choresResult.data || !listsResult.data || !mealsResult.data) {
+    if (
+      !familyResult.data ||
+      !eventsResult.data ||
+      !choresResult.data ||
+      !listsResult.data ||
+      !mealsResult.data ||
+      !recipesResult.data
+    ) {
       const previous = get();
       const failureMessage =
         familyResult.error?.message ??
@@ -114,6 +134,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         choresResult.error?.message ??
         listsResult.error?.message ??
         mealsResult.error?.message ??
+        recipesResult.error?.message ??
         "Refresh failed";
 
       set({
@@ -155,10 +176,11 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       events: eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? [])),
       mealWeekStart: mealsResult.data.weekStart,
       meals: mealsResult.data.items.map(mapMeal),
+      recipes: recipesResult.data.recipes.map(mapRecipe),
       chores: hydratedChores,
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       syncSource: "api",
-      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
+      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${recipesResult.data.recipes.length} recipes, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
       isHydrating: false
     });
   },
@@ -386,7 +408,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      set({ saveMessage: "Backend sync is unavailable â€” list was not created" });
+      set({ saveMessage: "Backend sync is unavailable — list was not created" });
       return false;
     }
 
@@ -625,10 +647,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     return true;
   },
-  createMeal: async ({ dayOfWeek, mealType, title, notes }) => {
+  createMeal: async ({ dayOfWeek, mealType, title, notes, recipeId }) => {
     const state = get();
     const trimmed = title.trim();
-    if (!trimmed) {
+    const linkedRecipe = recipeId ? state.recipes.find((recipe) => recipe.id === recipeId) : undefined;
+    const resolvedTitle = trimmed || linkedRecipe?.title || "";
+    if (!resolvedTitle) {
       set({ saveMessage: "Meal title is required" });
       return false;
     }
@@ -639,8 +663,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         id: `temp-meal-${Date.now()}`,
         dayOfWeek,
         mealType,
-        title: trimmed,
-        notes: notes?.trim() || undefined
+        title: resolvedTitle,
+        notes: notes?.trim() || undefined,
+        recipeId: recipeId ?? null
       }
     ];
 
@@ -661,9 +686,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         items: nextMeals.map((meal) => ({
           dayOfWeek: meal.dayOfWeek,
           mealType: meal.mealType,
-          customTitle: meal.title,
+          customTitle: meal.recipeId ? null : meal.title,
           notes: meal.notes ?? null,
-          recipeId: null
+          recipeId: meal.recipeId ?? null
         }))
       })
     });
@@ -679,7 +704,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       textUpdates: [
         makeActivityUpdate({
           author: "HomeThread",
-          body: `Added meal: ${trimmed}`,
+          body: `Added meal: ${resolvedTitle}`,
           convertedTo: "meal"
         }),
         ...current.textUpdates
@@ -689,6 +714,176 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
 
     return true;
+  },
+  createRecipe: async ({ title, ingredientNames }) => {
+    const state = get();
+    const trimmedTitle = title.trim();
+    const ingredients = ingredientNames
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({ name }));
+
+    if (!trimmedTitle) {
+      set({ saveMessage: "Recipe title is required" });
+      return false;
+    }
+
+    if (ingredients.length === 0) {
+      set({ saveMessage: "Add at least one ingredient" });
+      return false;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const localRecipe: Recipe = {
+        id: `temp-recipe-${Date.now()}`,
+        title: trimmedTitle,
+        ingredients
+      };
+      set({
+        recipes: [...state.recipes, localRecipe],
+        saveMessage: "Saved recipe locally in prototype mode"
+      });
+      return true;
+    }
+
+    set({ isSaving: true, saveMessage: "Saving recipe..." });
+
+    const result = await apiRequest<{ recipe: BackendRecipeRecord }>(`/families/${state.familyId}/recipes`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: trimmedTitle,
+        ingredients
+      })
+    });
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to save recipe" });
+      return false;
+    }
+
+    set((current) => ({
+      recipes: [...current.recipes.filter((recipe) => recipe.id !== result.data!.recipe.id), mapRecipe(result.data!.recipe)],
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Saved recipe: ${trimmedTitle}`,
+          convertedTo: "meal"
+        }),
+        ...current.textUpdates
+      ],
+      isSaving: false,
+      saveMessage: "Saved recipe to local database"
+    }));
+
+    return true;
+  },
+  addMealIngredientsToGrocery: async ({ mealPlanItemId, recipeId }) => {
+    const state = get();
+    if (!mealPlanItemId && !recipeId) {
+      set({ saveMessage: "Choose a meal or recipe first" });
+      return false;
+    }
+
+    const localIngredients = resolveLocalGroceryIngredients(state, { mealPlanItemId, recipeId });
+    if (!localIngredients) {
+      set({ saveMessage: "No ingredients found for that meal or recipe" });
+      return false;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const listId = state.groceryListId ?? state.selectedListId ?? mockGroceryListId;
+      const existing = state.listItemsByListId[listId] ?? [];
+      const existingTitles = new Set(existing.map((item) => item.title.trim().toLowerCase()));
+      const memberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
+      const added = localIngredients
+        .map((ingredient) => formatLocalIngredient(ingredient))
+        .filter((content) => {
+          const normalized = content.toLowerCase();
+          if (existingTitles.has(normalized)) {
+            return false;
+          }
+          existingTitles.add(normalized);
+          return true;
+        })
+        .map((content) => ({
+          id: `temp-item-${Date.now()}-${content}`,
+          backendListId: listId,
+          title: content,
+          category: "Pantry",
+          addedBy: memberId,
+          checked: false
+        }));
+
+      const nextListItems = [...added, ...existing];
+      set((current) => ({
+        listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
+        shoppingItems: (current.selectedListId ?? listId) === listId ? nextListItems : current.shoppingItems,
+        saveMessage:
+          added.length > 0
+            ? `Added ${added.length} ingredient${added.length === 1 ? "" : "s"} to grocery list locally`
+            : "Those ingredients are already on the grocery list"
+      }));
+      return added.length > 0;
+    }
+
+    set({ isSaving: true, saveMessage: "Adding ingredients to grocery list..." });
+
+    const result = await apiRequest<BackendMealToGroceryResponse>(`/families/${state.familyId}/meals/to-grocery`, {
+      method: "POST",
+      body: JSON.stringify({
+        mealPlanItemId,
+        recipeId,
+        listId: state.groceryListId ?? undefined
+      })
+    });
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add ingredients to grocery list" });
+      return false;
+    }
+
+    const listId = result.data.listId;
+    const memberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
+    const mappedItems = result.data.added.map((item) =>
+      mapShoppingItem(
+        {
+          id: item.id,
+          content: item.content,
+          category: null,
+          quantity: null,
+          isChecked: false,
+          checkedBy: null
+        },
+        listId,
+        memberId
+      )
+    );
+
+    set((current) => {
+      const nextListItems = [...mappedItems, ...(current.listItemsByListId[listId] ?? [])];
+      const nextSelectedListId = current.selectedListId ?? listId;
+      return {
+        groceryListId: current.groceryListId ?? listId,
+        selectedListId: nextSelectedListId,
+        listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
+        shoppingItems: nextSelectedListId === listId ? nextListItems : current.shoppingItems,
+        textUpdates: [
+          makeActivityUpdate({
+            author: "HomeThread",
+            body: `Added ${result.data!.added.length} grocery item${result.data!.added.length === 1 ? "" : "s"} from a meal`,
+            convertedTo: "list"
+          }),
+          ...current.textUpdates
+        ],
+        isSaving: false,
+        saveMessage:
+          result.data!.added.length > 0
+            ? `Added ${result.data!.added.length} ingredient${result.data!.added.length === 1 ? "" : "s"} to grocery list`
+            : "Those ingredients are already on the grocery list"
+      };
+    });
+
+    return result.data.added.length > 0;
   },
   removeMeal: async (id) => {
     const state = get();
@@ -714,9 +909,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         items: nextMeals.map((meal) => ({
           dayOfWeek: meal.dayOfWeek,
           mealType: meal.mealType,
-          customTitle: meal.title,
+          customTitle: meal.recipeId ? null : meal.title,
           notes: meal.notes ?? null,
-          recipeId: null
+          recipeId: meal.recipeId ?? null
         }))
       })
     });
@@ -870,13 +1065,31 @@ type BackendMealRecord = {
   id: string;
   dayOfWeek: number;
   mealType: MealPlanItem["mealType"];
+  recipeId?: string | null;
   customTitle: string | null;
+  recipeTitle?: string | null;
   notes: string | null;
 };
 
 type BackendMealsResponse = {
   weekStart: string;
   items: BackendMealRecord[];
+};
+
+type BackendRecipeRecord = {
+  id: string;
+  title: string;
+  ingredients: RecipeIngredient[];
+};
+
+type BackendRecipesResponse = {
+  recipes: BackendRecipeRecord[];
+};
+
+type BackendMealToGroceryResponse = {
+  listId: string;
+  added: Array<{ id: string; content: string }>;
+  skipped: string[];
 };
 
 type PersistedDraft = {
@@ -1218,9 +1431,54 @@ function mapMeal(item: BackendMealRecord): MealPlanItem {
     id: item.id,
     dayOfWeek: item.dayOfWeek,
     mealType: item.mealType,
-    title: item.customTitle ?? "Planned meal",
-    notes: item.notes ?? undefined
+    title: item.recipeTitle ?? item.customTitle ?? "Planned meal",
+    notes: item.notes ?? undefined,
+    recipeId: item.recipeId ?? null
   };
+}
+
+function mapRecipe(recipe: BackendRecipeRecord): Recipe {
+  return {
+    id: recipe.id,
+    title: recipe.title,
+    ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : []
+  };
+}
+
+function resolveLocalGroceryIngredients(
+  state: HomeThreadState,
+  input: { mealPlanItemId?: string; recipeId?: string }
+) {
+  if (input.recipeId) {
+    const recipe = state.recipes.find((entry) => entry.id === input.recipeId);
+    return recipe?.ingredients.length ? recipe.ingredients : null;
+  }
+
+  if (!input.mealPlanItemId) {
+    return null;
+  }
+
+  const meal = state.meals.find((entry) => entry.id === input.mealPlanItemId);
+  if (!meal) {
+    return null;
+  }
+
+  if (meal.recipeId) {
+    const recipe = state.recipes.find((entry) => entry.id === meal.recipeId);
+    if (recipe?.ingredients.length) {
+      return recipe.ingredients;
+    }
+  }
+
+  return [{ name: meal.title }];
+}
+
+function formatLocalIngredient(ingredient: RecipeIngredient) {
+  const amount = ingredient.amount?.trim();
+  const unit = ingredient.unit?.trim();
+  const name = ingredient.name.trim();
+  const prefix = [amount, unit].filter(Boolean).join(" ");
+  return prefix ? `${prefix} ${name}`.trim() : name;
 }
 
 function findMemberIdsInText(rawText: string, members: FamilyMember[]) {

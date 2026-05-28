@@ -1,10 +1,16 @@
-import { mealWeekQuerySchema, saveMealPlanSchema, uuidSchema } from "@homethread/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { mealToGrocerySchema, mealWeekQuerySchema, saveMealPlanSchema, uuidSchema } from "@homethread/shared";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { db } from "../db/client.js";
-import { mealPlanItems, mealPlans } from "../db/schema.js";
+import { mealPlanItems, mealPlans, recipes } from "../db/schema.js";
+import { sendError } from "../lib/http.js";
+import {
+  addIngredientsToGroceryList,
+  findFamilyGroceryListId,
+  resolveMealGroceryIngredients
+} from "../lib/mealGrocery.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -37,8 +43,51 @@ export async function mealsRoutes(app: FastifyInstance) {
 
     return {
       weekStart,
-      items
+      items: await enrichMealItems(items)
     };
+  });
+
+  app.post("/to-grocery", async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const body = mealToGrocerySchema.parse(request.body);
+    const resolved = await resolveMealGroceryIngredients({
+      familyId,
+      recipeId: body.recipeId,
+      mealPlanItemId: body.mealPlanItemId
+    });
+
+    if ("error" in resolved) {
+      if (resolved.error === "RECIPE_NOT_FOUND" || resolved.error === "MEAL_NOT_FOUND") {
+        return sendError(reply, 404, "Recipe or meal not found", resolved.error);
+      }
+      if (resolved.error === "RECIPE_HAS_NO_INGREDIENTS" || resolved.error === "MEAL_HAS_NO_INGREDIENTS") {
+        return sendError(reply, 400, "No ingredients available to add", resolved.error);
+      }
+      return sendError(reply, 400, "recipeId or mealPlanItemId is required", "MISSING_TARGET");
+    }
+
+    const listId = await findFamilyGroceryListId(familyId, body.listId);
+    if (!listId) {
+      return sendError(reply, 404, "Grocery list not found", "GROCERY_LIST_NOT_FOUND");
+    }
+
+    const result = await addIngredientsToGroceryList({
+      familyId,
+      listId,
+      ingredients: resolved.ingredients,
+      createdBy: currentUser.id
+    });
+
+    return reply.status(201).send({
+      listId,
+      recipeTitle: "recipeTitle" in resolved ? resolved.recipeTitle ?? null : null,
+      added: result.added,
+      skipped: result.skipped
+    });
   });
 
   app.post("/", async (request, reply) => {
@@ -92,9 +141,30 @@ export async function mealsRoutes(app: FastifyInstance) {
 
     return reply.status(201).send({
       weekStart: body.weekStart,
-      items
+      items: await enrichMealItems(items)
     });
   });
+}
+
+async function enrichMealItems(items: Array<typeof mealPlanItems.$inferSelect>) {
+  const recipeIds = items.map((item) => item.recipeId).filter((id): id is string => Boolean(id));
+  const recipeRows =
+    recipeIds.length === 0
+      ? []
+      : await db.query.recipes.findMany({
+          where: inArray(recipes.id, recipeIds)
+        });
+  const recipeTitleById = new Map(recipeRows.map((recipe) => [recipe.id, recipe.title]));
+
+  return items.map((item) => ({
+    id: item.id,
+    dayOfWeek: item.dayOfWeek,
+    mealType: item.mealType,
+    recipeId: item.recipeId,
+    customTitle: item.customTitle,
+    recipeTitle: item.recipeId ? (recipeTitleById.get(item.recipeId) ?? null) : null,
+    notes: item.notes
+  }));
 }
 
 function currentWeekStart() {

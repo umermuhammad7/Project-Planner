@@ -144,6 +144,18 @@ describe("HomeThread mobile store semantics", () => {
               ]
             }
           };
+        case "/families/00000000-0000-4000-8000-000000000201/recipes":
+          return {
+            data: {
+              recipes: [
+                {
+                  id: "recipe-1",
+                  title: "Taco kit",
+                  ingredients: [{ name: "tortillas" }, { name: "salsa" }]
+                }
+              ]
+            }
+          };
         default:
           throw new Error(`Unexpected path: ${path}`);
       }
@@ -556,5 +568,71 @@ describe("HomeThread mobile store semantics", () => {
     );
     expect(state.meals.map((meal) => meal.title)).toEqual(["Pasta night"]);
     expect(state.saveMessage).toBe("Updated meal plan");
+  });
+
+  it("adds recipe ingredients to the grocery list through the meal bridge", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      groceryListId: "list-grocery",
+      selectedListId: "list-grocery",
+      listItemsByListId: {
+        "list-grocery": [
+          {
+            id: "item-milk",
+            backendListId: "list-grocery",
+            title: "Milk",
+            category: "Dairy",
+            addedBy: "member-parent",
+            checked: false
+          }
+        ]
+      },
+      shoppingItems: [
+        {
+          id: "item-milk",
+          backendListId: "list-grocery",
+          title: "Milk",
+          category: "Dairy",
+          addedBy: "member-parent",
+          checked: false
+        }
+      ],
+      recipes: [
+        {
+          id: "recipe-1",
+          title: "Taco kit",
+          ingredients: [{ name: "tortillas" }, { name: "salsa" }]
+        }
+      ]
+    });
+
+    apiRequestMock.mockResolvedValue({
+      data: {
+        listId: "list-grocery",
+        added: [
+          { id: "item-tortillas", content: "tortillas" },
+          { id: "item-salsa", content: "salsa" }
+        ],
+        skipped: []
+      }
+    });
+
+    const added = await useHomeThreadStore.getState().addMealIngredientsToGrocery({ recipeId: "recipe-1" });
+    const state = useHomeThreadStore.getState();
+
+    expect(added).toBe(true);
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/families/family-1/meals/to-grocery",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          recipeId: "recipe-1",
+          listId: "list-grocery"
+        })
+      })
+    );
+    expect(state.shoppingItems.map((item) => item.title)).toEqual(["tortillas", "salsa", "Milk"]);
+    expect(state.saveMessage).toBe("Added 2 ingredients to grocery list");
   });
 });

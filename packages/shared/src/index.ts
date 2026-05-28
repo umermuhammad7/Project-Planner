@@ -150,6 +150,35 @@ export const saveMealPlanSchema = z.object({
   items: z.array(mealPlanItemInputSchema).max(28)
 });
 
+export const recipeIngredientSchema = z.object({
+  name: z.string().min(1).max(120),
+  amount: z.string().max(40).optional().nullable(),
+  unit: z.string().max(40).optional().nullable()
+});
+
+export const recipeInstructionSchema = z.object({
+  step: z.number().int().min(1).max(50).optional(),
+  text: z.string().min(1).max(500)
+});
+
+export const createRecipeSchema = z.object({
+  title: z.string().min(1).max(160),
+  description: z.string().max(2000).optional().nullable(),
+  ingredients: z.array(recipeIngredientSchema).min(1).max(50),
+  instructions: z.array(recipeInstructionSchema).max(30).optional(),
+  prepTimeMinutes: z.number().int().min(0).max(600).optional().nullable(),
+  cookTimeMinutes: z.number().int().min(0).max(600).optional().nullable(),
+  servings: z.number().int().min(1).max(50).optional().nullable()
+});
+
+export const mealToGrocerySchema = z.object({
+  recipeId: uuidSchema.optional(),
+  mealPlanItemId: uuidSchema.optional(),
+  listId: uuidSchema.optional()
+}).refine((value) => Boolean(value.recipeId || value.mealPlanItemId), {
+  message: "recipeId or mealPlanItemId is required"
+});
+
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
@@ -167,3 +196,6 @@ export type UpdateListItemInput = z.infer<typeof updateListItemSchema>;
 export type MealWeekQueryInput = z.infer<typeof mealWeekQuerySchema>;
 export type MealPlanItemInput = z.infer<typeof mealPlanItemInputSchema>;
 export type SaveMealPlanInput = z.infer<typeof saveMealPlanSchema>;
+export type RecipeIngredientInput = z.infer<typeof recipeIngredientSchema>;
+export type CreateRecipeInput = z.infer<typeof createRecipeSchema>;
+export type MealToGroceryInput = z.infer<typeof mealToGrocerySchema>;

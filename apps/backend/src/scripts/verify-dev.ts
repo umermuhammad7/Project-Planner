@@ -8,13 +8,17 @@ const headers = {
   Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
 };
 
+const devFamilyId = "00000000-0000-4000-8000-000000000201";
+const seededRecipeId = "00000000-0000-4000-8000-000000000701";
+
 const app = buildApp();
 
-async function injectJson(path: string) {
+async function injectJson(path: string, options: { method?: "GET" | "POST"; body?: Record<string, string> } = {}) {
   const response = await app.inject({
-    method: "GET",
+    method: options.method ?? "GET",
     url: `/api/v1${path}`,
-    headers
+    headers,
+    ...(options.body ? { payload: options.body } : {})
   });
   const raw = response.body;
   let payload: unknown = raw;
@@ -33,11 +37,34 @@ async function injectJson(path: string) {
 
 try {
   const health = await injectJson("/health");
-  const family = await injectJson("/families/00000000-0000-4000-8000-000000000201");
-  const events = await injectJson("/families/00000000-0000-4000-8000-000000000201/events");
-  const chores = await injectJson("/families/00000000-0000-4000-8000-000000000201/chores/today");
-  const lists = await injectJson("/families/00000000-0000-4000-8000-000000000201/lists");
-  const meals = await injectJson("/families/00000000-0000-4000-8000-000000000201/meals?weekStart=2026-05-25");
+  const family = await injectJson(`/families/${devFamilyId}`);
+  const events = await injectJson(`/families/${devFamilyId}/events`);
+  const chores = await injectJson(`/families/${devFamilyId}/chores/today`);
+  const lists = await injectJson(`/families/${devFamilyId}/lists`);
+  const meals = await injectJson(`/families/${devFamilyId}/meals?weekStart=2026-05-25`);
+  const recipes = await injectJson(`/families/${devFamilyId}/recipes`);
+
+  const recipeIdForBridge =
+    recipes.payload && isRecipesPayload(recipes.payload)
+      ? (recipes.payload.recipes.find((recipe) => recipe.id === seededRecipeId)?.id ??
+        recipes.payload.recipes[0]?.id)
+      : undefined;
+
+  const mealPlanItemIdForBridge =
+    meals.payload && isMealsPayload(meals.payload) ? meals.payload.items[0]?.id : undefined;
+
+  const toGroceryBody: Record<string, string> | null = recipeIdForBridge
+    ? { recipeId: recipeIdForBridge }
+    : mealPlanItemIdForBridge
+      ? { mealPlanItemId: mealPlanItemIdForBridge }
+      : null;
+
+  const toGrocery = toGroceryBody
+    ? await injectJson(`/families/${devFamilyId}/meals/to-grocery`, {
+        method: "POST",
+        body: toGroceryBody
+      })
+    : null;
 
   assert.equal(health.status, 200, "health route did not return 200");
   assert.ok(isHealthPayload(health.payload), "health payload shape was invalid");
@@ -59,12 +86,30 @@ try {
 
   assert.equal(lists.status, 200, "lists route did not return 200");
   assert.ok(isListsPayload(lists.payload), "lists payload shape was invalid");
-  for (const list of lists.payload.lists) {
+  const listsPayload = lists.payload;
+  for (const list of listsPayload.lists) {
     assert.ok(Array.isArray(list.items), `list ${list.id} is missing items`);
   }
 
   assert.equal(meals.status, 200, "meals route did not return 200");
   assert.ok(isMealsPayload(meals.payload), "meals payload shape was invalid");
+
+  assert.equal(recipes.status, 200, "recipes route did not return 200");
+  assert.ok(isRecipesPayload(recipes.payload), "recipes payload shape was invalid");
+  const recipesPayload = recipes.payload;
+
+  assert.ok(toGroceryBody, "meal to-grocery check needs at least one recipe or meal plan item in dev data");
+  assert.equal(toGrocery!.status, 201, "meal to-grocery route did not return 201");
+  assert.ok(isToGroceryPayload(toGrocery!.payload), "meal to-grocery payload shape was invalid");
+  const toGroceryPayload = toGrocery!.payload;
+  assert.ok(
+    toGroceryPayload.added.length + toGroceryPayload.skipped.length > 0,
+    "meal to-grocery did not resolve any ingredients"
+  );
+
+  const destinationList = listsPayload.lists.find((list) => list.id === toGroceryPayload.listId);
+  assert.ok(destinationList, "meal to-grocery returned a list id that was not found");
+  assert.equal(destinationList.type, "grocery", "meal to-grocery must target a grocery list");
 
   console.log(
     JSON.stringify(
@@ -75,9 +120,12 @@ try {
           members: family.payload.members.length,
           events: events.payload.events.length,
           chores: chores.payload.chores.length,
-          lists: lists.payload.lists.length,
-          listItems: lists.payload.lists.reduce((count, list) => count + list.items.length, 0),
-          meals: meals.payload.items.length
+          lists: listsPayload.lists.length,
+          listItems: listsPayload.lists.reduce((count, list) => count + list.items.length, 0),
+          meals: meals.payload.items.length,
+          recipes: recipesPayload.recipes.length,
+          groceryItemsAdded: toGroceryPayload.added.length,
+          groceryItemsSkipped: toGroceryPayload.skipped.length
         }
       },
       null,
@@ -148,6 +196,37 @@ function isListsPayload(value: unknown): value is {
       typeof list.type === "string" &&
       Array.isArray(list.items) &&
       list.items.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.content === "string")
+  );
+}
+
+function isRecipesPayload(value: unknown): value is {
+  recipes: Array<{ id: string; title: string; ingredients: unknown[] }>;
+} {
+  if (!isRecord(value) || !Array.isArray(value.recipes)) {
+    return false;
+  }
+
+  return value.recipes.every(
+    (recipe) =>
+      isRecord(recipe) &&
+      typeof recipe.id === "string" &&
+      typeof recipe.title === "string" &&
+      Array.isArray(recipe.ingredients)
+  );
+}
+
+function isToGroceryPayload(value: unknown): value is {
+  listId: string;
+  added: Array<{ id: string; content: string }>;
+  skipped: string[];
+} {
+  if (!isRecord(value) || typeof value.listId !== "string" || !Array.isArray(value.added) || !Array.isArray(value.skipped)) {
+    return false;
+  }
+
+  return (
+    value.added.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.content === "string") &&
+    value.skipped.every((content) => typeof content === "string")
   );
 }
 
