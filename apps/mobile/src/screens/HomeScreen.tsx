@@ -12,6 +12,7 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
     familyName,
     members,
     events,
+    meals,
     chores,
     refreshFromBackend,
     syncSource,
@@ -25,6 +26,7 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
     [listItemsByListId]
   );
   const openItems = allListItems.filter((item) => !item.checked);
+  const dinners = meals.filter((meal) => meal.mealType === "dinner").slice(0, 3);
 
   return (
     <View>
@@ -106,6 +108,30 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
         <Metric value={openChores.length} label="chores left" tone={colors.coralSoft} />
         <Metric value={openItems.length} label="shopping items" tone={colors.mintSoft} />
         <Metric value={members.reduce((sum, member) => sum + member.starBalance, 0)} label="kid stars" tone={colors.goldSoft} />
+      </View>
+
+      <SectionTitle title="This week for dinner" action={`${meals.length} meals`} />
+      <View style={styles.stack}>
+        {dinners.length > 0 ? (
+          dinners.map((meal) => (
+            <Card key={meal.id}>
+              <Row>
+                <View style={styles.timeBlock}>
+                  <Text style={styles.time}>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][meal.dayOfWeek]}</Text>
+                  <Text style={styles.date}>{meal.mealType}</Text>
+                </View>
+                <View style={styles.fill}>
+                  <Text style={styles.itemTitle}>{meal.title}</Text>
+                  <Text style={styles.itemMeta}>{meal.notes ?? "Ready for the week"}</Text>
+                </View>
+              </Row>
+            </Card>
+          ))
+        ) : (
+          <Card>
+            <Text style={styles.itemMeta}>Add a few meals so the week has a plan before dinner hour hits.</Text>
+          </Card>
+        )}
       </View>
     </View>
   );

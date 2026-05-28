@@ -45,13 +45,23 @@ export type FamilyList = {
   icon?: string | null;
 };
 
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+export type MealPlanItem = {
+  id: string;
+  dayOfWeek: number;
+  mealType: MealType;
+  title: string;
+  notes?: string;
+};
+
 export type TextUpdate = {
   id: string;
   direction: "inbound" | "outbound";
   author: string;
   body: string;
   createdAt: string;
-  convertedTo?: "event" | "chore" | "list";
+  convertedTo?: "event" | "chore" | "list" | "meal";
 };
 
 export type DraftKind = "event" | "chore" | "list";
@@ -64,6 +74,6 @@ export type AssistantDraft = {
   rawText: string;
 };
 
-export type TabKey = "home" | "plan" | "chores" | "lists" | "thread" | "add";
+export type TabKey = "home" | "plan" | "chores" | "lists" | "meals" | "thread" | "add";
 
 export type SyncSource = "mock" | "api";

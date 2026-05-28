@@ -10,6 +10,7 @@ import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
+import { MealsScreen } from "./src/screens/MealsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
@@ -23,6 +24,7 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "plan", label: "Plan", icon: "calendar" },
   { key: "chores", label: "Chores", icon: "star" },
   { key: "lists", label: "Lists", icon: "bag" },
+  { key: "meals", label: "Meals", icon: "restaurant" },
   { key: "thread", label: "Texts", icon: "chatbubbles" },
   { key: "add", label: "Add", icon: "add-circle" }
 ];
@@ -45,6 +47,7 @@ export default function App() {
     if (activeTab === "plan") return <PlanScreen />;
     if (activeTab === "chores") return <ChoresScreen />;
     if (activeTab === "lists") return <ListsScreen />;
+    if (activeTab === "meals") return <MealsScreen />;
     if (activeTab === "thread") return <ThreadScreen />;
     if (activeTab === "add") return <AssistantScreen />;
     return <HomeScreen goTo={setActiveTab} />;

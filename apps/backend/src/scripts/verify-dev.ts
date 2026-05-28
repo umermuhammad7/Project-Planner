@@ -37,6 +37,7 @@ try {
   const events = await injectJson("/families/00000000-0000-4000-8000-000000000201/events");
   const chores = await injectJson("/families/00000000-0000-4000-8000-000000000201/chores/today");
   const lists = await injectJson("/families/00000000-0000-4000-8000-000000000201/lists");
+  const meals = await injectJson("/families/00000000-0000-4000-8000-000000000201/meals?weekStart=2026-05-25");
 
   assert.equal(health.status, 200, "health route did not return 200");
   assert.ok(isHealthPayload(health.payload), "health payload shape was invalid");
@@ -62,6 +63,9 @@ try {
     assert.ok(Array.isArray(list.items), `list ${list.id} is missing items`);
   }
 
+  assert.equal(meals.status, 200, "meals route did not return 200");
+  assert.ok(isMealsPayload(meals.payload), "meals payload shape was invalid");
+
   console.log(
     JSON.stringify(
       {
@@ -72,7 +76,8 @@ try {
           events: events.payload.events.length,
           chores: chores.payload.chores.length,
           lists: lists.payload.lists.length,
-          listItems: lists.payload.lists.reduce((count, list) => count + list.items.length, 0)
+          listItems: lists.payload.lists.reduce((count, list) => count + list.items.length, 0),
+          meals: meals.payload.items.length
         }
       },
       null,
@@ -143,5 +148,23 @@ function isListsPayload(value: unknown): value is {
       typeof list.type === "string" &&
       Array.isArray(list.items) &&
       list.items.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.content === "string")
+  );
+}
+
+function isMealsPayload(value: unknown): value is {
+  weekStart: string;
+  items: Array<{ id: string; dayOfWeek: number; mealType: string; customTitle: string | null }>;
+} {
+  if (!isRecord(value) || typeof value.weekStart !== "string" || !Array.isArray(value.items)) {
+    return false;
+  }
+
+  return value.items.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.id === "string" &&
+      typeof item.dayOfWeek === "number" &&
+      typeof item.mealType === "string" &&
+      ("customTitle" in item ? item.customTitle === null || typeof item.customTitle === "string" : true)
   );
 }

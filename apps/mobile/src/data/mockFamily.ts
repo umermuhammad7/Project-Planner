@@ -1,4 +1,4 @@
-import { Chore, FamilyMember, PlanEvent, ShoppingItem, TextUpdate } from "../types";
+import { Chore, FamilyMember, MealPlanItem, PlanEvent, ShoppingItem, TextUpdate } from "../types";
 import { colors } from "../constants/theme";
 
 export const members: FamilyMember[] = [
@@ -114,6 +114,30 @@ export const shoppingItems: ShoppingItem[] = [
     category: "Household",
     addedBy: "nana",
     checked: true
+  }
+];
+
+export const mealPlanItems: MealPlanItem[] = [
+  {
+    id: "meal-mon-dinner",
+    dayOfWeek: 0,
+    mealType: "dinner",
+    title: "Sheet-pan chicken fajitas",
+    notes: "Double peppers for leftovers"
+  },
+  {
+    id: "meal-tue-dinner",
+    dayOfWeek: 1,
+    mealType: "dinner",
+    title: "Pasta night",
+    notes: "Use the spinach in the fridge"
+  },
+  {
+    id: "meal-wed-dinner",
+    dayOfWeek: 2,
+    mealType: "dinner",
+    title: "Breakfast-for-dinner",
+    notes: "Pancakes and fruit"
   }
 ];
 

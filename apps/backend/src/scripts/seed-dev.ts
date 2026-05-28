@@ -2,7 +2,20 @@ import "dotenv/config";
 import { eq } from "drizzle-orm";
 
 import { db, pool } from "../db/client.js";
-import { choreCompletions, chores, eventMembers, events, families, familyMembers, lists, listItems, rewards, users } from "../db/schema.js";
+import {
+  choreCompletions,
+  chores,
+  eventMembers,
+  events,
+  families,
+  familyMembers,
+  listItems,
+  lists,
+  mealPlanItems,
+  mealPlans,
+  rewards,
+  users
+} from "../db/schema.js";
 
 const devUserId = "00000000-0000-4000-8000-000000000001";
 const maraMemberId = "00000000-0000-4000-8000-000000000101";
@@ -12,7 +25,15 @@ const familyId = "00000000-0000-4000-8000-000000000201";
 const pickupEventId = "00000000-0000-4000-8000-000000000301";
 const soccerEventId = "00000000-0000-4000-8000-000000000302";
 const dishwasherChoreId = "00000000-0000-4000-8000-000000000401";
+const dishwasherCompletionId = "00000000-0000-4000-8000-000000000402";
+const julesRewardId = "00000000-0000-4000-8000-000000000403";
 const groceryListId = "00000000-0000-4000-8000-000000000501";
+const oatMilkItemId = "00000000-0000-4000-8000-000000000511";
+const bananasItemId = "00000000-0000-4000-8000-000000000512";
+const mealPlanId = "00000000-0000-4000-8000-000000000601";
+const dinnerMondayId = "00000000-0000-4000-8000-000000000611";
+const dinnerTuesdayId = "00000000-0000-4000-8000-000000000612";
+const dinnerWednesdayId = "00000000-0000-4000-8000-000000000613";
 
 try {
   await db.transaction(async (tx) => {
@@ -119,6 +140,7 @@ try {
     await tx
       .insert(choreCompletions)
       .values({
+        id: dishwasherCompletionId,
         choreId: dishwasherChoreId,
         memberId: julesMemberId,
         dueDate: "2026-06-01",
@@ -129,6 +151,7 @@ try {
     await tx
       .insert(rewards)
       .values({
+        id: julesRewardId,
         familyId,
         memberId: julesMemberId,
         stars: 2,
@@ -152,6 +175,7 @@ try {
       .insert(listItems)
       .values([
         {
+          id: oatMilkItemId,
           listId: groceryListId,
           content: "Oat milk",
           category: "dairy",
@@ -159,11 +183,52 @@ try {
           sortOrder: 1
         },
         {
+          id: bananasItemId,
           listId: groceryListId,
           content: "Bananas",
           category: "produce",
           createdBy: devUserId,
           sortOrder: 2
+        }
+      ])
+      .onConflictDoNothing();
+
+    await tx
+      .insert(mealPlans)
+      .values({
+        id: mealPlanId,
+        familyId,
+        weekStart: "2026-05-25",
+        createdBy: devUserId
+      })
+      .onConflictDoNothing();
+
+    await tx
+      .insert(mealPlanItems)
+      .values([
+        {
+          id: dinnerMondayId,
+          planId: mealPlanId,
+          dayOfWeek: 0,
+          mealType: "dinner",
+          customTitle: "Sheet-pan chicken fajitas",
+          notes: "Double peppers for leftovers"
+        },
+        {
+          id: dinnerTuesdayId,
+          planId: mealPlanId,
+          dayOfWeek: 1,
+          mealType: "dinner",
+          customTitle: "Pasta night",
+          notes: "Use the spinach in the fridge"
+        },
+        {
+          id: dinnerWednesdayId,
+          planId: mealPlanId,
+          dayOfWeek: 2,
+          mealType: "dinner",
+          customTitle: "Breakfast-for-dinner",
+          notes: "Pancakes and fruit"
         }
       ])
       .onConflictDoNothing();

@@ -128,6 +128,22 @@ describe("HomeThread mobile store semantics", () => {
               ]
             }
           };
+        case "/families/00000000-0000-4000-8000-000000000201/meals?weekStart=2026-05-26":
+        case "/families/00000000-0000-4000-8000-000000000201/meals?weekStart=2026-05-25":
+          return {
+            data: {
+              weekStart: "2026-05-25",
+              items: [
+                {
+                  id: "meal-1",
+                  dayOfWeek: 0,
+                  mealType: "dinner",
+                  customTitle: "Taco Tuesday prep",
+                  notes: "Marinate ahead"
+                }
+              ]
+            }
+          };
         default:
           throw new Error(`Unexpected path: ${path}`);
       }
@@ -142,6 +158,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.shoppingItems.map((item: { title: string }) => item.title)).toEqual(["Light bulbs", "AA batteries"]);
     expect(state.listItemsByListId["list-grocery"]?.map((item: { title: string }) => item.title)).toEqual(["Milk"]);
     expect(state.events[0]?.assignedTo).toEqual(["member-kid"]);
+    expect(state.meals[0]?.title).toBe("Taco Tuesday prep");
     expect(state.chores[0]?.completed).toBe(true);
     expect(state.syncMessage).toContain("2 lists");
     expect(state.syncMessage).toContain("3 items");
@@ -402,5 +419,80 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.shoppingItems.map((item) => item.title)).toEqual(["Milk"]);
     expect(state.listItemsByListId["list-grocery"]?.map((item) => item.title)).toEqual(["Milk"]);
     expect(state.saveMessage).toBe("Cleared 1 checked item");
+  });
+
+  it("saves a new meal plan item for the active week", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      mealWeekStart: "2026-05-25",
+      meals: [
+        {
+          id: "meal-1",
+          dayOfWeek: 0,
+          mealType: "dinner",
+          title: "Sheet-pan chicken fajitas",
+          notes: "Double peppers"
+        }
+      ]
+    });
+
+    apiRequestMock.mockResolvedValue({
+      data: {
+        weekStart: "2026-05-25",
+        items: [
+          {
+            id: "meal-1",
+            dayOfWeek: 0,
+            mealType: "dinner",
+            customTitle: "Sheet-pan chicken fajitas",
+            notes: "Double peppers"
+          },
+          {
+            id: "meal-2",
+            dayOfWeek: 2,
+            mealType: "dinner",
+            customTitle: "Pasta night",
+            notes: null
+          }
+        ]
+      }
+    });
+
+    const saved = await useHomeThreadStore.getState().createMeal({
+      dayOfWeek: 2,
+      mealType: "dinner",
+      title: "Pasta night"
+    });
+
+    const state = useHomeThreadStore.getState();
+    expect(saved).toBe(true);
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/families/family-1/meals",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          weekStart: "2026-05-25",
+          items: [
+            {
+              dayOfWeek: 0,
+              mealType: "dinner",
+              customTitle: "Sheet-pan chicken fajitas",
+              notes: "Double peppers",
+              recipeId: null
+            },
+            {
+              dayOfWeek: 2,
+              mealType: "dinner",
+              customTitle: "Pasta night",
+              notes: null,
+              recipeId: null
+            }
+          ]
+        })
+      })
+    );
+    expect(state.meals.map((meal) => meal.title)).toEqual(["Sheet-pan chicken fajitas", "Pasta night"]);
+    expect(state.saveMessage).toBe("Saved meal plan to local database");
   });
 });

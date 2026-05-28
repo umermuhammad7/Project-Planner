@@ -11,6 +11,7 @@ import { eventsRoutes } from "./routes/events.js";
 import { familiesRoutes } from "./routes/families.js";
 import { healthRoutes } from "./routes/health.js";
 import { listsRoutes } from "./routes/lists.js";
+import { mealsRoutes } from "./routes/meals.js";
 import { membersRoutes } from "./routes/members.js";
 
 export function buildApp() {
@@ -43,6 +44,7 @@ export function buildApp() {
   app.register(eventsRoutes, { prefix: "/api/v1/families/:familyId/events" });
   app.register(choresRoutes, { prefix: "/api/v1/families/:familyId/chores" });
   app.register(listsRoutes, { prefix: "/api/v1/families/:familyId/lists" });
+  app.register(mealsRoutes, { prefix: "/api/v1/families/:familyId/meals" });
 
   return app;
 }

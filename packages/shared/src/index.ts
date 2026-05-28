@@ -8,6 +8,7 @@ export const subscriptionStatusSchema = z.enum(["free", "plus", "cancelled"]);
 export const listTypeSchema = z.enum(["grocery", "todo", "packing", "custom"]);
 export const externalCalendarSourceSchema = z.enum(["google", "apple", "outlook"]);
 export const completionScopeSchema = z.enum(["this", "future", "all"]).default("this");
+export const mealTypeSchema = z.enum(["breakfast", "lunch", "dinner", "snack"]);
 
 export const errorResponseSchema = z.object({
   error: z.string(),
@@ -130,6 +131,25 @@ export const updateListItemSchema = z.object({
   sortOrder: z.int().min(0).max(100000).optional()
 }).refine((value) => Object.keys(value).length > 0, "At least one list item field is required");
 
+export const mealWeekQuerySchema = z.object({
+  weekStart: z.iso.date().optional()
+});
+
+export const mealPlanItemInputSchema = z.object({
+  dayOfWeek: z.int().min(0).max(6),
+  mealType: mealTypeSchema,
+  recipeId: uuidSchema.optional().nullable(),
+  customTitle: z.string().min(1).max(160).optional().nullable(),
+  notes: z.string().max(500).optional().nullable()
+}).refine((value) => Boolean(value.recipeId || value.customTitle), {
+  message: "A meal item needs either a recipeId or customTitle"
+});
+
+export const saveMealPlanSchema = z.object({
+  weekStart: z.iso.date(),
+  items: z.array(mealPlanItemInputSchema).max(28)
+});
+
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
@@ -144,3 +164,6 @@ export type CreateListInput = z.infer<typeof createListSchema>;
 export type UpdateListInput = z.infer<typeof updateListSchema>;
 export type CreateListItemInput = z.infer<typeof createListItemSchema>;
 export type UpdateListItemInput = z.infer<typeof updateListItemSchema>;
+export type MealWeekQueryInput = z.infer<typeof mealWeekQuerySchema>;
+export type MealPlanItemInput = z.infer<typeof mealPlanItemInputSchema>;
+export type SaveMealPlanInput = z.infer<typeof saveMealPlanSchema>;

@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import {
   chores as initialChores,
+  mealPlanItems as initialMealPlanItems,
   members as initialMembers,
   planEvents as initialEvents,
   shoppingItems as initialShopping,
@@ -14,6 +15,7 @@ import {
   Chore,
   FamilyList,
   FamilyMember,
+  MealPlanItem,
   PlanEvent,
   ShoppingItem,
   SyncSource,
@@ -40,6 +42,8 @@ type HomeThreadState = {
   familyName: string;
   members: FamilyMember[];
   events: PlanEvent[];
+  mealWeekStart: string;
+  meals: MealPlanItem[];
   chores: Chore[];
   completedChoreIds: Record<string, true>;
   shoppingItems: ShoppingItem[];
@@ -60,6 +64,7 @@ type HomeThreadState = {
   selectList: (listId: string) => void;
   createList: (input: { title: string; type: FamilyList["type"] }) => Promise<boolean>;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
+  createMeal: (input: { dayOfWeek: number; mealType: MealPlanItem["mealType"]; title: string; notes?: string }) => Promise<boolean>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
   sendDigestToThread: () => string;
@@ -75,6 +80,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   familyName: "The Parker Home",
   members: initialMembers,
   events: initialEvents,
+  mealWeekStart: "2026-05-25",
+  meals: initialMealPlanItems,
   chores: initialChores,
   completedChoreIds: {},
   shoppingItems: initialMockListItemsByListId[mockGroceryListId] ?? [],
@@ -90,20 +97,22 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       syncMessage: "Checking local HomeThread backend..."
     });
 
-    const [familyResult, eventsResult, choresResult, listsResult] = await Promise.all([
+    const [familyResult, eventsResult, choresResult, listsResult, mealsResult] = await Promise.all([
       apiRequest<BackendFamilyResponse>(`/families/${defaultFamilyId}`),
       apiRequest<BackendEventsResponse>(`/families/${defaultFamilyId}/events`),
       apiRequest<BackendChoresResponse>(`/families/${defaultFamilyId}/chores/today`),
-      apiRequest<BackendListsResponse>(`/families/${defaultFamilyId}/lists`)
+      apiRequest<BackendListsResponse>(`/families/${defaultFamilyId}/lists`),
+      apiRequest<BackendMealsResponse>(`/families/${defaultFamilyId}/meals?weekStart=${currentWeekStart()}`)
     ]);
 
-    if (!familyResult.data || !eventsResult.data || !choresResult.data || !listsResult.data) {
+    if (!familyResult.data || !eventsResult.data || !choresResult.data || !listsResult.data || !mealsResult.data) {
       const previous = get();
       const failureMessage =
         familyResult.error?.message ??
         eventsResult.error?.message ??
         choresResult.error?.message ??
         listsResult.error?.message ??
+        mealsResult.error?.message ??
         "Refresh failed";
 
       set({
@@ -143,10 +152,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       familyName: familyResult.data.family.name,
       members: familyResult.data.members.map(mapMember),
       events: eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? [])),
+      mealWeekStart: mealsResult.data.weekStart,
+      meals: mealsResult.data.items.map(mapMeal),
       chores: hydratedChores,
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       syncSource: "api",
-      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
+      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
       isHydrating: false
     });
   },
@@ -613,6 +624,71 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     return true;
   },
+  createMeal: async ({ dayOfWeek, mealType, title, notes }) => {
+    const state = get();
+    const trimmed = title.trim();
+    if (!trimmed) {
+      set({ saveMessage: "Meal title is required" });
+      return false;
+    }
+
+    const nextMeals = [
+      ...state.meals,
+      {
+        id: `temp-meal-${Date.now()}`,
+        dayOfWeek,
+        mealType,
+        title: trimmed,
+        notes: notes?.trim() || undefined
+      }
+    ];
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({
+        meals: nextMeals,
+        saveMessage: "Saved meal locally in prototype mode"
+      });
+      return true;
+    }
+
+    set({ isSaving: true, saveMessage: "Saving meal..." });
+
+    const result = await apiRequest<BackendMealsResponse>(`/families/${state.familyId}/meals`, {
+      method: "POST",
+      body: JSON.stringify({
+        weekStart: state.mealWeekStart,
+        items: nextMeals.map((meal) => ({
+          dayOfWeek: meal.dayOfWeek,
+          mealType: meal.mealType,
+          customTitle: meal.title,
+          notes: meal.notes ?? null,
+          recipeId: null
+        }))
+      })
+    });
+
+    if (!result.data) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to save meal" });
+      return false;
+    }
+
+    set((current) => ({
+      mealWeekStart: result.data!.weekStart,
+      meals: result.data!.items.map(mapMeal),
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Added meal: ${trimmed}`,
+          convertedTo: "meal"
+        }),
+        ...current.textUpdates
+      ],
+      isSaving: false,
+      saveMessage: "Saved meal plan to local database"
+    }));
+
+    return true;
+  },
   importText: (body) => {
     const draft = parseFamilyText(body);
     set((state) => ({
@@ -737,6 +813,19 @@ type BackendListRecord = {
 
 type BackendListsResponse = {
   lists: BackendListRecord[];
+};
+
+type BackendMealRecord = {
+  id: string;
+  dayOfWeek: number;
+  mealType: MealPlanItem["mealType"];
+  customTitle: string | null;
+  notes: string | null;
+};
+
+type BackendMealsResponse = {
+  weekStart: string;
+  items: BackendMealRecord[];
 };
 
 type PersistedDraft = {
@@ -1073,6 +1162,16 @@ function mapShoppingItem(item: BackendListItemRecord, listId: string, fallbackMe
   };
 }
 
+function mapMeal(item: BackendMealRecord): MealPlanItem {
+  return {
+    id: item.id,
+    dayOfWeek: item.dayOfWeek,
+    mealType: item.mealType,
+    title: item.customTitle ?? "Planned meal",
+    notes: item.notes ?? undefined
+  };
+}
+
 function findMemberIdsInText(rawText: string, members: FamilyMember[]) {
   const lower = rawText.toLowerCase();
   return members
@@ -1235,6 +1334,16 @@ function formatISODate(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function currentWeekStart() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diff);
+  monday.setHours(0, 0, 0, 0);
+  return formatISODate(monday);
 }
 
 function dedupeMemberIds(memberIds?: string[]) {
