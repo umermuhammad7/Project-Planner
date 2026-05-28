@@ -12,6 +12,7 @@ export function ChoresScreen() {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [dueTime, setDueTime] = useState("");
+  const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
 
   return (
@@ -49,16 +50,40 @@ export function ChoresScreen() {
             onChangeText={setDueTime}
             style={styles.input}
           />
+          <Text style={styles.pickerLabel}>Assign to</Text>
+          <View style={styles.pickerRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear assignee"
+              onPress={() => setAssignedTo(null)}
+            >
+              <Pill label="Unassigned" tone={assignedTo === null ? "primary" : "neutral"} />
+            </Pressable>
+            {members.map((member) => {
+              const selected = assignedTo === member.id;
+              return (
+                <Pressable
+                  key={member.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${selected ? "Selected" : "Select"} ${member.name} as assignee`}
+                  onPress={() => setAssignedTo(member.id)}
+                >
+                  <Pill label={member.name} tone={selected ? "primary" : "neutral"} />
+                </Pressable>
+              );
+            })}
+          </View>
           <View style={styles.formActions}>
             <PrimaryButton
               label={isSaving ? "Creating..." : "Create"}
               icon="checkmark"
               onPress={() => {
                 if (!canSubmit || isSaving) return;
-                void createChore({ title, dueTime }).then((ok) => {
+                void createChore({ title, dueTime, assignedTo }).then((ok) => {
                   if (!ok) return;
                   setTitle("");
                   setDueTime("");
+                  setAssignedTo(null);
                   setShowForm(false);
                 });
               }}
@@ -164,6 +189,18 @@ const styles = StyleSheet.create({
   },
   formActions: {
     marginTop: spacing.lg
+  },
+  pickerLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: spacing.lg
+  },
+  pickerRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm
   },
   stack: {
     gap: spacing.md

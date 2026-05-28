@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
@@ -11,8 +11,12 @@ export function PlanScreen() {
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [startTime, setStartTime] = useState("");
+  const [memberIds, setMemberIds] = useState<string[]>([]);
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
+  const toggleMember = (id: string) => {
+    setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+  };
 
   return (
     <View>
@@ -57,17 +61,34 @@ export function PlanScreen() {
             onChangeText={setStartTime}
             style={styles.input}
           />
+          <Text style={styles.pickerLabel}>Assign to</Text>
+          <View style={styles.pickerRow}>
+            {members.map((member) => {
+              const selected = memberIds.includes(member.id);
+              return (
+                <Pressable
+                  key={member.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${selected ? "Remove" : "Add"} ${member.name} to event`}
+                  onPress={() => toggleMember(member.id)}
+                >
+                  <Pill label={member.name} tone={selected ? "primary" : "neutral"} />
+                </Pressable>
+              );
+            })}
+          </View>
           <View style={styles.formActions}>
             <PrimaryButton
               label={isSaving ? "Creating..." : "Create"}
               icon="checkmark"
               onPress={() => {
                 if (!canSubmit || isSaving) return;
-                void createEvent({ title, location, startTime }).then((ok) => {
+                void createEvent({ title, location, startTime, memberIds }).then((ok) => {
                   if (!ok) return;
                   setTitle("");
                   setLocation("");
                   setStartTime("");
+                  setMemberIds([]);
                   setShowForm(false);
                 });
               }}
@@ -166,6 +187,18 @@ const styles = StyleSheet.create({
   },
   formActions: {
     marginTop: spacing.lg
+  },
+  pickerLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: spacing.lg
+  },
+  pickerRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm
   },
   peopleRow: {
     flexDirection: "row",

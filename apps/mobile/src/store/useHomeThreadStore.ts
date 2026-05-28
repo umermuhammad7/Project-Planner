@@ -33,7 +33,7 @@ type HomeThreadState = {
   saveMessage: string;
   hydrateFromBackend: () => Promise<void>;
   refreshFromBackend: () => Promise<void>;
-  createEvent: (input: { title: string; location?: string; startTime?: string }) => Promise<boolean>;
+  createEvent: (input: { title: string; location?: string; startTime?: string; memberIds?: string[] }) => Promise<boolean>;
   createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<boolean>;
   completeChore: (id: string) => Promise<void>;
   toggleChore: (id: string) => void;
@@ -114,7 +114,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   refreshFromBackend: async () => {
     await get().hydrateFromBackend();
   },
-  createEvent: async ({ title, location, startTime }) => {
+  createEvent: async ({ title, location, startTime, memberIds: rawMemberIds }) => {
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
       set({
@@ -136,6 +136,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return false;
     }
 
+    const memberIds = dedupeMemberIds(rawMemberIds);
+
     set({ isSaving: true, saveMessage: "Creating event..." });
 
     const endAt = new Date(startAt!.getTime() + 60 * 60 * 1000);
@@ -148,7 +150,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         startAt: startAt!.toISOString(),
         endAt: endAt.toISOString(),
         allDay: false,
-        memberIds: []
+        memberIds
       })
     });
 
@@ -158,7 +160,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     set((current) => ({
-      events: [mapEvent(result.data!.event, [], "manual"), ...current.events],
+      events: [mapEvent(result.data!.event, memberIds, "manual"), ...current.events],
       isSaving: false,
       saveMessage: "Saved event to local database"
     }));
@@ -939,4 +941,9 @@ function formatISODate(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function dedupeMemberIds(memberIds?: string[]) {
+  if (!memberIds || memberIds.length === 0) return [];
+  return Array.from(new Set(memberIds.filter(Boolean)));
 }
