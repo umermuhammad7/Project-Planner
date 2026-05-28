@@ -11,7 +11,7 @@ export function OfflineBanner({ visible }: { visible: boolean }) {
   return (
     <View style={styles.banner}>
       <Ionicons name="cloud-offline" size={18} color={colors.ink} />
-      <Text style={styles.text}>Offline changes will sync when your connection returns.</Text>
+      <Text style={styles.text}>Not connected to the local backend — changes may not sync.</Text>
     </View>
   );
 }

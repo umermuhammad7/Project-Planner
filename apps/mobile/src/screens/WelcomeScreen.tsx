@@ -41,7 +41,7 @@ export function WelcomeScreen({ onComplete }: { onComplete: () => void }) {
             <View style={[styles.progressFill, { width: `${((step + 1) / onboardingSteps.length) * 100}%` }]} />
           </View>
           <Text style={styles.cardText}>
-            This local setup mirrors the handoff onboarding flow. Backend persistence is wired through the Phase 1 API foundation.
+            This is a lightweight, local-dev onboarding flow to get you into the family workspace quickly.
           </Text>
         </Card>
         <View style={styles.actions}>
@@ -64,9 +64,9 @@ export function WelcomeScreen({ onComplete }: { onComplete: () => void }) {
   if (mode === "login" || mode === "register") {
     return (
       <View style={styles.screen}>
-        <Text style={styles.title}>{mode === "login" ? "Welcome back" : "Start your home thread"}</Text>
+        <Text style={styles.title}>{mode === "login" ? "Welcome back" : "Create your HomeThread"}</Text>
         <Text style={styles.subtitle}>
-          Supabase Auth is the production auth provider. This screen is ready for the backend token handoff.
+          Local-dev bootstrap: continue to onboarding, then the app connects to your local HomeThread backend if available.
         </Text>
         <Card>
           <Text style={styles.label}>Email</Text>
@@ -74,7 +74,11 @@ export function WelcomeScreen({ onComplete }: { onComplete: () => void }) {
           <Text style={styles.label}>Password</Text>
           <TextInput style={styles.input} secureTextEntry placeholder="Minimum 8 characters" />
           <View style={styles.formActions}>
-            <PrimaryButton label={mode === "login" ? "Log in" : "Create account"} icon="lock-closed" onPress={() => setMode("onboarding")} />
+            <PrimaryButton
+              label={mode === "login" ? "Continue" : "Continue"}
+              icon="arrow-forward"
+              onPress={() => setMode("onboarding")}
+            />
           </View>
         </Card>
         <Pressable onPress={() => setMode(mode === "login" ? "register" : "login")} style={styles.linkButton}>
@@ -89,13 +93,13 @@ export function WelcomeScreen({ onComplete }: { onComplete: () => void }) {
       <Text style={styles.kicker}>HomeThread</Text>
       <Text style={styles.title}>Keep the day moving together.</Text>
       <Text style={styles.subtitle}>
-        A shared family plan that also works through the text thread your household already uses.
+        A shared family plan for events, chores, and lists — backed by your local HomeThread database in dev.
       </Text>
       <SectionTitle title="Built for real households" />
       <Card>
-        <Text style={styles.cardTitle}>Calendar, chores, lists, and SMS updates in one place.</Text>
+        <Text style={styles.cardTitle}>Calendar, chores, lists, and the shared thread.</Text>
         <Text style={styles.cardText}>
-          Parents, kids, co-parents, and caregivers can all see what changed without hunting through separate apps.
+          Everyone can see what changed without hunting through separate apps — and you can refresh from the local backend when it’s running.
         </Text>
       </Card>
       <View style={styles.actions}>

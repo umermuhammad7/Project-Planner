@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
-import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { IconButton } from "./src/components/Primitives";
 import { colors, spacing } from "./src/constants/theme";
@@ -31,6 +31,9 @@ export default function App() {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
+  const isHydrating = useHomeThreadStore((state) => state.isHydrating);
+  const syncMessage = useHomeThreadStore((state) => state.syncMessage);
+  const syncSource = useHomeThreadStore((state) => state.syncSource);
 
   useEffect(() => {
     if (hasCompletedOnboarding) {
@@ -47,6 +50,8 @@ export default function App() {
     return <HomeScreen goTo={setActiveTab} />;
   }, [activeTab]);
 
+  const showConnecting = hasCompletedOnboarding && isHydrating;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
@@ -59,8 +64,19 @@ export default function App() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <OfflineBanner visible={false} />
-          {hasCompletedOnboarding ? content : <WelcomeScreen onComplete={() => setHasCompletedOnboarding(true)} />}
+          <OfflineBanner visible={hasCompletedOnboarding && !isHydrating && syncSource !== "api"} />
+          {hasCompletedOnboarding ? (
+            showConnecting ? (
+              <View style={styles.connecting}>
+                <Text style={styles.connectingTitle}>Connecting to HomeThread…</Text>
+                <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
+              </View>
+            ) : (
+              content
+            )
+          ) : (
+            <WelcomeScreen onComplete={() => setHasCompletedOnboarding(true)} />
+          )}
         </ScrollView>
         {hasCompletedOnboarding ? (
           <View style={styles.tabBar}>
@@ -91,6 +107,21 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     paddingBottom: 118
+  },
+  connecting: {
+    paddingTop: spacing.lg
+  },
+  connectingTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: "900",
+    lineHeight: 28
+  },
+  connectingSubtitle: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: spacing.sm
   },
   tabBar: {
     backgroundColor: colors.surface,
