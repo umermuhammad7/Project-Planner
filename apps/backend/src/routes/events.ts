@@ -44,16 +44,32 @@ export async function eventsRoutes(app: FastifyInstance) {
       orderBy: asc(events.startAt)
     });
 
-    if (!query.memberId) {
-      return { events: rows };
+    if (rows.length === 0) {
+      return { events: [] };
     }
 
     const memberships = await db.query.eventMembers.findMany({
-      where: eq(eventMembers.memberId, query.memberId)
+      where: inArray(
+        eventMembers.eventId,
+        rows.map((event) => event.id)
+      )
     });
-    const ids = new Set(memberships.map((item) => item.eventId));
 
-    return { events: rows.filter((event) => ids.has(event.id)) };
+    const memberIdsByEventId = memberships.reduce<Record<string, string[]>>((grouped, membership) => {
+      grouped[membership.eventId] = [...(grouped[membership.eventId] ?? []), membership.memberId];
+      return grouped;
+    }, {});
+
+    const hydrated = rows.map((event) => ({
+      ...event,
+      memberIds: memberIdsByEventId[event.id] ?? []
+    }));
+
+    if (!query.memberId) {
+      return { events: hydrated };
+    }
+
+    return { events: hydrated.filter((event) => event.memberIds.includes(query.memberId!)) };
   });
 
   app.post("/", async (request, reply) => {

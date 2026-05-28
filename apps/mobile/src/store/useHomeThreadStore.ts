@@ -107,7 +107,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       groceryListId: groceryList?.id ?? null,
       familyName: familyResult.data.family.name,
       members: familyResult.data.members.map(mapMember),
-      events: eventsResult.data.events.map((event) => mapEvent(event)),
+      events: eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? [])),
       chores: hydratedChores,
       shoppingItems: groceryList
         ? groceryList.items.map((item) => mapShoppingItem(item, groceryList.id, currentMember?.id ?? "family"))
@@ -528,6 +528,7 @@ type BackendEventRecord = {
   title: string;
   location: string | null;
   startAt: string;
+  memberIds: string[];
 };
 
 type BackendEventsResponse = {
