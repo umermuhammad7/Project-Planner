@@ -274,4 +274,70 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.shoppingItems.map((item: { title: string }) => item.title)).toEqual(["Bread"]);
     expect(state.listItemsByListId["list-created"]?.map((item: { title: string }) => item.title)).toEqual(["Bread"]);
   });
+
+  it("creates a new custom list and switches the active view to it", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      currentMemberId: "member-parent",
+      groceryListId: "list-grocery",
+      selectedListId: "list-grocery",
+      lists: [{ id: "list-grocery", title: "Groceries", type: "grocery", icon: "basket" }],
+      listItemsByListId: {
+        "list-grocery": [
+          {
+            id: "item-milk",
+            backendListId: "list-grocery",
+            title: "Milk",
+            category: "Dairy",
+            addedBy: "member-parent",
+            checked: false
+          }
+        ]
+      },
+      shoppingItems: [
+        {
+          id: "item-milk",
+          backendListId: "list-grocery",
+          title: "Milk",
+          category: "Dairy",
+          addedBy: "member-parent",
+          checked: false
+        }
+      ]
+    });
+
+    apiRequestMock.mockResolvedValue({
+      data: {
+        list: {
+          id: "list-camping",
+          title: "Camping weekend",
+          type: "packing",
+          icon: "briefcase"
+        }
+      }
+    });
+
+    const created = await useHomeThreadStore.getState().createList({ title: "Camping weekend", type: "packing" });
+
+    const state = useHomeThreadStore.getState();
+    expect(created).toBe(true);
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/families/family-1/lists",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Camping weekend",
+          type: "packing",
+          icon: "briefcase",
+          isShared: true
+        })
+      })
+    );
+    expect(state.selectedListId).toBe("list-camping");
+    expect(state.shoppingItems).toEqual([]);
+    expect(state.lists.map((list) => list.title)).toEqual(["Groceries", "Camping weekend"]);
+    expect(state.listItemsByListId["list-camping"]).toEqual([]);
+    expect(state.saveMessage).toBe("Created Camping weekend");
+  });
 });

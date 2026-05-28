@@ -11,6 +11,7 @@ export function ListsScreen() {
     lists,
     selectedListId,
     selectList,
+    createList,
     shoppingItems,
     members,
     toggleShoppingItem,
@@ -23,7 +24,10 @@ export function ListsScreen() {
     syncMessage
   } = useHomeThreadStore();
   const [newItem, setNewItem] = useState("");
+  const [newListTitle, setNewListTitle] = useState("");
+  const [newListType, setNewListType] = useState<"grocery" | "todo" | "packing" | "custom">("grocery");
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
+  const canCreateList = useMemo(() => newListTitle.trim().length > 0, [newListTitle]);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
     groups[item.category] = [...(groups[item.category] ?? []), item];
@@ -48,6 +52,59 @@ export function ListsScreen() {
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <Card>
+        <Text style={styles.formTitle}>Create list</Text>
+        <TextInput
+          accessibilityLabel="New list title"
+          placeholder="e.g. Camping weekend"
+          placeholderTextColor={colors.muted}
+          value={newListTitle}
+          onChangeText={setNewListTitle}
+          style={styles.input}
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            if (!canCreateList || isSaving) return;
+            void createList({ title: newListTitle, type: newListType }).then((ok) => {
+              if (ok) {
+                setNewListTitle("");
+                setNewListType("grocery");
+              }
+            });
+          }}
+        />
+        <Text style={styles.pickerLabel}>Type</Text>
+        <View style={styles.pickerRow}>
+          {(["grocery", "todo", "packing", "custom"] as const).map((type) => {
+            const selected = type === newListType;
+            return (
+              <Pressable
+                key={type}
+                accessibilityRole="button"
+                accessibilityLabel={`${selected ? "Selected" : "Select"} ${type} list type`}
+                onPress={() => setNewListType(type)}
+              >
+                <Pill label={type === "todo" ? "to-do" : type} tone={selected ? "primary" : "neutral"} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.formActions}>
+          <PrimaryButton
+            label={isSaving ? "Creating..." : "Create list"}
+            icon="add-circle"
+            onPress={() => {
+              if (!canCreateList || isSaving) return;
+              void createList({ title: newListTitle, type: newListType }).then((ok) => {
+                if (ok) {
+                  setNewListTitle("");
+                  setNewListType("grocery");
+                }
+              });
+            }}
+          />
+        </View>
+      </Card>
 
       {lists.length > 0 ? (
         <>

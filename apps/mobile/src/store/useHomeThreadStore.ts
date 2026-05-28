@@ -57,6 +57,7 @@ type HomeThreadState = {
   toggleChore: (id: string) => void;
   toggleShoppingItem: (id: string) => Promise<void>;
   selectList: (listId: string) => void;
+  createList: (input: { title: string; type: FamilyList["type"] }) => Promise<boolean>;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
   importText: (body: string) => AssistantDraft;
   commitDraft: (draft: AssistantDraft) => Promise<void>;
@@ -362,6 +363,56 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       selectedListId: listId,
       shoppingItems: state.listItemsByListId[listId] ?? []
     });
+  },
+  createList: async ({ title, type }) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      set({ saveMessage: "List name is required" });
+      return false;
+    }
+
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      set({ saveMessage: "Backend sync is unavailable â€” list was not created" });
+      return false;
+    }
+
+    set({ isSaving: true, saveMessage: "Creating list..." });
+
+    const result = await apiRequest<{ list: Omit<BackendListRecord, "items"> }>(`/families/${state.familyId}/lists`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: trimmed,
+        type,
+        icon: iconForListType(type),
+        isShared: true
+      })
+    });
+
+    if (!result.data?.list) {
+      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create list" });
+      return false;
+    }
+
+    const createdList = mapList(result.data.list);
+    set((current) => ({
+      lists: [...current.lists, createdList],
+      selectedListId: createdList.id,
+      listItemsByListId: replaceListItems(current.listItemsByListId, createdList.id, []),
+      shoppingItems: [],
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Created list: ${trimmed}`,
+          convertedTo: "list"
+        }),
+        ...current.textUpdates
+      ],
+      isSaving: false,
+      saveMessage: `Created ${trimmed}`
+    }));
+
+    return true;
   },
   toggleShoppingItem: async (id) => {
     const target = get().shoppingItems.find((item) => item.id === id);
@@ -798,6 +849,13 @@ function mapList(list: BackendListRecord): FamilyList {
     type: list.type,
     icon: list.icon ?? null
   };
+}
+
+function iconForListType(type: FamilyList["type"]) {
+  if (type === "grocery") return "basket";
+  if (type === "todo") return "checkbox";
+  if (type === "packing") return "briefcase";
+  return "list";
 }
 
 function applyPersistedDraft(
