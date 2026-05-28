@@ -74,15 +74,21 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     ]);
 
     if (!familyResult.data || !eventsResult.data || !choresResult.data || !listsResult.data) {
+      const previous = get();
+      const failureMessage =
+        familyResult.error?.message ??
+        eventsResult.error?.message ??
+        choresResult.error?.message ??
+        listsResult.error?.message ??
+        "Refresh failed";
+
       set({
         isHydrating: false,
-        syncSource: "mock",
+        syncSource: previous.syncSource === "api" ? "api" : "mock",
         syncMessage:
-          familyResult.error?.message ??
-          eventsResult.error?.message ??
-          choresResult.error?.message ??
-          listsResult.error?.message ??
-          "Falling back to mock data"
+          previous.syncSource === "api"
+            ? `Refresh failed — showing last synced data (${failureMessage})`
+            : failureMessage || "Falling back to mock data"
       });
       return;
     }
