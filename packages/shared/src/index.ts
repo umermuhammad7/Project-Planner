@@ -248,6 +248,27 @@ export const assistantMealSuggestResponseSchema = z.object({
   suggestions: z.array(assistantMealSuggestionItemSchema).max(7).nullable()
 });
 
+export const recipeImportSourceSchema = z.enum(["text", "url"]);
+
+export const recipeImportRequestSchema = z.discriminatedUnion("source", [
+  z.object({
+    source: z.literal("text"),
+    text: z.string().min(1).max(12000)
+  }),
+  z.object({
+    source: z.literal("url"),
+    url: z.url().max(2000)
+  })
+]);
+
+export const recipeImportResponseSchema = z.object({
+  mode: z.enum(["ai", "local"]),
+  provider: z.string().nullable(),
+  message: z.string(),
+  source: recipeImportSourceSchema,
+  recipe: createRecipeSchema.nullable()
+});
+
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
@@ -279,3 +300,33 @@ export type AssistantAssistResponse = z.infer<typeof assistantAssistResponseSche
 export type AssistantMealSuggestionItem = z.infer<typeof assistantMealSuggestionItemSchema>;
 export type AssistantMealSuggestRequest = z.infer<typeof assistantMealSuggestRequestSchema>;
 export type AssistantMealSuggestResponse = z.infer<typeof assistantMealSuggestResponseSchema>;
+export type RecipeImportSource = z.infer<typeof recipeImportSourceSchema>;
+export type RecipeImportRequest = z.infer<typeof recipeImportRequestSchema>;
+export type RecipeImportDraft = z.infer<typeof createRecipeSchema>;
+export type RecipeImportResponse = z.infer<typeof recipeImportResponseSchema>;
+
+export function buildCreateRecipeRequestBody(input: CreateRecipeInput): CreateRecipeInput {
+  const body: CreateRecipeInput = {
+    title: input.title.trim(),
+    description: input.description?.trim() || null,
+    ingredients: input.ingredients
+  };
+
+  if (input.instructions && input.instructions.length > 0) {
+    body.instructions = input.instructions;
+  }
+
+  if (input.prepTimeMinutes != null) {
+    body.prepTimeMinutes = input.prepTimeMinutes;
+  }
+
+  if (input.cookTimeMinutes != null) {
+    body.cookTimeMinutes = input.cookTimeMinutes;
+  }
+
+  if (input.servings != null) {
+    body.servings = input.servings;
+  }
+
+  return body;
+}

@@ -1,3 +1,4 @@
+import { buildCreateRecipeRequestBody } from "@homethread/shared";
 import { format } from "date-fns";
 import { create } from "zustand";
 
@@ -74,7 +75,16 @@ type HomeThreadState = {
     notes?: string;
     recipeId?: string | null;
   }) => Promise<boolean>;
-  createRecipe: (input: { title: string; ingredientNames: string[] }) => Promise<boolean>;
+  createRecipe: (input: {
+    title: string;
+    ingredientNames?: string[];
+    ingredients?: Recipe["ingredients"];
+    description?: string | null;
+    instructions?: Recipe["instructions"];
+    prepTimeMinutes?: number | null;
+    cookTimeMinutes?: number | null;
+    servings?: number | null;
+  }) => Promise<boolean>;
   addMealIngredientsToGrocery: (input: { mealPlanItemId?: string; recipeId?: string }) => Promise<boolean>;
   addWeekMealsToGrocery: () => Promise<boolean>;
   removeMeal: (id: string) => Promise<void>;
@@ -716,13 +726,25 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     return true;
   },
-  createRecipe: async ({ title, ingredientNames }) => {
+  createRecipe: async ({
+    title,
+    ingredientNames = [],
+    ingredients: structuredIngredients,
+    description,
+    instructions,
+    prepTimeMinutes,
+    cookTimeMinutes,
+    servings
+  }) => {
     const state = get();
     const trimmedTitle = title.trim();
-    const ingredients = ingredientNames
-      .map((name) => name.trim())
-      .filter(Boolean)
-      .map((name) => ({ name }));
+    const ingredients =
+      structuredIngredients && structuredIngredients.length > 0
+        ? structuredIngredients
+        : ingredientNames
+            .map((name) => name.trim())
+            .filter(Boolean)
+            .map((name) => ({ name }));
 
     if (!trimmedTitle) {
       set({ saveMessage: "Recipe title is required" });
@@ -734,11 +756,26 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return false;
     }
 
+    const requestBody = buildCreateRecipeRequestBody({
+      title: trimmedTitle,
+      description: description ?? null,
+      ingredients,
+      instructions,
+      prepTimeMinutes,
+      cookTimeMinutes,
+      servings
+    });
+
     if (state.syncSource !== "api" || !state.familyId) {
       const localRecipe: Recipe = {
         id: `temp-recipe-${Date.now()}`,
-        title: trimmedTitle,
-        ingredients
+        title: requestBody.title,
+        description: requestBody.description ?? null,
+        ingredients: requestBody.ingredients,
+        instructions: requestBody.instructions,
+        prepTimeMinutes: requestBody.prepTimeMinutes ?? null,
+        cookTimeMinutes: requestBody.cookTimeMinutes ?? null,
+        servings: requestBody.servings ?? null
       };
       set({
         recipes: [...state.recipes, localRecipe],
@@ -751,10 +788,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const result = await apiRequest<{ recipe: BackendRecipeRecord }>(`/families/${state.familyId}/recipes`, {
       method: "POST",
-      body: JSON.stringify({
-        title: trimmedTitle,
-        ingredients
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!result.data) {
@@ -1229,7 +1263,12 @@ type BackendMealsResponse = {
 type BackendRecipeRecord = {
   id: string;
   title: string;
+  description?: string | null;
   ingredients: RecipeIngredient[];
+  instructions?: Recipe["instructions"];
+  prepTimeMinutes?: number | null;
+  cookTimeMinutes?: number | null;
+  servings?: number | null;
 };
 
 type BackendRecipesResponse = {
@@ -1627,7 +1666,12 @@ function mapRecipe(recipe: BackendRecipeRecord): Recipe {
   return {
     id: recipe.id,
     title: recipe.title,
-    ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : []
+    description: recipe.description ?? null,
+    ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
+    instructions: Array.isArray(recipe.instructions) ? recipe.instructions : undefined,
+    prepTimeMinutes: recipe.prepTimeMinutes ?? null,
+    cookTimeMinutes: recipe.cookTimeMinutes ?? null,
+    servings: recipe.servings ?? null
   };
 }
 

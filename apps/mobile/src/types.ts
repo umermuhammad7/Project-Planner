@@ -54,10 +54,38 @@ export type RecipeIngredient = {
   unit?: string | null;
 };
 
+export type RecipeInstruction = {
+  step?: number;
+  text: string;
+};
+
 export type Recipe = {
   id: string;
   title: string;
+  description?: string | null;
   ingredients: RecipeIngredient[];
+  instructions?: RecipeInstruction[];
+  prepTimeMinutes?: number | null;
+  cookTimeMinutes?: number | null;
+  servings?: number | null;
+};
+
+export type RecipeImportDraft = {
+  title: string;
+  description?: string | null;
+  ingredients: RecipeIngredient[];
+  instructions?: RecipeInstruction[];
+  prepTimeMinutes?: number | null;
+  cookTimeMinutes?: number | null;
+  servings?: number | null;
+};
+
+export type RecipeImportResponse = {
+  mode: "ai" | "local";
+  provider: string | null;
+  message: string;
+  source: "text" | "url";
+  recipe: RecipeImportDraft | null;
 };
 
 export type MealPlanItem = {

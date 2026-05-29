@@ -3,8 +3,9 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { MealType, RecipeIngredient } from "../types";
+import { MealType, RecipeImportDraft, RecipeImportResponse, RecipeIngredient } from "../types";
 
 const ingredientPreviewLimit = 3;
 
@@ -40,6 +41,59 @@ function parseIngredientNames(raw: string) {
     .filter(Boolean);
 }
 
+function formatRecipeTiming(draft: RecipeImportDraft) {
+  const parts: string[] = [];
+  if (draft.prepTimeMinutes != null) {
+    parts.push(`Prep ${draft.prepTimeMinutes} min`);
+  }
+  if (draft.cookTimeMinutes != null) {
+    parts.push(`Cook ${draft.cookTimeMinutes} min`);
+  }
+  if (draft.servings != null) {
+    parts.push(`Serves ${draft.servings}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function parseRecipeTextLocally(text: string): RecipeImportDraft | null {
+  const lines = text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return null;
+  }
+
+  const ingredients: RecipeIngredient[] = [];
+
+  for (const line of lines.slice(1)) {
+    if (/^instructions?\b[:\s]/iu.test(line)) {
+      break;
+    }
+
+    if (/^ingredients?\b[:\s]/iu.test(line)) {
+      continue;
+    }
+
+    for (const part of line.split(",")) {
+      const name = part.trim();
+      if (name) {
+        ingredients.push({ name });
+      }
+    }
+  }
+
+  if (ingredients.length === 0) {
+    return null;
+  }
+
+  return {
+    title: lines[0],
+    ingredients
+  };
+}
+
 export function MealsScreen() {
   const {
     meals,
@@ -61,6 +115,11 @@ export function MealsScreen() {
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [mealType, setMealType] = useState<MealType>("dinner");
   const [plannedRecipeId, setPlannedRecipeId] = useState<string | null>(null);
+  const [importSource, setImportSource] = useState<"text" | "url">("text");
+  const [importInput, setImportInput] = useState("");
+  const [importPreview, setImportPreview] = useState<RecipeImportDraft | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
+  const [isParsingImport, setIsParsingImport] = useState(false);
   const plannedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === plannedRecipeId) ?? null,
     [plannedRecipeId, recipes]
@@ -69,6 +128,10 @@ export function MealsScreen() {
   const canSaveRecipe = useMemo(
     () => recipeTitle.trim().length > 0 && parseIngredientNames(recipeIngredients).length > 0,
     [recipeIngredients, recipeTitle]
+  );
+  const importTimingPreview = useMemo(
+    () => (importPreview ? formatRecipeTiming(importPreview) : null),
+    [importPreview]
   );
 
   const grouped = useMemo(() => {
@@ -88,6 +151,79 @@ export function MealsScreen() {
     if (ok) {
       setTitle("");
       setPlannedRecipeId(null);
+    }
+  }
+
+  async function parseRecipeImport() {
+    const trimmed = importInput.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    setIsParsingImport(true);
+    setImportPreview(null);
+    setImportNote(null);
+
+    if (syncSource !== "api") {
+      if (importSource === "url") {
+        setImportNote(
+          "URL import needs the API backend. HomeThread does not fetch recipe pages in this build — paste the recipe text instead."
+        );
+        setIsParsingImport(false);
+        return;
+      }
+
+      const localRecipe = parseRecipeTextLocally(trimmed);
+      setImportPreview(localRecipe);
+      setImportNote(
+        localRecipe
+          ? "Prototype mode: simple local parse only. Review before saving."
+          : "Add a title on the first line and ingredients on the following lines."
+      );
+      setIsParsingImport(false);
+      return;
+    }
+
+    const payload =
+      importSource === "url"
+        ? { source: "url" as const, url: trimmed }
+        : { source: "text" as const, text: trimmed };
+
+    const result = await apiRequest<RecipeImportResponse>("/ai/recipe-import", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    const response = result.data;
+    setImportNote(
+      response?.message ??
+        result.error?.message ??
+        "Recipe import is unavailable right now."
+    );
+    setImportPreview(response?.recipe ?? null);
+    setIsParsingImport(false);
+  }
+
+  async function saveImportedRecipe() {
+    if (!importPreview) {
+      return;
+    }
+
+    const ok = await createRecipe({
+      title: importPreview.title,
+      ingredients: importPreview.ingredients,
+      description: importPreview.description ?? null,
+      instructions: importPreview.instructions,
+      prepTimeMinutes: importPreview.prepTimeMinutes,
+      cookTimeMinutes: importPreview.cookTimeMinutes,
+      servings: importPreview.servings,
+      ingredientNames: []
+    });
+
+    if (ok) {
+      setImportInput("");
+      setImportPreview(null);
+      setImportNote(null);
     }
   }
 
@@ -119,6 +255,86 @@ export function MealsScreen() {
           />
         </View>
       ) : null}
+
+      <Card>
+        <Text style={styles.formTitle}>Import recipe</Text>
+        <Text style={styles.helperText}>
+          Paste recipe text for AI or simple parsing. URL mode does not fetch web pages in this build.
+        </Text>
+        <View style={styles.pickerRow}>
+          <Pressable accessibilityRole="button" onPress={() => setImportSource("text")}>
+            <Pill label="Paste text" tone={importSource === "text" ? "primary" : "neutral"} />
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => setImportSource("url")}>
+            <Pill label="URL" tone={importSource === "url" ? "primary" : "neutral"} />
+          </Pressable>
+        </View>
+        <TextInput
+          accessibilityLabel={importSource === "text" ? "Recipe text to import" : "Recipe URL"}
+          placeholder={
+            importSource === "text"
+              ? "Title on first line, then ingredients (one per line)"
+              : "https://example.com/recipe"
+          }
+          placeholderTextColor={colors.muted}
+          value={importInput}
+          onChangeText={setImportInput}
+          style={[styles.input, importSource === "text" ? styles.multilineInput : null]}
+          multiline={importSource === "text"}
+          autoCapitalize={importSource === "url" ? "none" : "sentences"}
+        />
+        <View style={styles.formActions}>
+          <PrimaryButton
+            label={isParsingImport ? "Parsing..." : "Parse recipe"}
+            icon="sparkles"
+            onPress={() => {
+              if (isParsingImport) return;
+              void parseRecipeImport();
+            }}
+          />
+        </View>
+        {importNote ? <Text style={styles.importNote}>{importNote}</Text> : null}
+        {importPreview ? (
+          <View style={styles.importPreview}>
+            <Text style={styles.itemTitle}>{importPreview.title}</Text>
+            {importPreview.description ? (
+              <Text style={styles.itemMeta}>{importPreview.description}</Text>
+            ) : null}
+            {importTimingPreview ? <Text style={styles.itemMeta}>{importTimingPreview}</Text> : null}
+            <Text style={styles.pickerLabel}>Ingredients</Text>
+            {importPreview.ingredients.map((ingredient, index) => (
+              <Text key={`${ingredient.name}-${index}`} style={styles.importIngredient}>
+                {formatIngredientLabel(ingredient)}
+              </Text>
+            ))}
+            {importPreview.instructions && importPreview.instructions.length > 0 ? (
+              <>
+                <Text style={styles.pickerLabel}>Steps</Text>
+                {importPreview.instructions.slice(0, 3).map((step, index) => (
+                  <Text key={`${step.text}-${index}`} style={styles.importIngredient}>
+                    {step.step ?? index + 1}. {step.text}
+                  </Text>
+                ))}
+                {importPreview.instructions.length > 3 ? (
+                  <Text style={styles.itemMeta}>
+                    +{importPreview.instructions.length - 3} more steps
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+            <View style={styles.formActions}>
+              <PrimaryButton
+                label={isSaving ? "Saving..." : "Save imported recipe"}
+                icon="checkmark"
+                onPress={() => {
+                  if (isSaving) return;
+                  void saveImportedRecipe();
+                }}
+              />
+            </View>
+          </View>
+        ) : null}
+      </Card>
 
       <Card>
         <Text style={styles.formTitle}>Save recipe</Text>
@@ -398,6 +614,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginTop: spacing.md
+  },
+  importNote: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+    marginTop: spacing.md
+  },
+  importPreview: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    padding: spacing.md
+  },
+  importIngredient: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "700"
   },
   selectedRecipeNote: {
     backgroundColor: colors.canvas,
