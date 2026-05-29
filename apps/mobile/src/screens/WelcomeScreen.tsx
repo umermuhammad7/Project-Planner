@@ -1,30 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
 
-type Mode = "welcome" | "login" | "register" | "onboarding";
-
-const onboardingSteps = [
-  {
-    title: "Create your home",
-    body: "Name the household and set the default timezone for everyone."
-  },
-  {
-    title: "Add family members",
-    body: "Invite adults or add child profiles that do not need their own login yet."
-  },
-  {
-    title: "Connect calendars",
-    body: "Start without sync, or connect Google calendars when credentials are ready."
-  },
-  {
-    title: "Choose the plan",
-    body: "Use the generous free tier first; Plus gates stay feature-flagged from day one."
-  }
-];
+type Mode = "welcome" | "login" | "register" | "family-setup";
+type SetupTab = "create" | "join";
 
 export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const {
@@ -37,14 +19,25 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     signInWithPassword,
     signUpWithPassword,
     signInWithDevToken,
+    createFamily,
+    joinFamily,
     signOut
   } = useAuthStore();
   const [mode, setMode] = useState<Mode>("welcome");
-  const [step, setStep] = useState(0);
+  const [setupTab, setSetupTab] = useState<SetupTab>("create");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [familyName, setFamilyName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (authMode === "supabase" && !familyId && mode === "welcome") {
+      setMode("family-setup");
+    }
+  }, [authMode, familyId, mode]);
 
   async function completeAuthFlow() {
     const liveFamilyId = useAuthStore.getState().familyId;
@@ -54,8 +47,10 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       return;
     }
 
-    setMode("onboarding");
-    setStep(0);
+    setMode("family-setup");
+    setSetupTab("create");
+    setCreatedInviteCode(null);
+    setFormMessage(null);
   }
 
   async function handlePasswordAuth(kind: "login" | "register") {
@@ -91,49 +86,159 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     onSignedIn();
   }
 
-  if (mode === "onboarding") {
-    const current = onboardingSteps[step];
-    const hasFamily = Boolean(familyId);
-    const isLastStep = step === onboardingSteps.length - 1;
+  async function handleCreateFamily() {
+    setIsSubmitting(true);
+    setFormMessage(null);
+
+    const result = await createFamily(familyName);
+    setIsSubmitting(false);
+
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not create your family.");
+      return;
+    }
+
+    if (result.inviteCode) {
+      setCreatedInviteCode(result.inviteCode);
+      return;
+    }
+
+    onSignedIn();
+  }
+
+  async function handleJoinFamily() {
+    setIsSubmitting(true);
+    setFormMessage(null);
+
+    const result = await joinFamily(inviteCode);
+    setIsSubmitting(false);
+
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not join that family.");
+      return;
+    }
+
+    onSignedIn();
+  }
+
+  if (mode === "family-setup") {
+    if (createdInviteCode) {
+      return (
+        <View style={styles.screen}>
+          <Pill label="Family created" tone="primary" />
+          <Text style={styles.title}>Share your invite code</Text>
+          <Text style={styles.subtitle}>
+            Other adults can join this household with the code below. Email invites are not wired in this build.
+          </Text>
+          <Card>
+            <Text style={styles.label}>Invite code</Text>
+            <Text style={styles.inviteCode}>{createdInviteCode}</Text>
+            <Text style={styles.cardText}>
+              You are the first admin member. HomeThread will load your new household after you continue.
+            </Text>
+          </Card>
+          <View style={styles.actions}>
+            <PrimaryButton label="Enter HomeThread" icon="home" onPress={onSignedIn} />
+          </View>
+        </View>
+      );
+    }
 
     return (
       <View style={styles.screen}>
-        <Pill label={`Step ${step + 1} of ${onboardingSteps.length}`} tone="primary" />
-        <Text style={styles.title}>{current.title}</Text>
-        <Text style={styles.subtitle}>{current.body}</Text>
-        <Card>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${((step + 1) / onboardingSteps.length) * 100}%` }]} />
-          </View>
-          <Text style={styles.cardText}>
-            {hasFamily
-              ? "Your account is linked to a family. Continue into HomeThread."
-              : "You are signed in, but this account is not linked to a family yet. HomeThread will keep you in setup until family creation or invite flow is implemented."}
-          </Text>
-        </Card>
-        <View style={styles.actions}>
-          <PrimaryButton
-            label={isLastStep ? (hasFamily ? "Enter HomeThread" : "Sign out") : "Continue"}
-            icon={isLastStep ? (hasFamily ? "home" : "log-out") : "arrow-forward"}
+        <Pill label="Household setup" tone="primary" />
+        <Text style={styles.title}>Create or join a family</Text>
+        <Text style={styles.subtitle}>
+          Signed-in accounts need a real family membership before HomeThread can load household data.
+        </Text>
+        <View style={styles.setupTabs}>
+          <Pressable
             onPress={() => {
-              if (!isLastStep) {
-                setStep((value) => value + 1);
-                return;
-              }
-
-              if (hasFamily) {
-                onSignedIn();
-                return;
-              }
-
-              void signOut().then(() => {
-                setMode("welcome");
-                setStep(0);
-                setFormMessage("Family setup is not available yet in this build.");
-              });
+              setSetupTab("create");
+              setFormMessage(null);
             }}
-          />
+            style={[styles.setupTab, setupTab === "create" ? styles.setupTabActive : null]}
+          >
+            <Text style={[styles.setupTabLabel, setupTab === "create" ? styles.setupTabLabelActive : null]}>
+              Create family
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setSetupTab("join");
+              setFormMessage(null);
+            }}
+            style={[styles.setupTab, setupTab === "join" ? styles.setupTabActive : null]}
+          >
+            <Text style={[styles.setupTabLabel, setupTab === "join" ? styles.setupTabLabelActive : null]}>
+              Join with code
+            </Text>
+          </Pressable>
         </View>
+        <Card>
+          {setupTab === "create" ? (
+            <>
+              <Text style={styles.label}>Family name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="The Parker Home"
+                placeholderTextColor={colors.muted}
+                value={familyName}
+                onChangeText={setFamilyName}
+              />
+              <Text style={styles.cardText}>
+                You will become the first admin member of this household.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>Invite code</Text>
+              <TextInput
+                style={styles.input}
+                autoCapitalize="characters"
+                placeholder="HT2026"
+                placeholderTextColor={colors.muted}
+                value={inviteCode}
+                onChangeText={setInviteCode}
+              />
+              <Text style={styles.cardText}>
+                Ask a family admin for their invite code. Joining links your account to that household.
+              </Text>
+            </>
+          )}
+          {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
+          <View style={styles.formActions}>
+            <PrimaryButton
+              label={
+                isSubmitting
+                  ? "Working..."
+                  : setupTab === "create"
+                    ? "Create family"
+                    : "Join family"
+              }
+              icon={setupTab === "create" ? "home" : "enter"}
+              onPress={() => {
+                if (isSubmitting) return;
+                void (setupTab === "create" ? handleCreateFamily() : handleJoinFamily());
+              }}
+            />
+          </View>
+        </Card>
+        <Pressable
+          onPress={() => {
+            if (isSubmitting) return;
+            void signOut().then(() => {
+              setMode("welcome");
+              setFamilyName("");
+              setInviteCode("");
+              setCreatedInviteCode(null);
+              setFormMessage(null);
+            });
+          }}
+          style={styles.linkButton}
+        >
+          <Text style={styles.link}>Sign out</Text>
+        </Pressable>
       </View>
     );
   }
@@ -196,7 +301,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       {backendAuthMode ? (
         <Text style={styles.meta}>
           Backend auth mode: {backendAuthMode}
-          {supabaseConfiguredOnClient ? " - Supabase client configured" : " - Supabase client missing"}
+          {supabaseConfiguredOnClient ? " · Supabase client configured" : " · Supabase client missing"}
         </Text>
       ) : null}
       {authMessage ? <Text style={styles.formMessage}>{authMessage}</Text> : null}
@@ -210,20 +315,6 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
         </Text>
       </Card>
       <View style={styles.actions}>
-        {authMode === "supabase" && !familyId ? (
-          <PrimaryButton
-            label="Sign out"
-            icon="log-out"
-            tone="dark"
-            onPress={() => {
-              if (isSubmitting) return;
-              void signOut().then(() => {
-                setMode("welcome");
-                setFormMessage("Family setup is not available yet in this build.");
-              });
-            }}
-          />
-        ) : null}
         {supabaseConfiguredOnClient && authMode !== "supabase" ? (
           <>
             <PrimaryButton label="Create account" icon="person-add" onPress={() => setMode("register")} />
@@ -285,6 +376,40 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
+  inviteCode: {
+    color: colors.ink,
+    fontSize: 28,
+    fontWeight: "900",
+    letterSpacing: 2,
+    marginTop: spacing.xs
+  },
+  setupTabs: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  setupTab: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md
+  },
+  setupTabActive: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary
+  },
+  setupTabLabel: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center"
+  },
+  setupTabLabelActive: {
+    color: colors.primary
+  },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -327,15 +452,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     textAlign: "center"
-  },
-  progressTrack: {
-    backgroundColor: colors.primarySoft,
-    borderRadius: radii.pill,
-    height: 10,
-    overflow: "hidden"
-  },
-  progressFill: {
-    backgroundColor: colors.primary,
-    height: "100%"
   }
 });

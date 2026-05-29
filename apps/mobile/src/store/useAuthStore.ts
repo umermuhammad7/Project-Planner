@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { apiRequest, setApiAccessTokenProvider } from "../services/api";
 import { isSupabaseConfigured, supabaseClient } from "../services/supabase";
-import { AuthMeResponse, AuthStatusResponse } from "../types";
+import { AuthMeResponse, AuthStatusResponse, FamilySetupResponse } from "../types";
 
 declare const process: {
   env: {
@@ -26,6 +26,8 @@ type AuthState = {
   signInWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   signInWithDevToken: () => Promise<{ ok: boolean; message?: string }>;
+  createFamily: (name: string) => Promise<{ ok: boolean; message?: string; inviteCode?: string }>;
+  joinFamily: (inviteCode: string) => Promise<{ ok: boolean; message?: string }>;
   signOut: () => Promise<void>;
 };
 
@@ -212,6 +214,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authMessage: membership.familyId
         ? null
         : "Account created. Family setup is still required before HomeThread can load household data."
+    });
+
+    return { ok: true };
+  },
+  createFamily: async (name) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { ok: false, message: "Family name is required." };
+    }
+
+    const result = await apiRequest<FamilySetupResponse>("/families", {
+      method: "POST",
+      body: JSON.stringify({ name: trimmedName })
+    });
+
+    if (!result.data) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not create your family."
+      };
+    }
+
+    set({
+      familyId: result.data.family.id,
+      authMessage: null
+    });
+
+    return { ok: true, inviteCode: result.data.family.inviteCode };
+  },
+  joinFamily: async (inviteCode) => {
+    const trimmedCode = inviteCode.trim();
+    if (!trimmedCode) {
+      return { ok: false, message: "Invite code is required." };
+    }
+
+    const result = await apiRequest<FamilySetupResponse>("/families/join", {
+      method: "POST",
+      body: JSON.stringify({ inviteCode: trimmedCode })
+    });
+
+    if (!result.data) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not join that family."
+      };
+    }
+
+    set({
+      familyId: result.data.family.id,
+      authMessage: null
     });
 
     return { ok: true };

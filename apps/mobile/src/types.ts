@@ -214,3 +214,17 @@ export type AuthMeResponse = {
     };
   }>;
 };
+
+export type FamilySetupResponse = {
+  family: {
+    id: string;
+    name: string;
+    inviteCode: string;
+  };
+  member: {
+    id: string;
+    familyId: string;
+    role: string;
+    userId: string | null;
+  };
+};
