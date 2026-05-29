@@ -9,6 +9,7 @@ import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
+import { KidsModeScreen } from "./src/screens/KidsModeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
 import { MealsScreen } from "./src/screens/MealsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
@@ -32,6 +33,7 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
 export default function App() {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
+  const [kidsMode, setKidsMode] = useState(false);
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
@@ -50,7 +52,7 @@ export default function App() {
     if (activeTab === "meals") return <MealsScreen />;
     if (activeTab === "thread") return <ThreadScreen />;
     if (activeTab === "add") return <AssistantScreen />;
-    return <HomeScreen goTo={setActiveTab} />;
+    return <HomeScreen goTo={setActiveTab} onEnterKidsMode={() => setKidsMode(true)} />;
   }, [activeTab]);
 
   const showConnecting = hasCompletedOnboarding && isHydrating;
@@ -71,9 +73,11 @@ export default function App() {
           {hasCompletedOnboarding ? (
             showConnecting ? (
               <View style={styles.connecting}>
-                <Text style={styles.connectingTitle}>Connecting to HomeThread…</Text>
+                <Text style={styles.connectingTitle}>Connecting to HomeThread...</Text>
                 <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
               </View>
+            ) : kidsMode ? (
+              <KidsModeScreen onExit={() => setKidsMode(false)} />
             ) : (
               content
             )
@@ -81,7 +85,7 @@ export default function App() {
             <WelcomeScreen onComplete={() => setHasCompletedOnboarding(true)} />
           )}
         </ScrollView>
-        {hasCompletedOnboarding ? (
+        {hasCompletedOnboarding && !kidsMode ? (
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
               <IconButton

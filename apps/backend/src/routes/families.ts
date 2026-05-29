@@ -9,7 +9,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { db } from "../db/client.js";
-import { families, familyMembers, users } from "../db/schema.js";
+import { families, familyMembers, rewards, users } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyAdmin, requireFamilyMember } from "../plugins/familyAccess.js";
@@ -67,7 +67,24 @@ export async function familiesRoutes(app: FastifyInstance) {
       where: eq(familyMembers.familyId, id)
     });
 
-    return { family, members };
+    const rewardRows = await db
+      .select({
+        memberId: rewards.memberId,
+        stars: sql<number>`coalesce(sum(${rewards.stars}), 0)`
+      })
+      .from(rewards)
+      .where(eq(rewards.familyId, id))
+      .groupBy(rewards.memberId);
+
+    const starBalanceByMemberId = new Map(rewardRows.map((row) => [row.memberId, Number(row.stars ?? 0)]));
+
+    return {
+      family,
+      members: members.map((member) => ({
+        ...member,
+        starBalance: starBalanceByMemberId.get(member.id) ?? 0
+      }))
+    };
   });
 
   app.patch("/:id", async (request, reply) => {

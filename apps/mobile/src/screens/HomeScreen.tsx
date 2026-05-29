@@ -8,7 +8,13 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TabKey } from "../types";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
-export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
+export function HomeScreen({
+  goTo,
+  onEnterKidsMode
+}: {
+  goTo: (tab: TabKey) => void;
+  onEnterKidsMode?: () => void;
+}) {
   const {
     familyName,
     members,
@@ -28,6 +34,10 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
   );
   const openItems = allListItems.filter((item) => !item.checked);
   const dinners = meals.filter((meal) => meal.mealType === "dinner").slice(0, 3);
+  const kidStarTotal = useMemo(
+    () => members.filter((member) => member.role === "kid").reduce((sum, member) => sum + member.starBalance, 0),
+    [members]
+  );
   const upcomingEvents = useMemo(
     () =>
       [...events]
@@ -90,6 +100,9 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
             }}
           />
           <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
+          {onEnterKidsMode ? (
+            <PrimaryButton label="Kids mode" icon="happy" tone="dark" onPress={onEnterKidsMode} />
+          ) : null}
         </View>
       </Card>
 
@@ -122,7 +135,7 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
       <View style={styles.metrics}>
         <Metric value={openChores.length} label="chores left" tone={colors.coralSoft} />
         <Metric value={openItems.length} label="shopping items" tone={colors.mintSoft} />
-        <Metric value={members.reduce((sum, member) => sum + member.starBalance, 0)} label="kid stars" tone={colors.goldSoft} />
+        <Metric value={kidStarTotal} label="kid stars" tone={colors.goldSoft} />
       </View>
 
       <SectionTitle title="This week for dinner" action={`${meals.length} meals`} />
@@ -222,6 +235,7 @@ const styles = StyleSheet.create({
   },
   heroActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
     marginTop: spacing.lg
   },

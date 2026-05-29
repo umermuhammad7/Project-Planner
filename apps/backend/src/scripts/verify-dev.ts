@@ -165,13 +165,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFamilyPayload(value: unknown): value is {
   family: { id: string; name: string };
-  members: Array<{ id: string; displayName: string }>;
+  members: Array<{ id: string; displayName: string; starBalance: number }>;
 } {
   if (!isRecord(value) || !isRecord(value.family) || !Array.isArray(value.members)) {
     return false;
   }
 
-  return typeof value.family.id === "string" && typeof value.family.name === "string";
+  return (
+    typeof value.family.id === "string" &&
+    typeof value.family.name === "string" &&
+    value.members.every(
+      (member) =>
+        isRecord(member) &&
+        typeof member.id === "string" &&
+        typeof member.displayName === "string" &&
+        typeof member.starBalance === "number"
+    )
+  );
 }
 
 function isEventsPayload(value: unknown): value is {

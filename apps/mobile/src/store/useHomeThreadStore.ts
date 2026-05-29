@@ -143,7 +143,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         syncSource: previous.syncSource === "api" ? "api" : "mock",
         syncMessage:
           previous.syncSource === "api"
-            ? `Refresh failed — showing last synced data (${failureMessage})`
+            ? `Refresh failed - showing last synced data (${failureMessage})`
             : failureMessage || "Falling back to mock data"
       });
       return;
@@ -1163,6 +1163,7 @@ type BackendMemberRecord = {
   displayName: string;
   color: string;
   role: "admin" | "member" | "child";
+  starBalance?: number;
 };
 
 type BackendEventRecord = {
@@ -1567,7 +1568,7 @@ function mapMember(member: BackendMemberRecord): FamilyMember {
       .toUpperCase(),
     color: member.color,
     role: member.role === "child" ? "kid" : member.role === "admin" ? "parent" : "caregiver",
-    starBalance: existing?.starBalance ?? 0
+    starBalance: member.starBalance ?? existing?.starBalance ?? 0
   };
 }
 
@@ -1876,4 +1877,3 @@ function resolveMemberName(members: FamilyMember[], memberId: string | null) {
   if (!memberId) return null;
   return members.find((member) => member.id === memberId)?.name ?? null;
 }
-

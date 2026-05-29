@@ -43,14 +43,16 @@ describe("HomeThread mobile store semantics", () => {
                   userId: "user-parent",
                   displayName: "Mara Parker",
                   color: "#F97316",
-                  role: "admin"
+                  role: "admin",
+                  starBalance: 3
                 },
                 {
                   id: "member-kid",
                   userId: null,
                   displayName: "Luca Parker",
                   color: "#2563EB",
-                  role: "child"
+                  role: "child",
+                  starBalance: 11
                 }
               ]
             }
@@ -170,6 +172,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.shoppingItems.map((item: { title: string }) => item.title)).toEqual(["Light bulbs", "AA batteries"]);
     expect(state.listItemsByListId["list-grocery"]?.map((item: { title: string }) => item.title)).toEqual(["Milk"]);
     expect(state.events[0]?.assignedTo).toEqual(["member-kid"]);
+    expect(state.members.find((member) => member.id === "member-kid")?.starBalance).toBe(11);
     expect(state.meals[0]?.title).toBe("Taco Tuesday prep");
     expect(state.chores[0]?.completed).toBe(true);
     expect(state.syncMessage).toContain("2 lists");
