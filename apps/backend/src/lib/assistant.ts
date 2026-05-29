@@ -4,7 +4,7 @@ import { completeWithProviderFallback, type ChatMessage } from "./aiProviders.js
 
 export async function runAssistantAssist(input: unknown) {
   const body = assistantAssistRequestSchema.parse(input);
-  const systemPrompt = buildSystemPrompt(body.intent);
+  const systemPrompt = buildSystemPrompt(body.intent, body.context);
   const userPrompt = body.message.trim();
 
   const completion = await completeWithProviderFallback([
@@ -34,13 +34,15 @@ export async function runAssistantAssist(input: unknown) {
   };
 }
 
-function buildSystemPrompt(intent?: string) {
+function buildSystemPrompt(intent?: string, context?: { familyName?: string; timezone?: string; today?: string; members?: string[]; upcomingEvents?: Array<{ title: string; time: string; dateLabel: string; location?: string | null; assignedTo?: string[] }>; openChores?: Array<{ title: string; dueLabel: string }> }) {
   const intentLine = intentHint(intent);
+  const contextLine = buildContextPrompt(context);
 
   return [
     "You are HomeThread, a calm family planning assistant.",
     "Help turn family text into practical HomeThread actions: events, chores, or grocery/list items.",
     intentLine,
+    contextLine,
     "Respond with JSON only using this shape:",
     '{"reply":"short helpful message","draft":{"kind":"event|chore|list","title":"short title","detail":"short detail","confidence":0.0-1,"rawText":"original user text"} | null}',
     "Use draft null when the message is general advice without a single actionable item.",
@@ -60,9 +62,62 @@ function intentHint(intent?: string) {
       return "Focus on grocery list suggestions. Prefer draft kind list when items are named.";
     case "chores":
       return "Focus on turning the request into chores. Prefer draft kind chore.";
+    case "day_summary":
+      return "Focus on answering questions about today's family schedule using the provided family context. Prefer draft null unless the user clearly asks to create something.";
     default:
       return "Choose the most helpful single draft when possible.";
   }
+}
+
+function buildContextPrompt(
+  context?: {
+    familyName?: string;
+    timezone?: string;
+    today?: string;
+    members?: string[];
+    upcomingEvents?: Array<{ title: string; time: string; dateLabel: string; location?: string | null; assignedTo?: string[] }>;
+    openChores?: Array<{ title: string; dueLabel: string }>;
+  }
+) {
+  if (!context) {
+    return "";
+  }
+
+  const parts: string[] = [];
+
+  if (context.familyName) {
+    parts.push(`Family: ${context.familyName}.`);
+  }
+
+  if (context.today) {
+    parts.push(`Today: ${context.today}.`);
+  }
+
+  if (context.timezone) {
+    parts.push(`Timezone: ${context.timezone}.`);
+  }
+
+  if (context.members?.length) {
+    parts.push(`Members: ${context.members.join(", ")}.`);
+  }
+
+  if (context.upcomingEvents?.length) {
+    const events = context.upcomingEvents
+      .map((event) => {
+        const assigned = event.assignedTo?.length ? ` for ${event.assignedTo.join(", ")}` : "";
+        const location = event.location ? ` at ${event.location}` : "";
+        return `${event.dateLabel} ${event.time}: ${event.title}${assigned}${location}`;
+      })
+      .join("; ");
+    parts.push(`Upcoming events: ${events}.`);
+  }
+
+  if (context.openChores?.length) {
+    const chores = context.openChores.map((chore) => `${chore.title} (${chore.dueLabel})`).join("; ");
+    parts.push(`Open chores: ${chores}.`);
+  }
+
+  return parts.join(" ");
 }
 
 function parseAssistantJson(content: string, rawText: string) {

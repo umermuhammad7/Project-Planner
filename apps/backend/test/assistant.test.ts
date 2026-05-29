@@ -115,6 +115,55 @@ describe("ai routes", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("api.openai.com");
   });
 
+  it("passes family context through to the provider prompt", async () => {
+    env.OPENAI_API_KEY = "test-openai-key";
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  reply: "Today looks busy but manageable.",
+                  draft: null
+                })
+              }
+            }
+          ]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const app = buildApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/ai/assist",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        message: "What's on today?",
+        intent: "day_summary",
+        context: {
+          familyName: "Parker Home",
+          today: "Friday",
+          members: ["Mara", "Jules"],
+          upcomingEvents: [{ title: "Soccer practice", time: "5:00 PM", dateLabel: "Today" }],
+          openChores: [{ title: "Unload dishwasher", dueLabel: "Tonight" }]
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.messages[0].content).toContain("Family: Parker Home.");
+    expect(body.messages[0].content).toContain("Upcoming events: Today 5:00 PM: Soccer practice");
+    expect(body.messages[0].content).toContain("Open chores: Unload dishwasher (Tonight).");
+  });
+
   it("falls back to the next configured provider when OpenAI fails", async () => {
     env.OPENAI_API_KEY = "test-openai-key";
     env.GROQ_API_KEY_1 = "test-groq-key";

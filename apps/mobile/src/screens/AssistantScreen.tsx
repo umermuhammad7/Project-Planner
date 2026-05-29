@@ -7,12 +7,14 @@ import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import {
   AssistantAssistResponse,
+  AssistantContext,
   AssistantDraft,
   AssistantIntent,
   AssistantMealSuggestResponse,
   AssistantMealSuggestion
 } from "../types";
 import { parseFamilyText } from "../utils/textParser";
+import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -131,11 +133,16 @@ const quickPrompts: Array<{ label: string; intent: AssistantIntent; text: string
     label: "Turn into chores",
     intent: "chores",
     text: "Remind Jules to unload the dishwasher tonight."
+  },
+  {
+    label: "What's on today?",
+    intent: "day_summary",
+    text: "What's on today?"
   }
 ];
 
 export function AssistantScreen() {
-  const { commitDraft, createMeal, isSaving, saveMessage, syncSource } = useHomeThreadStore();
+  const { commitDraft, createMeal, familyName, members, events, chores, isSaving, saveMessage, syncSource } = useHomeThreadStore();
   const [prompt, setPrompt] = useState("");
   const [draft, setDraft] = useState<AssistantDraft | null>(null);
   const [mealSuggestions, setMealSuggestions] = useState<AssistantMealSuggestion[] | null>(null);
@@ -152,6 +159,38 @@ export function AssistantScreen() {
   const [assistantNote, setAssistantNote] = useState<string | null>(null);
 
   const canSend = useMemo(() => prompt.trim().length > 0 && !isThinking, [isThinking, prompt]);
+  const assistantContext = useMemo<AssistantContext>(() => {
+    const upcomingEvents = [...events]
+      .sort(compareEventsByStartAt)
+      .filter((event) => getEventUrgency(event)?.label !== "Past")
+      .slice(0, 5)
+      .map((event) => ({
+        title: event.title,
+        time: event.time,
+        dateLabel: event.dateLabel,
+        location: event.location ?? null,
+        assignedTo: event.assignedTo
+          .map((id) => members.find((member) => member.id === id)?.name)
+          .filter((name): name is string => Boolean(name))
+      }));
+
+    const openChores = chores
+      .filter((chore) => !chore.completed)
+      .slice(0, 5)
+      .map((chore) => ({
+        title: chore.title,
+        dueLabel: chore.dueLabel
+      }));
+
+    return {
+      familyName,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      today: new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }),
+      members: members.map((member) => member.name),
+      upcomingEvents,
+      openChores
+    };
+  }, [chores, events, familyName, members]);
 
   async function runAssistant(messageText: string, intent?: AssistantIntent) {
     const trimmed = messageText.trim();
@@ -186,6 +225,19 @@ export function AssistantScreen() {
         return;
       }
 
+      if (intent === "day_summary") {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            body: buildLocalDaySummary(assistantContext)
+          }
+        ]);
+        setIsThinking(false);
+        return;
+      }
+
       const localDraft = resolveLocalDraft(trimmed, intent);
       setDraft(localDraft);
       setMessages((current) => [
@@ -211,7 +263,8 @@ export function AssistantScreen() {
       method: "POST",
       body: JSON.stringify({
         message: trimmed,
-        intent
+        intent,
+        context: assistantContext
       })
     });
 
@@ -241,12 +294,13 @@ export function AssistantScreen() {
       result.data?.message ??
       result.error?.message ??
       "AI assistant is unavailable right now.";
+    const summaryFallback = intent === "day_summary" ? buildLocalDaySummary(assistantContext) : null;
 
     setDraft(localDraft);
     setAssistantNote(
       localDraft
         ? "AI was unavailable. HomeThread used local parsing for a draft you can save."
-        : unavailableMessage
+        : summaryFallback ?? unavailableMessage
     );
     setMessages((current) => [
       ...current,
@@ -255,7 +309,7 @@ export function AssistantScreen() {
         role: "assistant",
         body: localDraft
           ? `${unavailableMessage} HomeThread created a local draft you can save.`
-          : unavailableMessage
+          : summaryFallback ?? unavailableMessage
       }
     ]);
     setIsThinking(false);
@@ -451,6 +505,29 @@ export function AssistantScreen() {
       ) : null}
     </View>
   );
+}
+
+function buildLocalDaySummary(context: AssistantContext) {
+  const events = context.upcomingEvents ?? [];
+  const chores = context.openChores ?? [];
+
+  if (events.length === 0 && chores.length === 0) {
+    return "Today looks clear so far. No upcoming events or open chores are showing.";
+  }
+
+  const eventText =
+    events.length > 0
+      ? `Upcoming: ${events
+          .map((event) => `${event.title} at ${event.time}${event.location ? ` (${event.location})` : ""}`)
+          .join("; ")}.`
+      : "No events are coming up today.";
+
+  const choreText =
+    chores.length > 0
+      ? `Open chores: ${chores.map((chore) => `${chore.title} (${chore.dueLabel})`).join("; ")}.`
+      : "No open chores are showing right now.";
+
+  return `${eventText} ${choreText}`.trim();
 }
 
 const styles = StyleSheet.create({

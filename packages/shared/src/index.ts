@@ -184,11 +184,34 @@ export const mealWeekToGrocerySchema = z.object({
   listId: uuidSchema.optional()
 });
 
-export const assistantIntentSchema = z.enum(["general", "import_text", "meal_plan", "grocery_list", "chores"]);
+export const assistantIntentSchema = z.enum(["general", "import_text", "meal_plan", "grocery_list", "chores", "day_summary"]);
+
+export const assistantContextEventSchema = z.object({
+  title: z.string().min(1).max(160),
+  time: z.string().min(1).max(80),
+  dateLabel: z.string().min(1).max(40),
+  location: z.string().max(240).optional().nullable(),
+  assignedTo: z.array(z.string().min(1).max(80)).max(10).optional()
+});
+
+export const assistantContextChoreSchema = z.object({
+  title: z.string().min(1).max(140),
+  dueLabel: z.string().min(1).max(120)
+});
+
+export const assistantContextSchema = z.object({
+  familyName: z.string().min(1).max(120).optional(),
+  timezone: z.string().min(1).max(80).optional(),
+  today: z.string().min(1).max(40).optional(),
+  members: z.array(z.string().min(1).max(80)).max(10).optional(),
+  upcomingEvents: z.array(assistantContextEventSchema).max(10).optional(),
+  openChores: z.array(assistantContextChoreSchema).max(10).optional()
+});
 
 export const assistantAssistRequestSchema = z.object({
   message: z.string().min(1).max(4000),
-  intent: assistantIntentSchema.optional()
+  intent: assistantIntentSchema.optional(),
+  context: assistantContextSchema.optional()
 });
 
 export const assistantDraftSchema = z.object({
@@ -247,6 +270,9 @@ export type CreateRecipeInput = z.infer<typeof createRecipeSchema>;
 export type MealToGroceryInput = z.infer<typeof mealToGrocerySchema>;
 export type MealWeekToGroceryInput = z.infer<typeof mealWeekToGrocerySchema>;
 export type AssistantIntent = z.infer<typeof assistantIntentSchema>;
+export type AssistantContextEvent = z.infer<typeof assistantContextEventSchema>;
+export type AssistantContextChore = z.infer<typeof assistantContextChoreSchema>;
+export type AssistantContext = z.infer<typeof assistantContextSchema>;
 export type AssistantAssistRequest = z.infer<typeof assistantAssistRequestSchema>;
 export type AssistantDraftPayload = z.infer<typeof assistantDraftSchema>;
 export type AssistantAssistResponse = z.infer<typeof assistantAssistResponseSchema>;

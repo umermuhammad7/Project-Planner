@@ -88,7 +88,25 @@ export type AssistantDraft = {
   rawText: string;
 };
 
-export type AssistantIntent = "general" | "import_text" | "meal_plan" | "grocery_list" | "chores";
+export type AssistantIntent = "general" | "import_text" | "meal_plan" | "grocery_list" | "chores" | "day_summary";
+
+export type AssistantContext = {
+  familyName?: string;
+  timezone?: string;
+  today?: string;
+  members?: string[];
+  upcomingEvents?: Array<{
+    title: string;
+    time: string;
+    dateLabel: string;
+    location?: string | null;
+    assignedTo?: string[];
+  }>;
+  openChores?: Array<{
+    title: string;
+    dueLabel: string;
+  }>;
+};
 
 export type AssistantAssistResponse = {
   mode: "ai" | "local";
