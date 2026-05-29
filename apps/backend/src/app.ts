@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 
 import { env } from "./env.js";
 import { sendError, sendZodError } from "./lib/http.js";
+import { aiRoutes } from "./routes/ai.js";
 import { authRoutes } from "./routes/auth.js";
 import { choresRoutes } from "./routes/chores.js";
 import { eventsRoutes } from "./routes/events.js";
@@ -39,6 +40,7 @@ export function buildApp() {
   });
 
   app.register(healthRoutes, { prefix: "/api/v1" });
+  app.register(aiRoutes, { prefix: "/api/v1/ai" });
   app.register(authRoutes, { prefix: "/api/v1/auth" });
   app.register(familiesRoutes, { prefix: "/api/v1/families" });
   app.register(membersRoutes, { prefix: "/api/v1/families/:familyId/members" });

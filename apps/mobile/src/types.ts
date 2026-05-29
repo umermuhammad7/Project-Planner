@@ -87,6 +87,29 @@ export type AssistantDraft = {
   rawText: string;
 };
 
+export type AssistantIntent = "general" | "import_text" | "meal_plan" | "grocery_list" | "chores";
+
+export type AssistantAssistResponse = {
+  mode: "ai" | "local";
+  provider: string | null;
+  message: string;
+  draft: AssistantDraft | null;
+};
+
+export type AssistantMealSuggestion = {
+  dayOfWeek: number;
+  mealType: MealType;
+  title: string;
+  notes?: string | null;
+};
+
+export type AssistantMealSuggestResponse = {
+  mode: "ai" | "local";
+  provider: string | null;
+  message: string;
+  suggestions: AssistantMealSuggestion[] | null;
+};
+
 export type TabKey = "home" | "plan" | "chores" | "lists" | "meals" | "thread" | "add";
 
 export type SyncSource = "mock" | "api";
