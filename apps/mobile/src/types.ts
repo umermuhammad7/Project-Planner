@@ -189,3 +189,28 @@ export type AssistantMealSuggestResponse = {
 export type TabKey = "home" | "plan" | "chores" | "lists" | "meals" | "thread" | "add";
 
 export type SyncSource = "mock" | "api";
+
+export type AuthStatusResponse = {
+  supabaseConfigured: boolean;
+  devTokenAllowed: boolean;
+  mode: "supabase" | "dev_token" | "unconfigured";
+};
+
+export type AuthMeResponse = {
+  user: {
+    id: string;
+    email?: string;
+    displayName?: string | null;
+  };
+  memberships: Array<{
+    member: {
+      id: string;
+      familyId: string;
+      role: string;
+    };
+    family: {
+      id: string;
+      name: string;
+    };
+  }>;
+};

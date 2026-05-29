@@ -6,7 +6,12 @@ declare const process: {
 };
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
-const DEV_AUTH_TOKEN = process.env.EXPO_PUBLIC_DEV_AUTH_TOKEN ?? "homethread-dev-token";
+
+let accessTokenProvider: () => string | null = () => null;
+
+export function setApiAccessTokenProvider(provider: () => string | null) {
+  accessTokenProvider = provider;
+}
 
 export type ApiResult<T> = {
   data?: T;
@@ -18,13 +23,19 @@ export type ApiResult<T> = {
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<ApiResult<T>> {
   try {
+    const token = accessTokenProvider();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string> | undefined)
+    };
+
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_URL}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${DEV_AUTH_TOKEN}`,
-        ...options.headers
-      }
+      headers
     });
     const payload = (await response.json()) as unknown;
 

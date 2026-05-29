@@ -27,6 +27,33 @@ export const pushTokenSchema = z.object({
   pushToken: z.string().min(8).max(256)
 });
 
+export const authStatusResponseSchema = z.object({
+  supabaseConfigured: z.boolean(),
+  devTokenAllowed: z.boolean(),
+  mode: z.enum(["supabase", "dev_token", "unconfigured"])
+});
+
+export const authMeMembershipSchema = z.object({
+  member: z.object({
+    id: uuidSchema,
+    familyId: uuidSchema,
+    role: memberRoleSchema
+  }),
+  family: z.object({
+    id: uuidSchema,
+    name: z.string()
+  })
+});
+
+export const authMeResponseSchema = z.object({
+  user: z.object({
+    id: uuidSchema,
+    email: z.string().email().optional(),
+    displayName: z.string().nullable().optional()
+  }),
+  memberships: z.array(authMeMembershipSchema)
+});
+
 export const createFamilySchema = z.object({
   name: z.string().min(1).max(80),
   avatarUrl: z.url().optional().nullable()
@@ -296,6 +323,8 @@ export const calendarConnectAttemptResponseSchema = z.object({
 });
 
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
+export type AuthStatusResponse = z.infer<typeof authStatusResponseSchema>;
+export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;

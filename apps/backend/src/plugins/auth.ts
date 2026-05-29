@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { FastifyReply, FastifyRequest } from "fastify";
 
-import { env } from "../env.js";
+import { env, getAuthStatus } from "../env.js";
 import { sendError } from "../lib/http.js";
 
 const supabase =
@@ -21,7 +21,9 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     return sendError(reply, 401, "Missing bearer token", "AUTH_REQUIRED");
   }
 
-  if (env.NODE_ENV !== "production" && token === env.DEV_AUTH_TOKEN) {
+  const authStatus = getAuthStatus();
+
+  if (authStatus.devTokenAllowed && token === env.DEV_AUTH_TOKEN) {
     request.currentUser = {
       id: "00000000-0000-4000-8000-000000000001",
       email: "dev@homethread.local"
@@ -34,11 +36,12 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
       return sendError(reply, 500, "Supabase is not configured", "AUTH_NOT_CONFIGURED");
     }
 
-    request.currentUser = {
-      id: "00000000-0000-4000-8000-000000000001",
-      email: "dev@homethread.local"
-    };
-    return;
+    return sendError(
+      reply,
+      401,
+      "Invalid bearer token. Use the configured DEV_AUTH_TOKEN or configure Supabase auth.",
+      "AUTH_INVALID"
+    );
   }
 
   const { data, error } = await supabase.auth.getUser(token);

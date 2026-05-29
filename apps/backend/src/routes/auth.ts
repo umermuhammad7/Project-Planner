@@ -7,9 +7,14 @@ import { FastifyInstance } from "fastify";
 
 import { db } from "../db/client.js";
 import { familyMembers, families, users } from "../db/schema.js";
+import { getAuthStatus } from "../env.js";
 import { deleteSupabaseUser, requireAuth } from "../plugins/auth.js";
 
 export async function authRoutes(app: FastifyInstance) {
+  app.get("/status", async () => {
+    return getAuthStatus();
+  });
+
   app.post("/profile", { preHandler: requireAuth }, async (request) => {
     const currentUser = request.currentUser!;
     const body = userProfileSchema.parse(request.body);

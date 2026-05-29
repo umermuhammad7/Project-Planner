@@ -11,6 +11,7 @@ import {
   textUpdates as initialTexts
 } from "../data/mockFamily";
 import { apiRequest } from "../services/api";
+import { useAuthStore } from "./useAuthStore";
 import {
   AssistantDraft,
   Chore,
@@ -132,18 +133,50 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
   },
   hydrateFromBackend: async () => {
+    const authState = useAuthStore.getState();
+
+    if (authState.mode === "supabase" && !authState.familyId) {
+      set({
+        familyId: null,
+        currentMemberId: null,
+        groceryListId: null,
+        lists: [],
+        selectedListId: null,
+        listItemsByListId: {},
+        familyName: "HomeThread",
+        members: [],
+        events: [],
+        mealWeekStart: currentWeekStart(),
+        meals: [],
+        recipes: [],
+        chores: [],
+        completedChoreIds: {},
+        shoppingItems: [],
+        textUpdates: [],
+        isHydrating: false,
+        syncSource: "mock",
+        saveMessage: "Family setup is still required before HomeThread can save household changes.",
+        pendingOfflineActions: [],
+        syncMessage:
+          "Signed in, but this account has no family membership yet. HomeThread cannot load household data."
+      });
+      return;
+    }
+
+    const targetFamilyId = authState.familyId ?? defaultFamilyId;
+
     set({
       isHydrating: true,
       syncMessage: "Checking local HomeThread backend..."
     });
 
     const [familyResult, eventsResult, choresResult, listsResult, mealsResult, recipesResult] = await Promise.all([
-      apiRequest<BackendFamilyResponse>(`/families/${defaultFamilyId}`),
-      apiRequest<BackendEventsResponse>(`/families/${defaultFamilyId}/events`),
-      apiRequest<BackendChoresResponse>(`/families/${defaultFamilyId}/chores/today`),
-      apiRequest<BackendListsResponse>(`/families/${defaultFamilyId}/lists`),
-      apiRequest<BackendMealsResponse>(`/families/${defaultFamilyId}/meals?weekStart=${currentWeekStart()}`),
-      apiRequest<BackendRecipesResponse>(`/families/${defaultFamilyId}/recipes`)
+      apiRequest<BackendFamilyResponse>(`/families/${targetFamilyId}`),
+      apiRequest<BackendEventsResponse>(`/families/${targetFamilyId}/events`),
+      apiRequest<BackendChoresResponse>(`/families/${targetFamilyId}/chores/today`),
+      apiRequest<BackendListsResponse>(`/families/${targetFamilyId}/lists`),
+      apiRequest<BackendMealsResponse>(`/families/${targetFamilyId}/meals?weekStart=${currentWeekStart()}`),
+      apiRequest<BackendRecipesResponse>(`/families/${targetFamilyId}/recipes`)
     ]);
 
     if (
@@ -221,7 +254,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     if (state.syncSource !== "api" || !state.familyId) {
       get().recordPendingOffline(`Event not saved: ${normalizedTitle || "untitled"}`);
       set({
-        saveMessage: "Backend sync is unavailable — event was not created"
+        saveMessage: "Backend sync is unavailable - event was not created"
       });
       return false;
     }
@@ -280,7 +313,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
       set({
-        saveMessage: "Backend sync is unavailable — chore was not created",
+        saveMessage: "Backend sync is unavailable - chore was not created",
       });
       return false;
     }
@@ -355,7 +388,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
 
     if (current.syncSource !== "api" || !current.familyId) {
-      set({ saveMessage: "Backend sync is unavailable — chore marked complete locally only" });
+      set({ saveMessage: "Backend sync is unavailable - chore marked complete locally only" });
       return;
     }
 
@@ -365,7 +398,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       set((state) => ({
         chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: false } : chore)),
         completedChoreIds: Object.fromEntries(Object.entries(state.completedChoreIds).filter(([key]) => key !== id)),
-        saveMessage: "Missing family member id — completion not recorded"
+        saveMessage: "Missing family member id - completion not recorded"
       }));
       return;
     }
@@ -436,7 +469,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      set({ saveMessage: "Backend sync is unavailable — list was not created" });
+      set({ saveMessage: "Backend sync is unavailable - list was not created" });
       return false;
     }
 
@@ -616,7 +649,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      set({ saveMessage: "Backend sync is unavailable — item was not added" });
+      set({ saveMessage: "Backend sync is unavailable - item was not added" });
       return false;
     }
 
@@ -625,7 +658,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const ensuredList = await ensureActiveListId(state);
     const listId = ensuredList?.id ?? null;
     if (!listId) {
-      set({ isSaving: false, saveMessage: "Unable to resolve list — item was not added" });
+      set({ isSaving: false, saveMessage: "Unable to resolve list - item was not added" });
       return false;
     }
 
@@ -1940,3 +1973,4 @@ function resolveMemberName(members: FamilyMember[], memberId: string | null) {
   if (!memberId) return null;
   return members.find((member) => member.id === memberId)?.name ?? null;
 }
+

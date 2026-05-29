@@ -26,6 +26,24 @@ const envSchema = z.object({
 
 export const env = envSchema.parse(process.env);
 
+export function getAuthStatus() {
+  const supabaseConfigured = Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  const devTokenAllowed = env.NODE_ENV !== "production";
+
+  let mode: "supabase" | "dev_token" | "unconfigured" = "unconfigured";
+  if (supabaseConfigured) {
+    mode = "supabase";
+  } else if (devTokenAllowed) {
+    mode = "dev_token";
+  }
+
+  return {
+    supabaseConfigured,
+    devTokenAllowed,
+    mode
+  };
+}
+
 export function getAssistantProviderStatus() {
   const groqKeys = [env.GROQ_API_KEY_1, env.GROQ_API_KEY_2, env.GROQ_API_KEY_3].filter((key) =>
     Boolean(key?.trim())

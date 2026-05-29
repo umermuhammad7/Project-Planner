@@ -15,6 +15,7 @@ import { MealsScreen } from "./src/screens/MealsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
+import { useAuthStore } from "./src/store/useAuthStore";
 import { useHomeThreadStore } from "./src/store/useHomeThreadStore";
 import { TabKey } from "./src/types";
 
@@ -31,9 +32,12 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
 ];
 
 export default function App() {
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
+  const [enteredApp, setEnteredApp] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [kidsMode, setKidsMode] = useState(false);
+  const authMode = useAuthStore((state) => state.mode);
+  const authFamilyId = useAuthStore((state) => state.familyId);
+  const bootstrapAuth = useAuthStore((state) => state.bootstrap);
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
@@ -41,10 +45,24 @@ export default function App() {
   const pendingOfflineCount = useHomeThreadStore((state) => state.pendingOfflineActions.length);
 
   useEffect(() => {
-    if (hasCompletedOnboarding) {
+    void bootstrapAuth();
+  }, [bootstrapAuth]);
+
+  useEffect(() => {
+    if (authMode === "dev_token") {
+      setEnteredApp(true);
+    } else if (authMode === "supabase") {
+      setEnteredApp(Boolean(authFamilyId));
+    } else if (authMode === "signed_out") {
+      setEnteredApp(false);
+    }
+  }, [authFamilyId, authMode]);
+
+  useEffect(() => {
+    if (enteredApp && authMode !== "loading" && authMode !== "signed_out") {
       void hydrateFromBackend();
     }
-  }, [hasCompletedOnboarding, hydrateFromBackend]);
+  }, [enteredApp, authMode, hydrateFromBackend]);
 
   const content = useMemo(() => {
     if (activeTab === "plan") return <PlanScreen />;
@@ -56,7 +74,8 @@ export default function App() {
     return <HomeScreen goTo={setActiveTab} onEnterKidsMode={() => setKidsMode(true)} />;
   }, [activeTab]);
 
-  const showConnecting = hasCompletedOnboarding && isHydrating;
+  const showConnecting = enteredApp && authMode !== "loading" && authMode !== "signed_out" && isHydrating;
+  const showWelcome = authMode === "loading" || authMode === "signed_out" || !enteredApp;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -71,25 +90,34 @@ export default function App() {
           showsVerticalScrollIndicator={false}
         >
           <OfflineBanner
-            visible={hasCompletedOnboarding && !isHydrating && syncSource !== "api"}
-            pendingCount={hasCompletedOnboarding ? pendingOfflineCount : 0}
+            visible={enteredApp && !isHydrating && syncSource !== "api"}
+            pendingCount={enteredApp ? pendingOfflineCount : 0}
           />
-          {hasCompletedOnboarding ? (
-            showConnecting ? (
+          {showWelcome ? (
+            authMode === "loading" ? (
               <View style={styles.connecting}>
-                <Text style={styles.connectingTitle}>Connecting to HomeThread...</Text>
-                <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
+                <Text style={styles.connectingTitle}>Checking session...</Text>
+                <Text style={styles.connectingSubtitle}>Restoring Supabase auth when configured.</Text>
               </View>
-            ) : kidsMode ? (
-              <KidsModeScreen onExit={() => setKidsMode(false)} />
             ) : (
-              content
+              <WelcomeScreen
+                onSignedIn={() => {
+                  setEnteredApp(true);
+                }}
+              />
             )
+          ) : showConnecting ? (
+            <View style={styles.connecting}>
+              <Text style={styles.connectingTitle}>Connecting to HomeThread...</Text>
+              <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
+            </View>
+          ) : kidsMode ? (
+            <KidsModeScreen onExit={() => setKidsMode(false)} />
           ) : (
-            <WelcomeScreen onComplete={() => setHasCompletedOnboarding(true)} />
+            content
           )}
         </ScrollView>
-        {hasCompletedOnboarding && !kidsMode ? (
+        {enteredApp && authMode !== "signed_out" && !kidsMode ? (
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
               <IconButton
