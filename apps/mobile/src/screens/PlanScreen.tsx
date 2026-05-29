@@ -5,6 +5,7 @@ import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Prim
 import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
+import { CalendarSyncScreen } from "./CalendarSyncScreen";
 
 export function PlanScreen() {
   const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage } =
@@ -14,12 +15,17 @@ export function PlanScreen() {
   const [location, setLocation] = useState("");
   const [startTime, setStartTime] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [showCalendarSync, setShowCalendarSync] = useState(false);
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
   const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
+
+  if (showCalendarSync) {
+    return <CalendarSyncScreen onBack={() => setShowCalendarSync(false)} />;
+  }
 
   return (
     <View>
@@ -43,8 +49,21 @@ export function PlanScreen() {
           tone="dark"
           onPress={() => setShowForm((value) => !value)}
         />
+        <PrimaryButton
+          label="Calendar sync"
+          icon="calendar"
+          onPress={() => setShowCalendarSync(true)}
+        />
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <Card>
+        <Text style={styles.foundationTitle}>Smart travel reminders</Text>
+        <Text style={styles.foundationText}>
+          Travel-time reminders need Google Maps Distance Matrix and saved home location. That service is not wired in
+          this build, so there is no travel toggle to save yet.
+        </Text>
+      </Card>
 
       {showForm ? (
         <Card>
@@ -144,6 +163,7 @@ export function PlanScreen() {
                   <Row>
                     <Text style={styles.time}>{event.time}</Text>
                     {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
+                    {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
                     <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
                   </Row>
                   <Text style={styles.eventTitle}>{event.title}</Text>
@@ -174,8 +194,21 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
     marginTop: spacing.lg
+  },
+  foundationTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  foundationText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: spacing.sm
   },
   statusRow: {
     flexDirection: "row",

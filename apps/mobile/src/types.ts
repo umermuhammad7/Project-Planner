@@ -17,8 +17,37 @@ export type PlanEvent = {
   dateLabel: string;
   startAt?: string | null;
   location?: string;
+  countdownLabel?: string | null;
   assignedTo: string[];
   source: "manual" | "text" | "assistant";
+};
+
+export type CalendarConnection = {
+  id: string;
+  provider: "google" | "apple" | "outlook" | "ical";
+  externalCalendarId: string | null;
+  icalUrl: string | null;
+  isActive: boolean;
+  lastSyncedAt: string | null;
+};
+
+export type CalendarSyncStatus = {
+  googleOAuthConfigured: boolean;
+  googleConnectImplemented: boolean;
+  icalImportImplemented: boolean;
+  message: string;
+};
+
+export type CalendarConnectAttempt = {
+  ok: boolean;
+  message: string;
+  authUrl?: string;
+};
+
+export type PendingOfflineAction = {
+  id: string;
+  summary: string;
+  createdAt: string;
 };
 
 export type Chore = {

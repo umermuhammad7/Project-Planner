@@ -14,6 +14,7 @@ import { healthRoutes } from "./routes/health.js";
 import { listsRoutes } from "./routes/lists.js";
 import { mealsRoutes } from "./routes/meals.js";
 import { membersRoutes } from "./routes/members.js";
+import { calendarSyncRoutes } from "./routes/calendarSync.js";
 import { recipesRoutes } from "./routes/recipes.js";
 
 export function buildApp() {
@@ -49,6 +50,7 @@ export function buildApp() {
   app.register(listsRoutes, { prefix: "/api/v1/families/:familyId/lists" });
   app.register(mealsRoutes, { prefix: "/api/v1/families/:familyId/meals" });
   app.register(recipesRoutes, { prefix: "/api/v1/families/:familyId/recipes" });
+  app.register(calendarSyncRoutes, { prefix: "/api/v1/calendar-sync" });
 
   return app;
 }

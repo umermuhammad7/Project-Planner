@@ -15,7 +15,13 @@ const envSchema = z.object({
   GROQ_API_KEY_2: z.string().optional(),
   GROQ_API_KEY_3: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
-  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile")
+  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_OAUTH_REDIRECT_URI: z.url().optional(),
+  GOOGLE_CALENDAR_SCOPES: z
+    .string()
+    .default("https://www.googleapis.com/auth/calendar.readonly")
 });
 
 export const env = envSchema.parse(process.env);
@@ -28,5 +34,40 @@ export function getAssistantProviderStatus() {
   return {
     openaiConfigured: Boolean(env.OPENAI_API_KEY?.trim()),
     groqKeysConfigured: groqKeys.length
+  };
+}
+
+export function getCalendarSyncStatus() {
+  const googleOAuthConfigured = Boolean(
+    env.GOOGLE_OAUTH_CLIENT_ID?.trim() && env.GOOGLE_OAUTH_CLIENT_SECRET?.trim()
+  );
+
+  return {
+    googleOAuthConfigured,
+    googleConnectImplemented: googleOAuthConfigured,
+    icalImportImplemented: false,
+    message: googleOAuthConfigured
+      ? "Google OAuth credentials are present. HomeThread can start a Google Calendar connection, but ongoing sync is still limited in this build."
+      : "External calendar sync is not configured on this server yet."
+  };
+}
+
+export function getGoogleOAuthConfig() {
+  if (!env.GOOGLE_OAUTH_CLIENT_ID?.trim() || !env.GOOGLE_OAUTH_CLIENT_SECRET?.trim()) {
+    return null;
+  }
+
+  const redirectUri =
+    env.GOOGLE_OAUTH_REDIRECT_URI?.trim() ||
+    `http://localhost:${env.PORT}/api/v1/calendar-sync/google/callback`;
+
+  return {
+    clientId: env.GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+    redirectUri,
+    scopes: env.GOOGLE_CALENDAR_SCOPES
+      .split(/[,\s]+/u)
+      .map((scope) => scope.trim())
+      .filter(Boolean)
   };
 }

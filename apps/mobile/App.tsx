@@ -38,6 +38,7 @@ export default function App() {
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
   const syncSource = useHomeThreadStore((state) => state.syncSource);
+  const pendingOfflineCount = useHomeThreadStore((state) => state.pendingOfflineActions.length);
 
   useEffect(() => {
     if (hasCompletedOnboarding) {
@@ -69,7 +70,10 @@ export default function App() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <OfflineBanner visible={hasCompletedOnboarding && !isHydrating && syncSource !== "api"} />
+          <OfflineBanner
+            visible={hasCompletedOnboarding && !isHydrating && syncSource !== "api"}
+            pendingCount={hasCompletedOnboarding ? pendingOfflineCount : 0}
+          />
           {hasCompletedOnboarding ? (
             showConnecting ? (
               <View style={styles.connecting}>

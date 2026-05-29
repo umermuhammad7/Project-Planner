@@ -269,6 +269,32 @@ export const recipeImportResponseSchema = z.object({
   recipe: createRecipeSchema.nullable()
 });
 
+export const calendarConnectionSchema = z.object({
+  id: uuidSchema,
+  provider: z.enum(["google", "apple", "outlook", "ical"]),
+  externalCalendarId: z.string().nullable(),
+  icalUrl: z.string().nullable(),
+  isActive: z.boolean(),
+  lastSyncedAt: z.string().nullable()
+});
+
+export const calendarSyncStatusSchema = z.object({
+  googleOAuthConfigured: z.boolean(),
+  googleConnectImplemented: z.boolean(),
+  icalImportImplemented: z.boolean(),
+  message: z.string()
+});
+
+export const calendarConnectionsResponseSchema = z.object({
+  connections: z.array(calendarConnectionSchema)
+});
+
+export const calendarConnectAttemptResponseSchema = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+  authUrl: z.string().url().optional()
+});
+
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
@@ -304,6 +330,9 @@ export type RecipeImportSource = z.infer<typeof recipeImportSourceSchema>;
 export type RecipeImportRequest = z.infer<typeof recipeImportRequestSchema>;
 export type RecipeImportDraft = z.infer<typeof createRecipeSchema>;
 export type RecipeImportResponse = z.infer<typeof recipeImportResponseSchema>;
+export type CalendarConnection = z.infer<typeof calendarConnectionSchema>;
+export type CalendarSyncStatus = z.infer<typeof calendarSyncStatusSchema>;
+export type CalendarConnectionsResponse = z.infer<typeof calendarConnectionsResponseSchema>;
 
 export function buildCreateRecipeRequestBody(input: CreateRecipeInput): CreateRecipeInput {
   const body: CreateRecipeInput = {

@@ -40,6 +40,10 @@ export function ListsScreen() {
     <View>
       <Text style={styles.title}>Lists</Text>
       <Text style={styles.subtitle}>Groceries and errands that survive the jump between app and family texts.</Text>
+      <Text style={styles.realtimeNote}>
+        Live multi-device list sync needs Supabase Realtime, which is not wired in this build. Use Refresh to pull the
+        latest lists from the backend.
+      </Text>
 
       <View style={styles.statusRow}>
         <Pill
@@ -224,6 +228,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: spacing.sm
+  },
+  realtimeNote: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: spacing.md
   },
   actionRow: {
     flexDirection: "row",

@@ -17,6 +17,7 @@ import {
   FamilyList,
   FamilyMember,
   MealPlanItem,
+  PendingOfflineAction,
   PlanEvent,
   Recipe,
   RecipeIngredient,
@@ -57,6 +58,8 @@ type HomeThreadState = {
   isHydrating: boolean;
   isSaving: boolean;
   saveMessage: string;
+  pendingOfflineActions: PendingOfflineAction[];
+  recordPendingOffline: (summary: string) => void;
   hydrateFromBackend: () => Promise<void>;
   refreshFromBackend: () => Promise<void>;
   createEvent: (input: { title: string; location?: string; startTime?: string; memberIds?: string[] }) => Promise<boolean>;
@@ -115,6 +118,19 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   isHydrating: false,
   isSaving: false,
   saveMessage: "Quick add is ready",
+  pendingOfflineActions: [],
+  recordPendingOffline: (summary) => {
+    set((state) => ({
+      pendingOfflineActions: [
+        {
+          id: `pending-${Date.now()}`,
+          summary,
+          createdAt: new Date().toISOString()
+        },
+        ...state.pendingOfflineActions
+      ].slice(0, 20)
+    }));
+  },
   hydrateFromBackend: async () => {
     set({
       isHydrating: true,
@@ -192,6 +208,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       syncSource: "api",
       syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${recipesResult.data.recipes.length} recipes, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
+      pendingOfflineActions: [],
       isHydrating: false
     });
   },
@@ -200,14 +217,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   },
   createEvent: async ({ title, location, startTime, memberIds: rawMemberIds }) => {
     const state = get();
+    const normalizedTitle = title.trim();
     if (state.syncSource !== "api" || !state.familyId) {
+      get().recordPendingOffline(`Event not saved: ${normalizedTitle || "untitled"}`);
       set({
-        saveMessage: "Backend sync is unavailable — event was not created",
+        saveMessage: "Backend sync is unavailable — event was not created"
       });
       return false;
     }
-
-    const normalizedTitle = title.trim();
     if (!normalizedTitle) {
       set({ saveMessage: "Event title is required" });
       return false;
@@ -1204,6 +1221,7 @@ type BackendEventRecord = {
   id: string;
   title: string;
   location: string | null;
+  countdownLabel?: string | null;
   startAt: string;
   memberIds: string[];
 };
@@ -1624,6 +1642,7 @@ function mapEvent(
     dateLabel: format(startAt, "EEE"),
     startAt: event.startAt,
     location: event.location ?? undefined,
+    countdownLabel: event.countdownLabel ?? null,
     assignedTo,
     source
   };

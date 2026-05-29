@@ -3,15 +3,27 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing } from "../constants/theme";
 
-export function OfflineBanner({ visible }: { visible: boolean }) {
-  if (!visible) {
+export function OfflineBanner({
+  visible,
+  pendingCount = 0
+}: {
+  visible: boolean;
+  pendingCount?: number;
+}) {
+  if (!visible && pendingCount === 0) {
     return null;
   }
 
   return (
     <View style={styles.banner}>
       <Ionicons name="cloud-offline" size={18} color={colors.ink} />
-      <Text style={styles.text}>Not connected to the local backend — changes may not sync.</Text>
+      <Text style={styles.text}>
+        {visible
+          ? pendingCount > 0
+            ? `Not connected to the local backend - ${pendingCount} change${pendingCount === 1 ? "" : "s"} waiting to sync.`
+            : "Not connected to the local backend - changes may not sync."
+          : `${pendingCount} change${pendingCount === 1 ? "" : "s"} waiting to sync when the backend is back.`}
+      </Text>
     </View>
   );
 }

@@ -28,10 +28,7 @@ export function HomeScreen({
   } = useHomeThreadStore();
   const listItemsByListId = useHomeThreadStore((state) => state.listItemsByListId);
   const openChores = chores.filter((chore) => !chore.completed);
-  const allListItems = useMemo(
-    () => Object.values(listItemsByListId).flat(),
-    [listItemsByListId]
-  );
+  const allListItems = useMemo(() => Object.values(listItemsByListId).flat(), [listItemsByListId]);
   const openItems = allListItems.filter((item) => !item.checked);
   const dinners = meals.filter((meal) => meal.mealType === "dinner").slice(0, 3);
   const kidStarTotal = useMemo(
