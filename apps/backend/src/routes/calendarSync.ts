@@ -191,15 +191,18 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     const membership = await requireFamilyMember(request, reply, body.familyId);
     if (!membership) return;
 
-    const status = getCalendarSyncStatus();
-    const payload = calendarConnectAttemptResponseSchema.parse({
-      ok: false,
-      message: status.icalImportImplemented
-        ? "Unexpected iCal import state."
-        : "iCal feed import is not implemented in this build yet."
+    await upsertIcalConnection({
+      familyId: body.familyId,
+      userId: request.currentUser!.id,
+      icalUrl: body.icalUrl
     });
 
-    return reply.status(501).send(payload);
+    const payload = calendarConnectAttemptResponseSchema.parse({
+      ok: true,
+      message: "iCal feed saved. HomeThread can remember this calendar connection, but automatic event import is not implemented yet."
+    });
+
+    return reply.status(201).send(payload);
   });
 }
 
@@ -336,6 +339,39 @@ async function upsertGoogleConnection(input: {
     accessToken: input.accessToken,
     refreshToken: input.refreshToken,
     tokenExpiresAt,
+    isActive: true
+  });
+}
+
+async function upsertIcalConnection(input: {
+  familyId: string;
+  userId: string;
+  icalUrl: string;
+}) {
+  const existing = await db.query.calendarConnections.findFirst({
+    where: and(
+      eq(calendarConnections.familyId, input.familyId),
+      eq(calendarConnections.userId, input.userId),
+      eq(calendarConnections.provider, "ical")
+    )
+  });
+
+  if (existing) {
+    await db
+      .update(calendarConnections)
+      .set({
+        icalUrl: input.icalUrl,
+        isActive: true
+      })
+      .where(eq(calendarConnections.id, existing.id));
+    return;
+  }
+
+  await db.insert(calendarConnections).values({
+    familyId: input.familyId,
+    userId: input.userId,
+    provider: "ical",
+    icalUrl: input.icalUrl,
     isActive: true
   });
 }

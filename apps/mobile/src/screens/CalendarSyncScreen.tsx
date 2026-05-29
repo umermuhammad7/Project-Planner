@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Linking, StyleSheet, Text, View } from "react-native";
+import { Linking, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
-import { colors, spacing } from "../constants/theme";
+import { colors, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { CalendarConnectAttempt, CalendarConnection, CalendarSyncStatus } from "../types";
@@ -13,6 +13,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
   const [connections, setConnections] = useState<CalendarConnection[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [icalUrl, setIcalUrl] = useState("");
 
   async function loadCalendarSync() {
     if (syncSource !== "api" || !familyId) {
@@ -63,6 +64,29 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     }
 
     void loadCalendarSync();
+  }
+
+  async function saveIcalFeed() {
+    if (!familyId || !icalUrl.trim()) {
+      setNote("Paste an iCal feed URL before saving it.");
+      return;
+    }
+
+    const result = await apiRequest<CalendarConnectAttempt>("/calendar-sync/ical", {
+      method: "POST",
+      body: JSON.stringify({ familyId, icalUrl: icalUrl.trim() })
+    });
+
+    setNote(
+      result.data?.message ??
+        result.error?.message ??
+        "iCal feed connect is unavailable right now."
+    );
+
+    if (result.data?.ok) {
+      setIcalUrl("");
+      await loadCalendarSync();
+    }
   }
 
   return (
@@ -122,6 +146,33 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
           }}
         />
       </View>
+
+      <SectionTitle title="iCal feed" />
+      <Card>
+        <Text style={styles.helper}>
+          Paste a public iCal feed URL to remember it for this family. HomeThread will save the connection, but automatic event import is not implemented yet.
+        </Text>
+        <TextInput
+          accessibilityLabel="iCal feed URL"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          placeholder="https://example.com/family.ics"
+          placeholderTextColor={colors.muted}
+          style={styles.input}
+          value={icalUrl}
+          onChangeText={setIcalUrl}
+        />
+        <View style={styles.actions}>
+          <PrimaryButton
+            label="Save iCal feed"
+            icon="link"
+            onPress={() => {
+              void saveIcalFeed();
+            }}
+          />
+        </View>
+      </Card>
     </View>
   );
 }
@@ -158,6 +209,16 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 18,
     marginTop: spacing.sm
+  },
+  input: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 15,
+    marginTop: spacing.md,
+    padding: spacing.md
   },
   stack: {
     gap: spacing.md

@@ -176,4 +176,48 @@ describe("calendar-sync routes", () => {
     expect(response.body).toContain("could not verify the sign-in state");
     await app.close();
   });
+
+  it("stores an iCal feed connection for the family", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/calendar-sync/ical",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        familyId: "00000000-0000-4000-8000-000000000201",
+        icalUrl: "https://example.com/family.ics"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual({
+      ok: true,
+      message:
+        "iCal feed saved. HomeThread can remember this calendar connection, but automatic event import is not implemented yet."
+    });
+
+    const connectionsResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/calendar-sync/connections?familyId=00000000-0000-4000-8000-000000000201",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      }
+    });
+
+    expect(connectionsResponse.statusCode).toBe(200);
+    expect(connectionsResponse.json()).toEqual({
+      connections: [
+        expect.objectContaining({
+          provider: "ical",
+          icalUrl: "https://example.com/family.ics",
+          isActive: true
+        })
+      ]
+    });
+
+    await app.close();
+  });
 });
