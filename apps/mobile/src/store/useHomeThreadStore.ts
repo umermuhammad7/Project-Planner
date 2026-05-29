@@ -1503,6 +1503,7 @@ function applyLocalDraft(state: HomeThreadState, draft: AssistantDraft): Partial
   const memberIds = findMemberIdsInText(draft.rawText, state.members);
 
   if (draft.kind === "event") {
+    const inferredWindow = inferEventWindow(draft);
     return {
       events: [
         {
@@ -1510,6 +1511,7 @@ function applyLocalDraft(state: HomeThreadState, draft: AssistantDraft): Partial
           title: draft.title,
           time: draft.detail.includes(" at ") ? draft.detail.split(" at ").at(-1) ?? "TBD" : "TBD",
           dateLabel: draft.detail.split(" at ")[0] || "Today",
+          startAt: inferredWindow.startAt.toISOString(),
           assignedTo: memberIds,
           source: "assistant"
         },
@@ -1580,6 +1582,7 @@ function mapEvent(
     title: event.title,
     time: format(startAt, "h:mm a"),
     dateLabel: format(startAt, "EEE"),
+    startAt: event.startAt,
     location: event.location ?? undefined,
     assignedTo,
     source
@@ -1873,5 +1876,4 @@ function resolveMemberName(members: FamilyMember[], memberId: string | null) {
   if (!memberId) return null;
   return members.find((member) => member.id === memberId)?.name ?? null;
 }
-
 

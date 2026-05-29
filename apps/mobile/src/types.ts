@@ -15,6 +15,7 @@ export type PlanEvent = {
   title: string;
   time: string;
   dateLabel: string;
+  startAt?: string | null;
   location?: string;
   assignedTo: string[];
   source: "manual" | "text" | "assistant";

@@ -6,6 +6,7 @@ import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../c
 import { colors, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TabKey } from "../types";
+import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
 export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
   const {
@@ -27,6 +28,14 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
   );
   const openItems = allListItems.filter((item) => !item.checked);
   const dinners = meals.filter((meal) => meal.mealType === "dinner").slice(0, 3);
+  const upcomingEvents = useMemo(
+    () =>
+      [...events]
+        .sort(compareEventsByStartAt)
+        .filter((event) => getEventUrgency(event)?.label !== "Past")
+        .slice(0, 3),
+    [events]
+  );
 
   return (
     <View>
@@ -86,21 +95,27 @@ export function HomeScreen({ goTo }: { goTo: (tab: TabKey) => void }) {
 
       <SectionTitle title="Next up" action={`${events.length} plans`} />
       <View style={styles.stack}>
-        {events.slice(0, 3).map((event) => (
-          <Card key={event.id}>
-            <Row>
-              <View style={styles.timeBlock}>
-                <Text style={styles.time}>{event.time}</Text>
-                <Text style={styles.date}>{event.dateLabel}</Text>
-              </View>
-              <View style={styles.fill}>
-                <Text style={styles.itemTitle}>{event.title}</Text>
-                <Text style={styles.itemMeta}>{event.location ?? "No location set"}</Text>
-              </View>
-              <Pill label={event.source} tone={event.source === "text" ? "coral" : "neutral"} />
-            </Row>
-          </Card>
-        ))}
+        {upcomingEvents.map((event) => {
+          const urgency = getEventUrgency(event);
+          return (
+            <Card key={event.id}>
+              <Row>
+                <View style={styles.timeBlock}>
+                  <Text style={styles.time}>{event.time}</Text>
+                  <Text style={styles.date}>{event.dateLabel}</Text>
+                </View>
+                <View style={styles.fill}>
+                  <Text style={styles.itemTitle}>{event.title}</Text>
+                  <Text style={styles.itemMeta}>{event.location ?? "No location set"}</Text>
+                </View>
+                <View style={styles.eventBadges}>
+                  {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
+                  <Pill label={event.source} tone={event.source === "text" ? "coral" : "neutral"} />
+                </View>
+              </Row>
+            </Card>
+          );
+        })}
       </View>
 
       <SectionTitle title="Household pulse" />
@@ -229,6 +244,10 @@ const styles = StyleSheet.create({
   },
   fill: {
     flex: 1
+  },
+  eventBadges: {
+    alignItems: "flex-end",
+    gap: spacing.sm
   },
   itemTitle: {
     color: colors.ink,

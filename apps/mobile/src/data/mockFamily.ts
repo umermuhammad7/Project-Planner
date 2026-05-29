@@ -1,6 +1,12 @@
 import { Chore, FamilyMember, MealPlanItem, PlanEvent, ShoppingItem, TextUpdate } from "../types";
 import { colors } from "../constants/theme";
 
+function todayAt(hours: number, minutes: number) {
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date.toISOString();
+}
+
 export const members: FamilyMember[] = [
   {
     id: "mara",
@@ -42,6 +48,7 @@ export const planEvents: PlanEvent[] = [
     title: "School pickup",
     time: "3:10 PM",
     dateLabel: "Today",
+    startAt: todayAt(15, 10),
     location: "Westbrook Elementary",
     assignedTo: ["mara", "jules", "noah"],
     source: "manual"
@@ -51,6 +58,7 @@ export const planEvents: PlanEvent[] = [
     title: "Noah soccer practice",
     time: "5:00 PM",
     dateLabel: "Today",
+    startAt: todayAt(17, 0),
     location: "Field 4",
     assignedTo: ["noah", "nana"],
     source: "text"
@@ -60,6 +68,7 @@ export const planEvents: PlanEvent[] = [
     title: "Pick up allergy refill",
     time: "6:15 PM",
     dateLabel: "Today",
+    startAt: todayAt(18, 15),
     location: "CVS",
     assignedTo: ["mara"],
     source: "assistant"

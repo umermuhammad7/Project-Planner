@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
 export function PlanScreen() {
   const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage } =
@@ -15,6 +16,7 @@ export function PlanScreen() {
   const [memberIds, setMemberIds] = useState<string[]>([]);
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
+  const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
@@ -124,11 +126,12 @@ export function PlanScreen() {
 
       <SectionTitle title="Timeline" action="Today" />
       <View style={styles.stack}>
-        {events.map((event) => {
+        {sortedEvents.map((event) => {
           const assigned = event.assignedTo
             .map((id) => members.find((member) => member.id === id)?.name)
             .filter(Boolean)
             .join(", ");
+          const urgency = getEventUrgency(event);
 
           return (
             <Card key={event.id}>
@@ -140,6 +143,7 @@ export function PlanScreen() {
                 <View style={styles.fill}>
                   <Row>
                     <Text style={styles.time}>{event.time}</Text>
+                    {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
                     <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
                   </Row>
                   <Text style={styles.eventTitle}>{event.title}</Text>
