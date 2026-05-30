@@ -59,6 +59,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const [subscriptionStatus, setSubscriptionStatus] = useState<MobileSubscriptionStatus | null>(null);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
 
+  const backendConnected = syncSource === "api";
+  const childProfiles = members.filter((member) => member.role === "kid");
+
   async function handleSaveFamilyName() {
     setFormMessage(null);
     const result = await updateFamilyName(editedFamilyName);
@@ -231,8 +234,6 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     setNotificationMessage("Notification settings updated.");
   }
 
-  const backendConnected = syncSource === "api";
-
   useEffect(() => {
     setEditedFamilyName(familyName);
   }, [familyName]);
@@ -257,8 +258,8 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <Text style={styles.title}>{familyName}</Text>
           <Text style={styles.subtitle}>
             {backendConnected
-              ? "Manage invite codes and child profiles for this family."
-              : "Family settings need the local backend connected."}
+              ? "Invite people, add child profiles, and keep family settings tidy in one place."
+              : "Household settings need the local backend connected."}
           </Text>
         </View>
         <Pressable onPress={onClose} style={styles.closeButton}>
@@ -266,10 +267,56 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         </Pressable>
       </View>
 
+      <Card>
+        <View style={styles.summaryTop}>
+          <Pill label={isFamilyAdmin ? "Admin access" : "Member access"} tone={isFamilyAdmin ? "primary" : "neutral"} />
+          <Pill label={backendConnected ? "Connected" : "Local-only"} tone={backendConnected ? "mint" : "neutral"} />
+        </View>
+        <View style={styles.summaryGrid}>
+          <View style={styles.summaryStat}>
+            <Text style={styles.summaryValue}>{members.length}</Text>
+            <Text style={styles.summaryLabel}>members</Text>
+          </View>
+          <View style={styles.summaryStat}>
+            <Text style={styles.summaryValue}>{childProfiles.length}</Text>
+            <Text style={styles.summaryLabel}>child profiles</Text>
+          </View>
+          <View style={styles.summaryStat}>
+            <Text style={styles.summaryValue}>{inviteCode ? "Ready" : "None"}</Text>
+            <Text style={styles.summaryLabel}>invite code</Text>
+          </View>
+        </View>
+      </Card>
+
+      <SectionTitle title="Family access" />
+      <Card>
+        <Text style={styles.cardTitle}>Invite code</Text>
+        <Text style={styles.cardText}>
+          Share this code with another adult when they should see the same household. Email invites are not wired in this build.
+        </Text>
+        <Text style={styles.inviteCode}>{inviteCode ?? "Unavailable"}</Text>
+        {isFamilyAdmin ? (
+          <View style={styles.cardActions}>
+            <PrimaryButton
+              label={isSaving ? "Working..." : "Regenerate code"}
+              icon="refresh"
+              tone="dark"
+              onPress={() => {
+                if (isSaving || !backendConnected) return;
+                void handleRegenerateInvite();
+              }}
+            />
+          </View>
+        ) : (
+          <Text style={styles.helperText}>Only admins can regenerate invite codes.</Text>
+        )}
+      </Card>
+
       {isFamilyAdmin ? (
         <Card>
           <Text style={styles.cardTitle}>Household name</Text>
-          <Text style={styles.cardText}>Admins can rename the family. Avatar uploads are not wired in this build.</Text>
+          <Text style={styles.cardText}>Use the name everyone in the family will recognize immediately.</Text>
+          <Text style={styles.label}>Family name</Text>
           <TextInput
             style={styles.input}
             placeholder="Family name"
@@ -289,30 +336,6 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           </View>
         </Card>
       ) : null}
-
-      <Card>
-        <Text style={styles.cardTitle}>Invite code</Text>
-        <Text style={styles.cardText}>
-          Share this code with another adult so they can join this household. Email invites are not wired in this
-          build.
-        </Text>
-        <Text style={styles.inviteCode}>{inviteCode ?? "Unavailable"}</Text>
-        {isFamilyAdmin ? (
-          <View style={styles.cardActions}>
-            <PrimaryButton
-              label={isSaving ? "Working..." : "Regenerate code"}
-              icon="refresh"
-              tone="dark"
-              onPress={() => {
-                if (isSaving || !backendConnected) return;
-                void handleRegenerateInvite();
-              }}
-            />
-          </View>
-        ) : (
-          <Text style={styles.helperText}>Only admins can regenerate invite codes.</Text>
-        )}
-      </Card>
 
       <SectionTitle title="Members" action={`${members.length} total`} />
       <View style={styles.stack}>
@@ -392,7 +415,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <SectionTitle title="Add child profile" />
           <Card>
             <Text style={styles.cardText}>
-              Child profiles are virtual members for chores and kids mode. They do not get their own login.
+              Child profiles are for chores, stars, and kids mode. They do not get their own login in this build.
             </Text>
             <Text style={styles.label}>Name</Text>
             <TextInput
@@ -419,24 +442,11 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
       {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
 
+      <SectionTitle title="Your account" />
       <Card>
-        <Text style={styles.cardTitle}>Family Plus</Text>
+        <Text style={styles.cardTitle}>Profile</Text>
         <Text style={styles.cardText}>
-          Subscription plumbing is wired on the backend. Purchases and restore flows still need RevenueCat keys and app-store setup.
-        </Text>
-        <Text style={styles.helperText}>
-          Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
-          {subscriptionStatus?.subscriptionExpiresAt
-            ? ` - expires ${new Date(subscriptionStatus.subscriptionExpiresAt).toLocaleDateString()}`
-            : ""}
-        </Text>
-        {subscriptionMessage ? <Text style={styles.helperText}>{subscriptionMessage}</Text> : null}
-      </Card>
-
-      <Card>
-        <Text style={styles.cardTitle}>Account</Text>
-        <Text style={styles.cardText}>
-          Keep your profile name current so invites, notifications, and family activity stay readable.
+          Keep your display name current so family activity, invites, and notifications stay understandable.
         </Text>
         <Text style={styles.label}>Display name</Text>
         <TextInput
@@ -462,8 +472,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       <Card>
         <Text style={styles.cardTitle}>Notifications</Text>
         <Text style={styles.cardText}>
-          HomeThread can request notification permission and register this device token. Reminder delivery itself is
-          not implemented yet.
+          Permission, device token registration, and reminder preferences are wired. Reminder delivery itself is still a later step.
         </Text>
         <Text style={styles.helperText}>
           Permission: {notificationPermission}
@@ -473,13 +482,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         {notificationMessage ? <Text style={styles.saveMessage}>{notificationMessage}</Text> : null}
         <View style={styles.cardActions}>
           <PrimaryButton
-            label={
-              isRegisteringNotifications
-                ? "Working..."
-                : pushToken
-                  ? "Refresh notification setup"
-                  : "Enable notifications"
-            }
+            label={isRegisteringNotifications ? "Working..." : pushToken ? "Refresh notification setup" : "Enable notifications"}
             icon="notifications"
             onPress={() => {
               if (isRegisteringNotifications) return;
@@ -516,10 +519,36 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       </Card>
 
       <Card>
+        <Text style={styles.cardTitle}>Family Plus</Text>
+        <Text style={styles.cardText}>
+          Subscription status is real here. Purchase and restore flows still depend on external RevenueCat and store setup.
+        </Text>
+        <Text style={styles.helperText}>
+          Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
+          {subscriptionStatus?.subscriptionExpiresAt
+            ? ` - expires ${new Date(subscriptionStatus.subscriptionExpiresAt).toLocaleDateString()}`
+            : ""}
+        </Text>
+        {subscriptionMessage ? <Text style={styles.helperText}>{subscriptionMessage}</Text> : null}
+      </Card>
+
+      <SectionTitle title="Leave or sign out" />
+      <Card>
+        <Text style={styles.cardTitle}>Session</Text>
+        <Text style={styles.cardText}>
+          {authMode === "dev_token"
+            ? "Signed in with the local dev token for seeded Parker Home data."
+            : "Signed in with Supabase. Sign out to switch accounts or return to setup."}
+        </Text>
+        <View style={styles.cardActions}>
+          <PrimaryButton label="Sign out" icon="log-out" tone="dark" onPress={() => void handleSignOut()} />
+        </View>
+      </Card>
+
+      <Card>
         <Text style={styles.cardTitle}>Leave household</Text>
         <Text style={styles.cardText}>
-          Leave removes your membership from this family on the server. You can join again with an invite code or create
-          a new household.
+          Leaving removes your membership from this family on the server. You can always rejoin with an invite code later.
         </Text>
         <View style={styles.cardActions}>
           <PrimaryButton
@@ -535,20 +564,14 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       </Card>
 
       <Card>
-        <Text style={styles.cardTitle}>Session</Text>
-        <Text style={styles.cardText}>
-          {authMode === "dev_token"
-            ? "Signed in with the local dev token for seeded Parker Home data."
-            : "Signed in with Supabase. Sign out to switch accounts or return to setup."}
-        </Text>
-        <View style={styles.cardActions}>
-          <PrimaryButton label="Sign out" icon="log-out" tone="dark" onPress={() => void handleSignOut()} />
-        </View>
+        <Text style={styles.cardTitle}>Delete account</Text>
         {authMode === "supabase" ? (
           <>
+            <Text style={styles.cardText}>
+              This removes the signed-in profile from HomeThread. It is a destructive action and should only be used when the account is no longer needed.
+            </Text>
             <Text style={styles.dangerText}>
-              Delete account removes this signed-in profile from HomeThread. It does not preserve family membership or
-              settings in this build.
+              Account deletion does not preserve family membership or settings in this build.
             </Text>
             <View style={styles.cardActions}>
               <PrimaryButton
@@ -636,6 +659,36 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900"
   },
+  summaryTop: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.lg
+  },
+  summaryStat: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flex: 1,
+    padding: spacing.md
+  },
+  summaryValue: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: "900"
+  },
+  summaryLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.xs,
+    textTransform: "uppercase"
+  },
   cardTitle: {
     color: colors.ink,
     fontSize: 18,
@@ -658,6 +711,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     fontWeight: "700",
+    lineHeight: 19,
     marginTop: spacing.md
   },
   cardActions: {
