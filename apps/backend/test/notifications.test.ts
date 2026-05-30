@@ -72,4 +72,37 @@ describe("notifications routes", () => {
       updated: 1
     });
   });
+
+  it("builds a daily digest preview for the current family", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/notifications/daily-digest/preview?familyId=00000000-0000-4000-8000-000000000201",
+      headers: authHeaders
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      familyId: "00000000-0000-4000-8000-000000000201",
+      title: "Daily family digest",
+      upcomingEvents: expect.any(Number),
+      openChores: expect.any(Number),
+      dinnersPlanned: expect.any(Number)
+    });
+  });
+
+  it("reports job queue status honestly", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/notifications/jobs/status",
+      headers: authHeaders
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      enabled: false,
+      started: false
+    });
+  });
 });

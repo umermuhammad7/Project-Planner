@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { db } from "../db/client.js";
 import { eventMembers, events } from "../db/schema.js";
+import { getTravelReminderRecommendation } from "../lib/travelReminder.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -151,6 +152,30 @@ export async function eventsRoutes(app: FastifyInstance) {
     });
 
     return { event };
+  });
+
+  app.get("/:eventId/travel-reminder", async (request, reply) => {
+    const { familyId, eventId } = eventParamsSchema.parse(request.params);
+    const membership = await requireFamilyMember(request, reply, familyId);
+    if (!membership) return;
+
+    const event = await db.query.events.findFirst({
+      where: and(eq(events.familyId, familyId), eq(events.id, eventId))
+    });
+
+    if (!event) {
+      reply.status(404);
+      return {
+        error: "Event not found",
+        code: "EVENT_NOT_FOUND"
+      };
+    }
+
+    return getTravelReminderRecommendation({
+      locationLat: event.locationLat ? Number(event.locationLat) : null,
+      locationLng: event.locationLng ? Number(event.locationLng) : null,
+      startAt: event.startAt
+    });
   });
 
   app.patch("/:eventId", async (request, reply) => {

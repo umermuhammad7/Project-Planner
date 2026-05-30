@@ -71,6 +71,52 @@ export const notificationPrefsResponseSchema = z.object({
   })
 });
 
+export const dailyDigestPreviewResponseSchema = z.object({
+  familyId: uuidSchema,
+  title: z.string().min(1),
+  body: z.string().min(1),
+  upcomingEvents: z.number().int().nonnegative(),
+  openChores: z.number().int().nonnegative(),
+  dinnersPlanned: z.number().int().nonnegative()
+});
+
+export const dailyDigestSendResponseSchema = z.object({
+  queued: z.boolean(),
+  delivered: z.number().int().nonnegative(),
+  createdNotifications: z.number().int().nonnegative(),
+  message: z.string().min(1)
+});
+
+export const subscriptionStatusResponseSchema = z.object({
+  familyId: uuidSchema,
+  subscriptionStatus: subscriptionStatusSchema,
+  subscriptionExpiresAt: z.iso.datetime().nullable(),
+  revenueCatId: z.string().nullable(),
+  provider: z.enum(["none", "revenuecat"]),
+  message: z.string().min(1)
+});
+
+export const revenueCatWebhookSchema = z.object({
+  api_version: z.string().min(1),
+  event: z.object({
+    id: z.string().min(1),
+    type: z.string().min(1),
+    app_user_id: z.string().min(1),
+    original_app_user_id: z.string().optional(),
+    entitlement_ids: z.array(z.string()).optional(),
+    expiration_at_ms: z.number().int().nullable().optional(),
+    environment: z.string().optional()
+  })
+});
+
+export const travelReminderStatusResponseSchema = z.object({
+  supported: z.boolean(),
+  reason: z.string().min(1),
+  recommendedLeadMinutes: z.number().int().positive().nullable(),
+  estimatedTravelMinutes: z.number().int().positive().nullable(),
+  provider: z.enum(["google_maps", "unavailable"])
+});
+
 export const insightsWeeklyResponseSchema = z.object({
   windowDays: z.number().int().positive(),
   upcomingEvents: z.number().int().nonnegative(),
@@ -425,6 +471,11 @@ export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type NotificationPrefsInput = z.infer<typeof notificationPrefsSchema>;
 export type AuthStatusResponse = z.infer<typeof authStatusResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type DailyDigestPreviewResponse = z.infer<typeof dailyDigestPreviewResponseSchema>;
+export type DailyDigestSendResponse = z.infer<typeof dailyDigestSendResponseSchema>;
+export type SubscriptionStatusResponse = z.infer<typeof subscriptionStatusResponseSchema>;
+export type RevenueCatWebhookInput = z.infer<typeof revenueCatWebhookSchema>;
+export type TravelReminderStatusResponse = z.infer<typeof travelReminderStatusResponseSchema>;
 export type InsightsWeeklyResponse = z.infer<typeof insightsWeeklyResponseSchema>;
 export type InsightsChoresResponse = z.infer<typeof insightsChoresResponseSchema>;
 export type InsightsBusynessResponse = z.infer<typeof insightsBusynessResponseSchema>;

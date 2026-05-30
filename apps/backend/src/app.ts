@@ -18,6 +18,8 @@ import { membersRoutes } from "./routes/members.js";
 import { calendarSyncRoutes } from "./routes/calendarSync.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { recipesRoutes } from "./routes/recipes.js";
+import { subscriptionsRoutes } from "./routes/subscriptions.js";
+import { webhookRoutes } from "./routes/webhooks.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -55,6 +57,8 @@ export function buildApp() {
   app.register(insightsRoutes, { prefix: "/api/v1/families/:familyId/insights" });
   app.register(calendarSyncRoutes, { prefix: "/api/v1/calendar-sync" });
   app.register(notificationsRoutes, { prefix: "/api/v1/notifications" });
+  app.register(subscriptionsRoutes, { prefix: "/api/v1/subscriptions" });
+  app.register(webhookRoutes, { prefix: "/api/v1/webhooks" });
 
   return app;
 }

@@ -21,7 +21,16 @@ const envSchema = z.object({
   GOOGLE_OAUTH_REDIRECT_URI: z.url().optional(),
   GOOGLE_CALENDAR_SCOPES: z
     .string()
-    .default("https://www.googleapis.com/auth/calendar.readonly")
+    .default("https://www.googleapis.com/auth/calendar.readonly"),
+  JOBS_ENABLED: z.coerce.boolean().default(false),
+  EXPO_PUSH_ACCESS_TOKEN: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().email().optional(),
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
+  TRAVEL_HOME_LATITUDE: z.coerce.number().optional(),
+  TRAVEL_HOME_LONGITUDE: z.coerce.number().optional(),
+  REVENUECAT_WEBHOOK_SECRET: z.string().optional(),
+  REVENUECAT_ENTITLEMENT_ID: z.string().default("family_plus")
 });
 
 export const env = envSchema.parse(process.env);
@@ -87,5 +96,28 @@ export function getGoogleOAuthConfig() {
       .split(/[,\s]+/u)
       .map((scope) => scope.trim())
       .filter(Boolean)
+  };
+}
+
+export function getJobsConfig() {
+  return {
+    enabled: env.JOBS_ENABLED,
+    hasExpoPushAccessToken: Boolean(env.EXPO_PUSH_ACCESS_TOKEN?.trim()),
+    hasResend: Boolean(env.RESEND_API_KEY?.trim() && env.RESEND_FROM_EMAIL?.trim())
+  };
+}
+
+export function getTravelConfig() {
+  return {
+    hasGoogleMapsKey: Boolean(env.GOOGLE_MAPS_API_KEY?.trim()),
+    homeCoordinatesConfigured:
+      typeof env.TRAVEL_HOME_LATITUDE === "number" && typeof env.TRAVEL_HOME_LONGITUDE === "number"
+  };
+}
+
+export function getRevenueCatConfig() {
+  return {
+    webhookSecretConfigured: Boolean(env.REVENUECAT_WEBHOOK_SECRET?.trim()),
+    entitlementId: env.REVENUECAT_ENTITLEMENT_ID
   };
 }

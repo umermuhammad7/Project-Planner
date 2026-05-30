@@ -332,6 +332,23 @@ export type FamilySetupResponse = {
   };
 };
 
+export type MobileSubscriptionStatus = {
+  familyId: string;
+  subscriptionStatus: "free" | "plus" | "cancelled";
+  subscriptionExpiresAt: string | null;
+  revenueCatId: string | null;
+  provider: "none" | "revenuecat";
+  message: string;
+};
+
+export type TravelReminderStatus = {
+  supported: boolean;
+  reason: string;
+  recommendedLeadMinutes: number | null;
+  estimatedTravelMinutes: number | null;
+  provider: "google_maps" | "unavailable";
+};
+
 export type InsightsWeekly = {
   windowDays: number;
   upcomingEvents: number;

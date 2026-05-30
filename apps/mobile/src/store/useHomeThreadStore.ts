@@ -18,6 +18,7 @@ import {
   replayOfflineQueue as replayOfflineQueueService
 } from "../services/offlineQueue";
 import { loadOfflineQueueFromStorage } from "../services/offlineQueueStorage";
+import { buildWidgetSnapshot, saveWidgetSnapshot } from "../services/widgetSnapshot";
 import { useAuthStore } from "./useAuthStore";
 import {
   AssistantDraft,
@@ -330,6 +331,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const hydratedChores = choresResult.data.chores
       .map(mapChore)
       .map((chore) => (completedChoreIds[chore.id] ? { ...chore, completed: true } : chore));
+    const mappedEvents = eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? []));
 
     set({
       familyId: familyResult.data.family.id,
@@ -342,7 +344,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       inviteCode: familyResult.data.family.inviteCode,
       isFamilyAdmin: currentMember?.role === "admin",
       members: familyResult.data.members.map(mapMember),
-      events: eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? [])),
+      events: mappedEvents,
       mealWeekStart: mealsResult.data.weekStart,
       meals: mealsResult.data.items.map(mapMeal),
       recipes: recipesResult.data.recipes.map(mapRecipe),
@@ -354,6 +356,21 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       offlineQueue: getOfflineQueue(),
       isHydrating: false
     });
+
+    saveWidgetSnapshot(
+      buildWidgetSnapshot({
+        familyName: familyResult.data.family.name,
+        events: mappedEvents.map((event) => ({
+          title: event.title,
+          time: event.time,
+          dateLabel: event.dateLabel
+        })),
+        openChores: hydratedChores.filter((chore) => !chore.completed).length,
+        openShoppingItems: Object.values(listItemsByListId)
+          .flat()
+          .filter((item) => !item.checked).length
+      })
+    );
 
     if (!options?.skipOfflineReplay) {
       await maybeReplayOfflineQueue(get, set);

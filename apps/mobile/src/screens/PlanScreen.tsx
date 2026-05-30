@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import { apiRequest } from "../services/api";
 import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { TravelReminderStatus } from "../types";
 import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } from "../utils/eventUrgency";
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 
@@ -17,9 +19,15 @@ export function PlanScreen() {
   const [startTime, setStartTime] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [showCalendarSync, setShowCalendarSync] = useState(false);
+  const [travelStatus, setTravelStatus] = useState<TravelReminderStatus | null>(null);
+  const [travelMessage, setTravelMessage] = useState<string>("Travel reminders need an upcoming event with map coordinates.");
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
   const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
+  const travelCandidate = useMemo(
+    () => sortedEvents.find((event) => event.startAt && event.location),
+    [sortedEvents]
+  );
   const liveUpdateNote = useMemo(
     () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
     [realtimeMessage, realtimeStatus, syncSource]
@@ -27,6 +35,37 @@ export function PlanScreen() {
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
+
+  useEffect(() => {
+    async function loadTravelStatus() {
+      if (syncSource !== "api") {
+        setTravelStatus(null);
+        setTravelMessage("Travel reminders need the local API connected.");
+        return;
+      }
+
+      const familyId = useHomeThreadStore.getState().familyId;
+      if (!familyId || !travelCandidate) {
+        setTravelStatus(null);
+        setTravelMessage("Travel reminders need an upcoming event with map coordinates.");
+        return;
+      }
+
+      const result = await apiRequest<TravelReminderStatus>(
+        `/families/${familyId}/events/${travelCandidate.id}/travel-reminder`
+      );
+      if (!result.data) {
+        setTravelStatus(null);
+        setTravelMessage(result.error?.message ?? "Could not load travel reminder status.");
+        return;
+      }
+
+      setTravelStatus(result.data);
+      setTravelMessage(result.data.reason);
+    }
+
+    void loadTravelStatus();
+  }, [syncSource, travelCandidate?.id]);
 
   if (showCalendarSync) {
     return <CalendarSyncScreen onBack={() => setShowCalendarSync(false)} />;
@@ -66,9 +105,15 @@ export function PlanScreen() {
       <Card>
         <Text style={styles.foundationTitle}>Smart travel reminders</Text>
         <Text style={styles.foundationText}>
-          Travel-time reminders need Google Maps Distance Matrix and saved home location. That service is not wired in
-          this build, so there is no travel toggle to save yet.
+          {travelStatus?.supported
+            ? `Travel reminders are configured. Suggested lead time is ${travelStatus.recommendedLeadMinutes} minutes for ${travelCandidate?.title ?? "the next event"}.`
+            : travelMessage}
         </Text>
+        {travelStatus?.estimatedTravelMinutes ? (
+          <Text style={styles.foundationMeta}>
+            Estimated drive time: {travelStatus.estimatedTravelMinutes} minutes via {travelStatus.provider === "google_maps" ? "Google Maps" : "unavailable"}.
+          </Text>
+        ) : null}
       </Card>
 
       {showForm ? (
@@ -225,6 +270,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19,
+    marginTop: spacing.sm
+  },
+  foundationMeta: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
     marginTop: spacing.sm
   },
   statusRow: {

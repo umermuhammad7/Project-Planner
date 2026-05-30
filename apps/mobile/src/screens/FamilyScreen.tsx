@@ -3,12 +3,14 @@ import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-nati
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import { apiRequest } from "../services/api";
 import {
   getNotificationCapability,
   requestNotificationPermissionAndToken
 } from "../services/notifications";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { MobileSubscriptionStatus } from "../types";
 
 function roleLabel(role: string) {
   if (role === "kid") return "Child profile";
@@ -54,6 +56,8 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
   const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<MobileSubscriptionStatus | null>(null);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
 
   async function handleSaveFamilyName() {
     setFormMessage(null);
@@ -184,6 +188,31 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function loadSubscriptionStatus() {
+    if (!backendConnected) {
+      setSubscriptionStatus(null);
+      setSubscriptionMessage("Subscription status needs the local API connected.");
+      return;
+    }
+
+    const familyId = useHomeThreadStore.getState().familyId;
+    if (!familyId) {
+      setSubscriptionStatus(null);
+      setSubscriptionMessage("Join or create a household before checking plan status.");
+      return;
+    }
+
+    const result = await apiRequest<MobileSubscriptionStatus>(`/subscriptions/status?familyId=${familyId}`);
+    if (!result.data) {
+      setSubscriptionStatus(null);
+      setSubscriptionMessage(result.error?.message ?? "Could not load subscription status.");
+      return;
+    }
+
+    setSubscriptionStatus(result.data);
+    setSubscriptionMessage(result.data.message);
+  }
+
   async function handleToggleNotificationPref(
     key: keyof typeof notificationPrefs,
     value: boolean
@@ -215,6 +244,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void loadNotificationCapability();
   }, []);
+
+  useEffect(() => {
+    void loadSubscriptionStatus();
+  }, [backendConnected, familyName]);
 
   return (
     <View style={styles.screen}>
@@ -385,6 +418,20 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
       {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
       {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
+
+      <Card>
+        <Text style={styles.cardTitle}>Family Plus</Text>
+        <Text style={styles.cardText}>
+          Subscription plumbing is wired on the backend. Purchases and restore flows still need RevenueCat keys and app-store setup.
+        </Text>
+        <Text style={styles.helperText}>
+          Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
+          {subscriptionStatus?.subscriptionExpiresAt
+            ? ` - expires ${new Date(subscriptionStatus.subscriptionExpiresAt).toLocaleDateString()}`
+            : ""}
+        </Text>
+        {subscriptionMessage ? <Text style={styles.helperText}>{subscriptionMessage}</Text> : null}
+      </Card>
 
       <Card>
         <Text style={styles.cardTitle}>Account</Text>
