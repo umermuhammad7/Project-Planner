@@ -27,6 +27,13 @@ export const pushTokenSchema = z.object({
   pushToken: z.string().min(8).max(256)
 });
 
+export const notificationPrefsSchema = z.object({
+  daily_digest: z.boolean().default(true),
+  event_reminders: z.boolean().default(true),
+  chore_reminders: z.boolean().default(true),
+  family_activity: z.boolean().default(true)
+});
+
 export const authStatusResponseSchema = z.object({
   supabaseConfigured: z.boolean(),
   devTokenAllowed: z.boolean(),
@@ -49,9 +56,19 @@ export const authMeResponseSchema = z.object({
   user: z.object({
     id: uuidSchema,
     email: z.string().email().optional(),
-    displayName: z.string().nullable().optional()
+    displayName: z.string().nullable().optional(),
+    pushToken: z.string().nullable().optional(),
+    notificationPrefs: notificationPrefsSchema.optional()
   }),
   memberships: z.array(authMeMembershipSchema)
+});
+
+export const notificationPrefsResponseSchema = z.object({
+  user: z.object({
+    id: uuidSchema,
+    notificationPrefs: notificationPrefsSchema,
+    pushToken: z.string().nullable().optional()
+  })
 });
 
 export const createFamilySchema = z.object({
@@ -343,8 +360,10 @@ export const calendarSyncNowResponseSchema = z.object({
 });
 
 export type UserProfileInput = z.infer<typeof userProfileSchema>;
+export type NotificationPrefsInput = z.infer<typeof notificationPrefsSchema>;
 export type AuthStatusResponse = z.infer<typeof authStatusResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type NotificationPrefsResponse = z.infer<typeof notificationPrefsResponseSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;

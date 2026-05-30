@@ -65,4 +65,54 @@ describe("auth guard", () => {
       code: "AUTH_INVALID"
     });
   });
+
+  it("saves a push token for the authenticated user", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/auth/push-token",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        pushToken: "ExponentPushToken[test-token-1234]"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      user: {
+        pushToken: "ExponentPushToken[test-token-1234]"
+      }
+    });
+  });
+
+  it("saves notification preferences for the authenticated user", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/auth/notification-prefs",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        daily_digest: false,
+        event_reminders: true,
+        chore_reminders: false,
+        family_activity: true
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      user: {
+        notificationPrefs: {
+          daily_digest: false,
+          event_reminders: true,
+          chore_reminders: false,
+          family_activity: true
+        }
+      }
+    });
+  });
 });

@@ -258,6 +258,20 @@ export type SyncSource = "mock" | "api";
 
 export type RealtimeSyncStatus = "inactive" | "connecting" | "connected" | "unavailable" | "error";
 
+export type NotificationPrefs = {
+  daily_digest: boolean;
+  event_reminders: boolean;
+  chore_reminders: boolean;
+  family_activity: boolean;
+};
+
+export type NotificationPermissionState =
+  | "unknown"
+  | "granted"
+  | "denied"
+  | "undetermined"
+  | "unsupported";
+
 export type AuthStatusResponse = {
   supabaseConfigured: boolean;
   devTokenAllowed: boolean;
@@ -269,6 +283,8 @@ export type AuthMeResponse = {
     id: string;
     email?: string;
     displayName?: string | null;
+    pushToken?: string | null;
+    notificationPrefs?: NotificationPrefs;
   };
   memberships: Array<{
     member: {
@@ -281,6 +297,14 @@ export type AuthMeResponse = {
       name: string;
     };
   }>;
+};
+
+export type NotificationPrefsResponse = {
+  user: {
+    id: string;
+    notificationPrefs: NotificationPrefs;
+    pushToken?: string | null;
+  };
 };
 
 export type FamilySetupResponse = {

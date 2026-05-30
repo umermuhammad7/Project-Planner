@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import {
+  getNotificationCapability,
+  requestNotificationPermissionAndToken
+} from "../services/notifications";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
@@ -14,6 +18,12 @@ function roleLabel(role: string) {
 
 export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const authMode = useAuthStore((state) => state.mode);
+  const pushToken = useAuthStore((state) => state.pushToken);
+  const notificationPrefs = useAuthStore((state) => state.notificationPrefs);
+  const notificationPermission = useAuthStore((state) => state.notificationPermission);
+  const savePushToken = useAuthStore((state) => state.savePushToken);
+  const updateNotificationPrefs = useAuthStore((state) => state.updateNotificationPrefs);
+  const setNotificationPermission = useAuthStore((state) => state.setNotificationPermission);
   const signOut = useAuthStore((state) => state.signOut);
   const {
     familyName,
@@ -31,6 +41,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const [childName, setChildName] = useState("");
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
+  const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
 
   async function handleSaveFamilyName() {
     setFormMessage(null);
@@ -75,11 +88,61 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     onClose();
   }
 
+  async function loadNotificationCapability() {
+    const capability = await getNotificationCapability();
+    setNotificationPermission(capability.permission);
+    setNotificationCapabilityMessage(capability.message);
+  }
+
+  async function handleEnableNotifications() {
+    setNotificationMessage(null);
+    setIsRegisteringNotifications(true);
+
+    try {
+      const result = await requestNotificationPermissionAndToken();
+      setNotificationPermission(result.permission);
+      setNotificationMessage(result.message);
+
+      if (result.ok && result.pushToken) {
+        const saved = await savePushToken(result.pushToken);
+        if (!saved.ok) {
+          setNotificationMessage(saved.message ?? "Push token could not be saved to your profile.");
+        } else {
+          setNotificationMessage("Push permission granted and token saved to your HomeThread profile.");
+        }
+      }
+    } finally {
+      setIsRegisteringNotifications(false);
+    }
+  }
+
+  async function handleToggleNotificationPref(
+    key: keyof typeof notificationPrefs,
+    value: boolean
+  ) {
+    setNotificationMessage(null);
+    const result = await updateNotificationPrefs({
+      ...notificationPrefs,
+      [key]: value
+    });
+
+    if (!result.ok) {
+      setNotificationMessage(result.message ?? "Could not update notification settings.");
+      return;
+    }
+
+    setNotificationMessage("Notification settings updated.");
+  }
+
   const backendConnected = syncSource === "api";
 
   useEffect(() => {
     setEditedFamilyName(familyName);
   }, [familyName]);
+
+  useEffect(() => {
+    void loadNotificationCapability();
+  }, []);
 
   return (
     <View style={styles.screen}>
@@ -198,6 +261,62 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
 
       <Card>
+        <Text style={styles.cardTitle}>Notifications</Text>
+        <Text style={styles.cardText}>
+          HomeThread can request notification permission and register this device token. Reminder delivery itself is
+          not implemented yet.
+        </Text>
+        <Text style={styles.helperText}>
+          Permission: {notificationPermission}
+          {pushToken ? " - push token saved" : " - no push token saved"}
+        </Text>
+        {notificationCapabilityMessage ? <Text style={styles.helperText}>{notificationCapabilityMessage}</Text> : null}
+        {notificationMessage ? <Text style={styles.saveMessage}>{notificationMessage}</Text> : null}
+        <View style={styles.cardActions}>
+          <PrimaryButton
+            label={
+              isRegisteringNotifications
+                ? "Working..."
+                : pushToken
+                  ? "Refresh notification setup"
+                  : "Enable notifications"
+            }
+            icon="notifications"
+            onPress={() => {
+              if (isRegisteringNotifications) return;
+              void handleEnableNotifications();
+            }}
+          />
+        </View>
+        <View style={styles.preferenceStack}>
+          <NotificationPrefRow
+            label="Event reminders"
+            value={notificationPrefs.event_reminders}
+            disabled={!backendConnected}
+            onValueChange={(value) => void handleToggleNotificationPref("event_reminders", value)}
+          />
+          <NotificationPrefRow
+            label="Chore reminders"
+            value={notificationPrefs.chore_reminders}
+            disabled={!backendConnected}
+            onValueChange={(value) => void handleToggleNotificationPref("chore_reminders", value)}
+          />
+          <NotificationPrefRow
+            label="Family activity"
+            value={notificationPrefs.family_activity}
+            disabled={!backendConnected}
+            onValueChange={(value) => void handleToggleNotificationPref("family_activity", value)}
+          />
+          <NotificationPrefRow
+            label="Daily digest"
+            value={notificationPrefs.daily_digest}
+            disabled={!backendConnected}
+            onValueChange={(value) => void handleToggleNotificationPref("daily_digest", value)}
+          />
+        </View>
+      </Card>
+
+      <Card>
         <Text style={styles.cardTitle}>Leave household</Text>
         <Text style={styles.cardText}>
           Leave removes your membership from this family on the server. You can join again with an invite code or create
@@ -227,6 +346,31 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <PrimaryButton label="Sign out" icon="log-out" tone="dark" onPress={() => void handleSignOut()} />
         </View>
       </Card>
+    </View>
+  );
+}
+
+function NotificationPrefRow({
+  label,
+  value,
+  disabled = false,
+  onValueChange
+}: {
+  label: string;
+  value: boolean;
+  disabled?: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  return (
+    <View style={styles.preferenceRow}>
+      <Text style={[styles.preferenceLabel, disabled ? styles.preferenceLabelDisabled : null]}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+        trackColor={{ false: colors.line, true: colors.primarySoft }}
+        thumbColor={value ? colors.primary : "#FFFFFF"}
+      />
     </View>
   );
 }
@@ -301,6 +445,26 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: spacing.sm
+  },
+  preferenceStack: {
+    gap: spacing.md,
+    marginTop: spacing.lg
+  },
+  preferenceRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  preferenceLabel: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    paddingRight: spacing.md
+  },
+  preferenceLabelDisabled: {
+    color: colors.muted
   },
   memberCopy: {
     flex: 1,

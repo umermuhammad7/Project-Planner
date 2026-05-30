@@ -1,4 +1,6 @@
 import {
+  notificationPrefsResponseSchema,
+  notificationPrefsSchema,
   pushTokenSchema,
   userProfileSchema
 } from "@homethread/shared";
@@ -81,6 +83,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.put("/push-token", { preHandler: requireAuth }, async (request) => {
     const currentUser = request.currentUser!;
     const body = pushTokenSchema.parse(request.body);
+    await ensureAuthUserProfile(currentUser.id, currentUser.email);
 
     const [profile] = await db
       .update(users)
@@ -93,4 +96,41 @@ export async function authRoutes(app: FastifyInstance) {
 
     return { user: profile };
   });
+
+  app.put("/notification-prefs", { preHandler: requireAuth }, async (request) => {
+    const currentUser = request.currentUser!;
+    const body = notificationPrefsSchema.parse(request.body);
+    await ensureAuthUserProfile(currentUser.id, currentUser.email);
+
+    const [profile] = await db
+      .update(users)
+      .set({
+        notificationPrefs: body,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, currentUser.id))
+      .returning();
+
+    return notificationPrefsResponseSchema.parse({
+      user: {
+        id: profile.id,
+        notificationPrefs: profile.notificationPrefs,
+        pushToken: profile.pushToken
+      }
+    });
+  });
+}
+
+async function ensureAuthUserProfile(userId: string, email: string) {
+  await db
+    .insert(users)
+    .values({
+      id: userId,
+      email,
+      displayName: email.split("@")[0],
+      updatedAt: new Date()
+    })
+    .onConflictDoNothing({
+      target: users.id
+    });
 }

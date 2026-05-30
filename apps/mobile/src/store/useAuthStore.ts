@@ -2,7 +2,14 @@ import { create } from "zustand";
 
 import { apiRequest, setApiAccessTokenProvider } from "../services/api";
 import { isSupabaseConfigured, supabaseClient } from "../services/supabase";
-import { AuthMeResponse, AuthStatusResponse, FamilySetupResponse } from "../types";
+import {
+  AuthMeResponse,
+  AuthStatusResponse,
+  FamilySetupResponse,
+  NotificationPermissionState,
+  NotificationPrefs,
+  NotificationPrefsResponse
+} from "../types";
 
 declare const process: {
   env: {
@@ -18,6 +25,9 @@ type AuthState = {
   userId: string | null;
   email: string | null;
   familyId: string | null;
+  pushToken: string | null;
+  notificationPrefs: NotificationPrefs;
+  notificationPermission: NotificationPermissionState;
   authMessage: string | null;
   backendAuthMode: AuthStatusResponse["mode"] | null;
   supabaseConfiguredOnClient: boolean;
@@ -29,7 +39,19 @@ type AuthState = {
   createFamily: (name: string) => Promise<{ ok: boolean; message?: string; inviteCode?: string }>;
   joinFamily: (inviteCode: string) => Promise<{ ok: boolean; message?: string }>;
   refreshMembership: () => Promise<{ ok: boolean; familyId?: string | null; message?: string }>;
+  savePushToken: (pushToken: string) => Promise<{ ok: boolean; message?: string }>;
+  updateNotificationPrefs: (
+    prefs: NotificationPrefs
+  ) => Promise<{ ok: boolean; message?: string }>;
+  setNotificationPermission: (permission: NotificationPermissionState) => void;
   signOut: () => Promise<void>;
+};
+
+const defaultNotificationPrefs: NotificationPrefs = {
+  daily_digest: true,
+  event_reminders: true,
+  chore_reminders: true,
+  family_activity: true
 };
 
 const devAuthToken = process.env.EXPO_PUBLIC_DEV_AUTH_TOKEN?.trim() ?? "homethread-dev-token";
@@ -53,7 +75,9 @@ async function loadMembership(accessToken: string) {
     ok: true as const,
     userId: result.data.user.id,
     email: result.data.user.email ?? null,
-    familyId: primaryMembership?.family.id ?? null
+    familyId: primaryMembership?.family.id ?? null,
+    pushToken: result.data.user.pushToken ?? null,
+    notificationPrefs: result.data.user.notificationPrefs ?? defaultNotificationPrefs
   };
 }
 
@@ -63,6 +87,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   userId: null,
   email: null,
   familyId: null,
+  pushToken: null,
+  notificationPrefs: defaultNotificationPrefs,
+  notificationPermission: "unknown",
   authMessage: null,
   backendAuthMode: null,
   supabaseConfiguredOnClient: isSupabaseConfigured,
@@ -79,6 +106,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         mode: "signed_out",
         backendAuthMode,
         devTokenAvailable,
+        pushToken: null,
+        notificationPrefs: defaultNotificationPrefs,
         authMessage: isSupabaseConfigured
           ? null
           : "Supabase is not configured in the app. Sign in with the local dev token or add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY."
@@ -92,6 +121,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         mode: "signed_out",
         backendAuthMode,
+        pushToken: null,
+        notificationPrefs: defaultNotificationPrefs,
         authMessage: error.message
       });
       return;
@@ -101,6 +132,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         mode: "signed_out",
         backendAuthMode,
+        pushToken: null,
+        notificationPrefs: defaultNotificationPrefs,
         authMessage: null
       });
       return;
@@ -112,6 +145,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         mode: "signed_out",
         accessToken: null,
         backendAuthMode,
+        pushToken: null,
+        notificationPrefs: defaultNotificationPrefs,
         authMessage: membership.message
       });
       return;
@@ -123,6 +158,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       familyId: membership.familyId,
+      pushToken: membership.pushToken,
+      notificationPrefs: membership.notificationPrefs,
       backendAuthMode,
       authMessage: membership.familyId
         ? null
@@ -152,6 +189,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         userId: null,
         email: null,
         familyId: null,
+        pushToken: null,
+        notificationPrefs: defaultNotificationPrefs,
         authMessage: membership.message
       });
       return { ok: false, message: membership.message };
@@ -163,6 +202,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       familyId: membership.familyId,
+      pushToken: membership.pushToken,
+      notificationPrefs: membership.notificationPrefs,
       authMessage: membership.familyId
         ? null
         : "Signed in, but this account is not linked to a family yet."
@@ -201,6 +242,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         userId: null,
         email: null,
         familyId: null,
+        pushToken: null,
+        notificationPrefs: defaultNotificationPrefs,
         authMessage: membership.message
       });
       return { ok: false, message: membership.message };
@@ -212,6 +255,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       familyId: membership.familyId,
+      pushToken: membership.pushToken,
+      notificationPrefs: membership.notificationPrefs,
       authMessage: membership.familyId
         ? null
         : "Account created. Family setup is still required before HomeThread can load household data."
@@ -284,6 +329,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       familyId: membership.familyId,
+      pushToken: membership.pushToken,
+      notificationPrefs: membership.notificationPrefs,
       authMessage: membership.familyId
         ? null
         : "Signed in, not linked to a family yet."
@@ -317,10 +364,58 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       familyId: membership.familyId,
+      pushToken: membership.pushToken,
+      notificationPrefs: membership.notificationPrefs,
       authMessage: "Signed in with local dev token."
     });
 
     return { ok: true };
+  },
+  savePushToken: async (pushToken) => {
+    const trimmed = pushToken.trim();
+    if (!trimmed) {
+      return { ok: false, message: "Push token is required." };
+    }
+
+    const result = await apiRequest<{ user: { pushToken?: string | null } }>("/auth/push-token", {
+      method: "PUT",
+      body: JSON.stringify({ pushToken: trimmed })
+    });
+
+    if (!result.data?.user) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not save your push token."
+      };
+    }
+
+    set({
+      pushToken: result.data.user.pushToken ?? trimmed
+    });
+    return { ok: true };
+  },
+  updateNotificationPrefs: async (prefs) => {
+    const result = await apiRequest<NotificationPrefsResponse>("/auth/notification-prefs", {
+      method: "PUT",
+      body: JSON.stringify(prefs)
+    });
+
+    if (!result.data?.user?.notificationPrefs) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not save notification settings."
+      };
+    }
+
+    set({
+      notificationPrefs: result.data.user.notificationPrefs,
+      pushToken: result.data.user.pushToken ?? get().pushToken
+    });
+
+    return { ok: true };
+  },
+  setNotificationPermission: (permission) => {
+    set({ notificationPermission: permission });
   },
   signOut: async () => {
     if (supabaseClient) {
@@ -333,6 +428,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: null,
       email: null,
       familyId: null,
+      pushToken: null,
+      notificationPrefs: defaultNotificationPrefs,
+      notificationPermission: "unknown",
       authMessage: null
     });
   }
