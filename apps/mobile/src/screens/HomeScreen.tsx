@@ -3,10 +3,18 @@ import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
-import { colors, spacing } from "../constants/theme";
+import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { TabKey } from "../types";
+import { Chore, TabKey } from "../types";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
+
+type HomeHighlight = {
+  key: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  tone: "primary" | "mint" | "gold" | "coral" | "neutral";
+};
 
 export function HomeScreen({
   goTo,
@@ -33,60 +41,176 @@ export function HomeScreen({
     isHydrating
   } = useHomeThreadStore();
   const listItemsByListId = useHomeThreadStore((state) => state.listItemsByListId);
-  const openChores = chores.filter((chore) => !chore.completed);
-  const allListItems = useMemo(() => Object.values(listItemsByListId).flat(), [listItemsByListId]);
-  const openItems = allListItems.filter((item) => !item.checked);
-  const dinners = meals.filter((meal) => meal.mealType === "dinner").slice(0, 3);
-  const recentNotifications = notifications.slice(0, 3);
-  const unreadNotifications = notifications.filter((item) => !item.readAt).length;
-  const kidStarTotal = useMemo(
-    () => members.filter((member) => member.role === "kid").reduce((sum, member) => sum + member.starBalance, 0),
-    [members]
+
+  const todayLabel = useMemo(
+    () => new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }),
+    []
   );
-  const upcomingEvents = useMemo(
+  const backendConnected = syncSource === "api";
+  const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
+  const openItems = useMemo(
+    () => Object.values(listItemsByListId).flat().filter((item) => !item.checked),
+    [listItemsByListId]
+  );
+  const unreadNotifications = useMemo(
+    () => notifications.filter((item) => !item.readAt),
+    [notifications]
+  );
+  const nextEvent = useMemo(
     () =>
       [...events]
         .sort(compareEventsByStartAt)
-        .filter((event) => getEventUrgency(event)?.label !== "Past")
-        .slice(0, 3),
+        .find((event) => getEventUrgency(event)?.label !== "Past") ?? null,
     [events]
   );
+  const nextUrgency = nextEvent ? getEventUrgency(nextEvent) : null;
+  const nextTwoChores = useMemo(() => openChores.slice(0, 2), [openChores]);
+  const allDinners = useMemo(() => meals.filter((meal) => meal.mealType === "dinner"), [meals]);
+  const todayDinner = useMemo(() => {
+    const day = new Date().getDay();
+    const normalized = day === 0 ? 6 : day - 1;
+    return allDinners.find((meal) => meal.dayOfWeek === normalized) ?? null;
+  }, [allDinners]);
+  const dinners = useMemo(() => allDinners.slice(0, 3), [allDinners]);
+  const kidMembers = useMemo(() => members.filter((member) => member.role === "kid"), [members]);
+  const kidStarTotal = useMemo(
+    () => kidMembers.reduce((sum, member) => sum + member.starBalance, 0),
+    [kidMembers]
+  );
+  const kidsWithOpenChores = useMemo(
+    () =>
+      kidMembers
+        .map((member) => ({
+          member,
+          openCount: openChores.filter((chore) => chore.assignedTo === member.id).length
+        }))
+        .filter((entry) => entry.openCount > 0),
+    [kidMembers, openChores]
+  );
+  const recentNotifications = useMemo(() => notifications.slice(0, 3), [notifications]);
+
+  const homeHighlights = useMemo<HomeHighlight[]>(() => {
+    const entries: HomeHighlight[] = [];
+
+    if (nextEvent) {
+      entries.push({
+        key: "next-event",
+        icon: "calendar",
+        label: "Next plan",
+        value: `${nextEvent.title} at ${nextEvent.time}`,
+        tone: nextUrgency?.tone ?? "primary"
+      });
+    }
+
+    if (todayDinner) {
+      entries.push({
+        key: "dinner",
+        icon: "restaurant",
+        label: "Dinner",
+        value: todayDinner.title,
+        tone: "coral"
+      });
+    }
+
+    if (openChores.length > 0) {
+      entries.push({
+        key: "chores",
+        icon: "checkmark-done",
+        label: "Open chores",
+        value: `${openChores.length} still need attention`,
+        tone: "gold"
+      });
+    }
+
+    if (openItems.length > 0) {
+      entries.push({
+        key: "shopping",
+        icon: "bag-handle",
+        label: "Shopping",
+        value: `${openItems.length} items left to grab`,
+        tone: "mint"
+      });
+    }
+
+    if (unreadNotifications.length > 0) {
+      entries.push({
+        key: "notifications",
+        icon: "notifications",
+        label: "Unread updates",
+        value: `${unreadNotifications.length} waiting`,
+        tone: "primary"
+      });
+    }
+
+    return entries.slice(0, 4);
+  }, [nextEvent, nextUrgency?.tone, todayDinner, openChores.length, openItems.length, unreadNotifications.length]);
+
+  const heroTitle = nextEvent
+    ? `${nextEvent.title} is the next thing that matters.`
+    : openChores.length > 0
+      ? "A few chores are still open today."
+      : todayDinner
+        ? "Tonight's dinner already has a plan."
+        : "The day is clear right now.";
+
+  const heroText = nextEvent
+    ? `${nextUrgency?.label ?? nextEvent.dateLabel}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
+    : openChores.length > 0
+      ? `${openChores.length} chores and ${openItems.length} shopping items are still open.`
+      : "Add the first plan, list, or chore so everyone knows what today looks like.";
 
   return (
     <View>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Text style={styles.kicker}>HomeThread</Text>
           <Text style={styles.title}>{familyName}</Text>
-          <Text style={styles.subhead}>Today is covered</Text>
+          <Text style={styles.subhead}>{todayLabel}</Text>
         </View>
         <View style={styles.memberStack}>
           {members.slice(0, 3).map((member) => (
-            <MemberAvatar key={member.id} member={member} size={34} />
+            <MemberAvatar key={member.id} member={member} size={36} />
           ))}
         </View>
       </View>
 
       <Card>
-        <Row align="flex-start">
-          <View style={styles.heroIcon}>
-            <Ionicons name="chatbubbles" size={22} color={colors.primary} />
-          </View>
+        <View style={styles.heroTop}>
           <View style={styles.heroCopy}>
             <Pill
-              label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
-              tone={syncSource === "api" ? "primary" : "neutral"}
-              icon={syncSource === "api" ? "sparkles" : "information-circle"}
+              label={backendConnected ? "Synced household" : "Prototype mode"}
+              tone={backendConnected ? "primary" : "neutral"}
+              icon={backendConnected ? "sparkles" : "information-circle"}
             />
-            <Text style={styles.heroTitle}>Send the family one clean update.</Text>
-            <Text style={styles.heroText}>
-              {syncSource === "api"
-                ? "Plans, chores, and shopping are backed by your local HomeThread database."
-                : "Plans, chores, and shopping are using local prototype data. Connect the local backend to sync changes."}
-            </Text>
-            <Text style={styles.syncText}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
+            <Text style={styles.heroTitle}>{heroTitle}</Text>
+            <Text style={styles.heroText}>{heroText}</Text>
           </View>
-        </Row>
+          <View style={styles.heroIcon}>
+            <Ionicons name="sunny" size={26} color={colors.gold} />
+          </View>
+        </View>
+
+        {homeHighlights.length > 0 ? (
+          <View style={styles.highlightGrid}>
+            {homeHighlights.map((item) => (
+              <View key={item.key} style={styles.highlightCard}>
+                <View style={[styles.highlightIcon, highlightToneStyles[item.tone]]}>
+                  <Ionicons name={item.icon} size={18} color={highlightToneColors[item.tone]} />
+                </View>
+                <Text style={styles.highlightLabel}>{item.label}</Text>
+                <Text style={styles.highlightValue}>{item.value}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyPanel}>
+            <Text style={styles.emptyPanelTitle}>A calm start is a good sign.</Text>
+            <Text style={styles.emptyPanelText}>
+              No urgent plans, chores, or shopping items are showing yet. Add the first one before texts start flying.
+            </Text>
+          </View>
+        )}
+
         <View style={styles.heroActions}>
           <PrimaryButton
             label={isHydrating ? "Refreshing..." : "Refresh"}
@@ -97,77 +221,131 @@ export function HomeScreen({
               void refreshFromBackend();
             }}
           />
-          <PrimaryButton
-            label="Digest"
-            icon="chatbubbles"
-            onPress={() => {
-              goTo("thread");
-            }}
-          />
           <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
-          {onEnterKidsMode ? (
-            <PrimaryButton label="Kids mode" icon="happy" tone="dark" onPress={onEnterKidsMode} />
-          ) : null}
-          {onOpenFamilySettings ? (
-            <PrimaryButton label="Family" icon="people" tone="dark" onPress={onOpenFamilySettings} />
-          ) : null}
-          {onOpenInsights ? (
-            <PrimaryButton label="Insights" icon="analytics" tone="dark" onPress={onOpenInsights} />
-          ) : null}
+          <PrimaryButton label="Digest" icon="chatbubbles" tone="dark" onPress={() => goTo("thread")} />
         </View>
+        <Text style={styles.syncText}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
       </Card>
 
-      <SectionTitle title="Next up" action={`${events.length} plans`} />
+      <SectionTitle title="Today at a glance" />
       <View style={styles.stack}>
-        {upcomingEvents.map((event) => {
-          const urgency = getEventUrgency(event);
-          return (
-            <Card key={event.id}>
-              <Row>
-                <View style={styles.timeBlock}>
-                  <Text style={styles.time}>{event.time}</Text>
-                  <Text style={styles.date}>{event.dateLabel}</Text>
-                </View>
-                <View style={styles.fill}>
-                  <Text style={styles.itemTitle}>{event.title}</Text>
-                  <Text style={styles.itemMeta}>{event.location ?? "No location set"}</Text>
-                </View>
-                <View style={styles.eventBadges}>
-                  {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
-                  <Pill label={event.source} tone={event.source === "text" ? "coral" : "neutral"} />
-                </View>
-              </Row>
-            </Card>
-          );
-        })}
+        <Card>
+          <View style={styles.snapshotRow}>
+            <View style={styles.snapshotColumn}>
+              <Text style={styles.snapshotLabel}>Next plan</Text>
+              <Text style={styles.snapshotValue}>{nextEvent ? nextEvent.title : "Nothing scheduled yet"}</Text>
+              <Text style={styles.snapshotMeta}>
+                {nextEvent
+                  ? `${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
+                  : "Add the first event when the family day takes shape."}
+              </Text>
+            </View>
+            {nextUrgency ? <Pill label={nextUrgency.label} tone={nextUrgency.tone} /> : null}
+          </View>
+        </Card>
+
+        <Card>
+          <View style={styles.snapshotRow}>
+            <View style={styles.snapshotColumn}>
+              <Text style={styles.snapshotLabel}>Dinner</Text>
+              <Text style={styles.snapshotValue}>{todayDinner ? todayDinner.title : "No dinner picked yet"}</Text>
+              <Text style={styles.snapshotMeta}>
+                {todayDinner ? "Tonight is covered." : "Use Meals or the assistant before dinner hour sneaks up."}
+              </Text>
+            </View>
+            <Ionicons name="restaurant" size={22} color={colors.coral} />
+          </View>
+        </Card>
+
+        <Card>
+          <View style={styles.snapshotRow}>
+            <View style={styles.snapshotColumn}>
+              <Text style={styles.snapshotLabel}>Open chores</Text>
+              <Text style={styles.snapshotValue}>{openChores.length === 0 ? "All caught up" : `${openChores.length} still open`}</Text>
+              <Text style={styles.snapshotMeta}>
+                {nextTwoChores.length > 0
+                  ? formatChorePreview(nextTwoChores, members)
+                  : "Nothing left to hand off right now."}
+              </Text>
+            </View>
+            <Ionicons name="checkmark-done" size={22} color={colors.gold} />
+          </View>
+        </Card>
       </View>
 
-      <SectionTitle title="Household pulse" />
-      <View style={styles.metrics}>
-        <Metric value={openChores.length} label="chores left" tone={colors.coralSoft} />
-        <Metric value={openItems.length} label="shopping items" tone={colors.mintSoft} />
-        <Metric value={kidStarTotal} label="kid stars" tone={colors.goldSoft} />
+      <SectionTitle title="Keep moving" />
+      <View style={styles.quickActionGrid}>
+        {onEnterKidsMode ? (
+          <Card>
+            <Text style={styles.quickTitle}>Kids mode</Text>
+            <Text style={styles.quickText}>Hand the phone over with a simplified, chore-focused view.</Text>
+            <View style={styles.quickActionFooter}>
+              <PrimaryButton label="Open kids mode" icon="happy" tone="dark" onPress={onEnterKidsMode} />
+            </View>
+          </Card>
+        ) : null}
+        {onOpenFamilySettings ? (
+          <Card>
+            <Text style={styles.quickTitle}>Household setup</Text>
+            <Text style={styles.quickText}>Invite another adult, add child profiles, or update family settings.</Text>
+            <View style={styles.quickActionFooter}>
+              <PrimaryButton label="Open family" icon="people" tone="dark" onPress={onOpenFamilySettings} />
+            </View>
+          </Card>
+        ) : null}
+        {onOpenInsights ? (
+          <Card>
+            <Text style={styles.quickTitle}>Insights</Text>
+            <Text style={styles.quickText}>Check chores momentum, busyness, and how the week is really going.</Text>
+            <View style={styles.quickActionFooter}>
+              <PrimaryButton label="See insights" icon="analytics" tone="dark" onPress={onOpenInsights} />
+            </View>
+          </Card>
+        ) : null}
       </View>
 
-      <SectionTitle title="Notifications" action={unreadNotifications > 0 ? `${unreadNotifications} unread` : "All caught up"} />
+      {kidsWithOpenChores.length > 0 ? (
+        <>
+          <SectionTitle title="Kids need eyes on this" action={`${kidStarTotal} stars total`} />
+          <View style={styles.stack}>
+            {kidsWithOpenChores.map(({ member, openCount }) => (
+              <Card key={member.id}>
+                <Row>
+                  <MemberAvatar member={member} size={40} />
+                  <View style={styles.fill}>
+                    <Text style={styles.itemTitle}>{member.name}</Text>
+                    <Text style={styles.itemMeta}>
+                      {openCount} chore{openCount === 1 ? "" : "s"} open - {member.starBalance} stars saved
+                    </Text>
+                  </View>
+                  <Pill label={`${member.starBalance} stars`} tone="gold" icon="star" />
+                </Row>
+              </Card>
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      <SectionTitle
+        title="Updates"
+        action={unreadNotifications.length > 0 ? `${unreadNotifications.length} unread` : "All caught up"}
+      />
       <View style={styles.stack}>
         {recentNotifications.length > 0 ? (
           recentNotifications.map((notification) => (
             <Card key={notification.id}>
               <Row align="flex-start">
-                <View style={styles.heroIcon}>
+                <View style={[styles.notificationIcon, notification.readAt ? styles.notificationIconMuted : styles.notificationIconUnread]}>
                   <Ionicons
                     name={notification.readAt ? "notifications-outline" : "notifications"}
-                    size={20}
+                    size={18}
                     color={notification.readAt ? colors.muted : colors.primary}
                   />
                 </View>
                 <View style={styles.fill}>
                   <Text style={styles.itemTitle}>{notification.title}</Text>
                   <Text style={styles.itemMeta}>{notification.body}</Text>
-                  <Text style={styles.notificationMeta}>
-                    {new Date(notification.sentAt).toLocaleString()}
-                  </Text>
+                  <Text style={styles.notificationMeta}>{new Date(notification.sentAt).toLocaleString()}</Text>
                 </View>
                 {!notification.readAt ? (
                   <PrimaryButton
@@ -183,12 +361,15 @@ export function HomeScreen({
           ))
         ) : (
           <Card>
-            <Text style={styles.itemMeta}>No notifications yet. Push registration and preferences are ready when you are.</Text>
+            <Text style={styles.emptyPanelTitle}>No updates yet.</Text>
+            <Text style={styles.emptyPanelText}>
+              Notification history will show reminder sends, digests, and household updates once the family starts using them.
+            </Text>
           </Card>
         )}
       </View>
 
-      <SectionTitle title="This week for dinner" action={`${meals.length} meals`} />
+      <SectionTitle title="Dinner this week" action={`${meals.length} meals`} />
       <View style={styles.stack}>
         {dinners.length > 0 ? (
           dinners.map((meal) => (
@@ -207,7 +388,10 @@ export function HomeScreen({
           ))
         ) : (
           <Card>
-            <Text style={styles.itemMeta}>Add a few meals so the week has a plan before dinner hour hits.</Text>
+            <Text style={styles.emptyPanelTitle}>No dinners planned yet.</Text>
+            <Text style={styles.emptyPanelText}>
+              Even one or two dinners makes the week feel calmer. Start with the nights that usually get hectic.
+            </Text>
           </Card>
         )}
       </View>
@@ -215,14 +399,30 @@ export function HomeScreen({
   );
 }
 
-function Metric({ value, label, tone }: { value: number; label: string; tone: string }) {
-  return (
-    <View style={[styles.metric, { backgroundColor: tone }]}>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
-    </View>
-  );
+function formatChorePreview(chores: Chore[], members: ReturnType<typeof useHomeThreadStore.getState>["members"]) {
+  return chores
+    .map((chore) => {
+      const memberName = members.find((member) => member.id === chore.assignedTo)?.name;
+      return memberName ? `${chore.title} for ${memberName}` : chore.title;
+    })
+    .join(" - ");
 }
+
+const highlightToneColors = {
+  primary: colors.primary,
+  mint: colors.mint,
+  gold: "#996A00",
+  coral: colors.coral,
+  neutral: colors.muted
+} as const;
+
+const highlightToneStyles = {
+  primary: { backgroundColor: colors.primarySoft },
+  mint: { backgroundColor: colors.mintSoft },
+  gold: { backgroundColor: colors.goldSoft },
+  coral: { backgroundColor: colors.coralSoft },
+  neutral: { backgroundColor: "#F1ECE5" }
+} as const;
 
 const styles = StyleSheet.create({
   header: {
@@ -231,57 +431,117 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: spacing.lg
   },
+  headerCopy: {
+    flex: 1,
+    gap: spacing.xs
+  },
   kicker: {
     color: colors.primary,
     fontSize: 13,
     fontWeight: "900",
-    letterSpacing: 0,
     textTransform: "uppercase"
   },
   title: {
     color: colors.ink,
     fontSize: 32,
     fontWeight: "900",
-    letterSpacing: 0,
     lineHeight: 36
   },
   subhead: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "800",
-    marginTop: 4
+    fontWeight: "800"
   },
   memberStack: {
     flexDirection: "row",
-    gap: spacing.xs
+    gap: spacing.xs,
+    marginLeft: spacing.md
   },
-  heroIcon: {
-    alignItems: "center",
-    backgroundColor: colors.primarySoft,
-    borderRadius: 18,
-    height: 44,
-    justifyContent: "center",
-    width: 44
+  heroTop: {
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between"
   },
   heroCopy: {
     flex: 1,
     gap: spacing.sm
   },
+  heroIcon: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.lg,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
   heroTitle: {
     color: colors.ink,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "900",
-    lineHeight: 27
+    lineHeight: 28
   },
   heroText: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 21
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20
   },
-  syncText: {
-    color: colors.primary,
+  highlightGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+    marginTop: spacing.lg
+  },
+  highlightCard: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexGrow: 1,
+    gap: spacing.xs,
+    minWidth: "46%",
+    padding: spacing.md
+  },
+  highlightIcon: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 32,
+    justifyContent: "center",
+    width: 32
+  },
+  highlightLabel: {
+    color: colors.muted,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "800",
+    marginTop: spacing.xs,
+    textTransform: "uppercase"
+  },
+  highlightValue: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 20
+  },
+  emptyPanel: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    marginTop: spacing.lg,
+    padding: spacing.lg
+  },
+  emptyPanelTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: "900"
+  },
+  emptyPanelText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20
   },
   heroActions: {
     flexDirection: "row",
@@ -289,29 +549,89 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginTop: spacing.lg
   },
+  syncText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+    marginTop: spacing.md
+  },
   stack: {
     gap: spacing.md
   },
-  timeBlock: {
-    width: 72
+  snapshotRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
   },
-  time: {
+  snapshotColumn: {
+    flex: 1,
+    gap: spacing.xs
+  },
+  snapshotLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  snapshotValue: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 22
+  },
+  snapshotMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19
+  },
+  quickActionGrid: {
+    gap: spacing.md
+  },
+  quickTitle: {
     color: colors.ink,
     fontSize: 17,
     fontWeight: "900"
   },
-  date: {
+  quickText: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
-    marginTop: 2
+    lineHeight: 20,
+    marginTop: spacing.xs
+  },
+  quickActionFooter: {
+    marginTop: spacing.md
   },
   fill: {
     flex: 1
   },
-  eventBadges: {
-    alignItems: "flex-end",
-    gap: spacing.sm
+  itemTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 20
+  },
+  itemMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: 2
+  },
+  notificationIcon: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  notificationIconUnread: {
+    backgroundColor: colors.primarySoft
+  },
+  notificationIconMuted: {
+    backgroundColor: "#F1ECE5"
   },
   notificationMeta: {
     color: colors.muted,
@@ -319,35 +639,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: spacing.sm
   },
-  itemTitle: {
+  timeBlock: {
+    alignItems: "center",
+    minWidth: 54
+  },
+  time: {
     color: colors.ink,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "900"
   },
-  itemMeta: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 3
-  },
-  metrics: {
-    flexDirection: "row",
-    gap: spacing.md
-  },
-  metric: {
-    borderRadius: 16,
-    flex: 1,
-    padding: spacing.lg
-  },
-  metricValue: {
-    color: colors.ink,
-    fontSize: 24,
-    fontWeight: "900"
-  },
-  metricLabel: {
+  date: {
     color: colors.muted,
     fontSize: 12,
     fontWeight: "800",
-    marginTop: 2
+    textTransform: "uppercase"
   }
 });

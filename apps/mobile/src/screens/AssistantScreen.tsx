@@ -364,6 +364,17 @@ export function AssistantScreen() {
         A simple assistant for family text, meals, groceries, and chores. Responses are not streamed in this build.
       </Text>
 
+      <Card>
+        <View style={styles.guardrailTop}>
+          <Pill label="Suggestions only" tone="mint" icon="shield-checkmark" />
+          <Pill label="Nothing saves automatically" tone="neutral" />
+        </View>
+        <Text style={styles.guardrailTitle}>HomeThread drafts ideas. You make the final call.</Text>
+        <Text style={styles.guardrailText}>
+          Suggestions can help with meals, chores, and family text, but nothing changes in the household until you save it.
+        </Text>
+      </Card>
+
       <SectionTitle title="Quick prompts" />
       <View style={styles.promptRow}>
         {quickPrompts.map((entry) => (
@@ -415,11 +426,13 @@ export function AssistantScreen() {
               return (
                 <Card key={key}>
                   <View style={styles.suggestionTop}>
+                    <Pill label="Suggested meal" tone="mint" icon="sparkles" />
                     <Pill label={dayLabels[suggestion.dayOfWeek] ?? "Day"} tone="primary" />
                     <Pill label={suggestion.mealType} tone="neutral" />
                   </View>
                   <Text style={styles.draftTitle}>{suggestion.title}</Text>
                   {suggestion.notes ? <Text style={styles.meta}>{suggestion.notes}</Text> : null}
+                  <Text style={styles.reviewNote}>This meal is only a suggestion until you add it to the plan.</Text>
                   <View style={styles.saveRow}>
                     <PrimaryButton
                       label={added ? "Added to meals" : isSaving ? "Saving..." : "Add to meals"}
@@ -479,6 +492,7 @@ export function AssistantScreen() {
           <SectionTitle title="Draft to save" />
           <Card>
             <View style={styles.draftTop}>
+              <Pill label="Suggested draft" tone="mint" icon="sparkles" />
               <Pill
                 label={draft.kind}
                 tone={draft.kind === "event" ? "primary" : draft.kind === "chore" ? "gold" : "mint"}
@@ -487,6 +501,7 @@ export function AssistantScreen() {
             </View>
             <Text style={styles.draftTitle}>{draft.title}</Text>
             <Text style={styles.meta}>{draft.detail}</Text>
+            <Text style={styles.reviewNote}>Nothing changes for the family until you tap save.</Text>
             {assistantNote ? <Text style={styles.note}>{assistantNote}</Text> : null}
             <Text style={styles.saveStatus}>{isSaving ? "Saving..." : saveMessage}</Text>
             <View style={styles.saveRow}>
@@ -543,6 +558,25 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
+  guardrailTop: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  guardrailTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 22,
+    marginTop: spacing.md
+  },
+  guardrailText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: spacing.sm
+  },
   promptRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -595,7 +629,8 @@ const styles = StyleSheet.create({
   draftTop: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: spacing.sm,
     marginBottom: spacing.lg
   },
   confidence: {
@@ -619,6 +654,13 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontWeight: "700",
+    marginTop: spacing.md
+  },
+  reviewNote: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
     marginTop: spacing.md
   },
   saveStatus: {

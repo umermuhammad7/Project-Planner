@@ -109,54 +109,72 @@ export function ChoresScreen() {
 
       <SectionTitle title="Due today" />
       <View style={styles.stack}>
-        {chores.map((chore) => {
-          const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
-          return (
-            <Pressable
-              key={chore.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${chore.completed ? "Completed" : "Complete"} ${chore.title}${
-                chore.completed ? ". Reopen is not available yet." : ""
-              }`}
-              onPress={() => void completeChore(chore.id)}
-            >
-              <Card>
-                <Row>
-                  <View style={[styles.check, chore.completed && styles.checkDone]}>
-                    <Ionicons
-                      name={chore.completed ? "checkmark" : "ellipse-outline"}
-                      size={20}
-                      color={chore.completed ? "#FFFFFF" : colors.muted}
-                    />
-                  </View>
-                  <View style={styles.fill}>
-                    <Text style={[styles.choreTitle, chore.completed && styles.doneText]}>{chore.title}</Text>
-                    <Text style={styles.meta}>{chore.dueLabel}</Text>
-                  </View>
-                  <MemberAvatar member={member} size={34} />
-                  <Pill label={`${chore.stars} stars`} tone="gold" icon="star" />
-                </Row>
-              </Card>
-            </Pressable>
-          );
-        })}
+        {chores.length > 0 ? (
+          chores.map((chore) => {
+            const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
+            return (
+              <Pressable
+                key={chore.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${chore.completed ? "Completed" : "Complete"} ${chore.title}${
+                  chore.completed ? ". Reopen is not available yet." : ""
+                }`}
+                onPress={() => void completeChore(chore.id)}
+              >
+                <Card>
+                  <Row>
+                    <View style={[styles.check, chore.completed && styles.checkDone]}>
+                      <Ionicons
+                        name={chore.completed ? "checkmark" : "ellipse-outline"}
+                        size={20}
+                        color={chore.completed ? "#FFFFFF" : colors.muted}
+                      />
+                    </View>
+                    <View style={styles.fill}>
+                      <Text style={[styles.choreTitle, chore.completed && styles.doneText]}>{chore.title}</Text>
+                      <Text style={styles.meta}>{chore.dueLabel}</Text>
+                    </View>
+                    <MemberAvatar member={member} size={34} />
+                    <Pill label={`${chore.stars} stars`} tone="gold" icon="star" />
+                  </Row>
+                </Card>
+              </Pressable>
+            );
+          })
+        ) : (
+          <Card>
+            <Text style={styles.emptyTitle}>No chores yet.</Text>
+            <Text style={styles.emptyText}>
+              Add the first recurring chore so kids and adults both know what done for today looks like.
+            </Text>
+          </Card>
+        )}
       </View>
 
       <SectionTitle title="Reward balances" />
       <View style={styles.rewardGrid}>
-        {members
-          .filter((member) => member.role === "kid")
-          .map((member) => (
-            <Card key={member.id}>
-              <View style={styles.rewardCard}>
-                <MemberAvatar member={member} />
-                <View style={styles.fill}>
-                  <Text style={styles.choreTitle}>{member.name}</Text>
-                  <Text style={styles.meta}>{member.starBalance} stars saved</Text>
+        {members.filter((member) => member.role === "kid").length > 0 ? (
+          members
+            .filter((member) => member.role === "kid")
+            .map((member) => (
+              <Card key={member.id}>
+                <View style={styles.rewardCard}>
+                  <MemberAvatar member={member} />
+                  <View style={styles.fill}>
+                    <Text style={styles.choreTitle}>{member.name}</Text>
+                    <Text style={styles.meta}>{member.starBalance} stars saved</Text>
+                  </View>
                 </View>
-              </View>
-            </Card>
-          ))}
+              </Card>
+            ))
+        ) : (
+          <Card>
+            <Text style={styles.emptyTitle}>No child profiles yet.</Text>
+            <Text style={styles.emptyText}>
+              Add a child profile from Household so stars and kids mode feel personal from day one.
+            </Text>
+          </Card>
+        )}
       </View>
     </View>
   );
@@ -275,5 +293,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.md
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: spacing.sm
   }
 });

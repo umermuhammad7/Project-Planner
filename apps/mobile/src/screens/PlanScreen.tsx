@@ -196,39 +196,48 @@ export function PlanScreen() {
 
       <SectionTitle title="Timeline" action="Today" />
       <View style={styles.stack}>
-        {sortedEvents.map((event) => {
-          const assigned = event.assignedTo
-            .map((id) => members.find((member) => member.id === id)?.name)
-            .filter(Boolean)
-            .join(", ");
-          const urgency = getEventUrgency(event);
-          const importedSource = describeImportedEventSource(event);
+        {sortedEvents.length > 0 ? (
+          sortedEvents.map((event) => {
+            const assigned = event.assignedTo
+              .map((id) => members.find((member) => member.id === id)?.name)
+              .filter(Boolean)
+              .join(", ");
+            const urgency = getEventUrgency(event);
+            const importedSource = describeImportedEventSource(event);
 
-          return (
-            <Card key={event.id}>
-              <Row align="flex-start">
-                <View style={styles.rail}>
-                  <View style={styles.dot} />
-                  <View style={styles.line} />
-                </View>
-                <View style={styles.fill}>
-                  <Row>
-                    <Text style={styles.time}>{event.time}</Text>
-                    {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
-                    {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
-                    {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
-                    {!importedSource ? (
-                      <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
-                    ) : null}
-                  </Row>
-                  <Text style={styles.eventTitle}>{event.title}</Text>
-                  <Text style={styles.meta}>{assigned}</Text>
-                  {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
-                </View>
-              </Row>
-            </Card>
-          );
-        })}
+            return (
+              <Card key={event.id}>
+                <Row align="flex-start">
+                  <View style={styles.rail}>
+                    <View style={styles.dot} />
+                    <View style={styles.line} />
+                  </View>
+                  <View style={styles.fill}>
+                    <Row>
+                      <Text style={styles.time}>{event.time}</Text>
+                      {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
+                      {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
+                      {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
+                      {!importedSource ? (
+                        <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
+                      ) : null}
+                    </Row>
+                    <Text style={styles.eventTitle}>{event.title}</Text>
+                    <Text style={styles.meta}>{assigned}</Text>
+                    {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
+                  </View>
+                </Row>
+              </Card>
+            );
+          })
+        ) : (
+          <Card>
+            <Text style={styles.emptyTitle}>Nothing is on the family calendar yet.</Text>
+            <Text style={styles.emptyText}>
+              Add the first event or import a calendar so HomeThread becomes the place everyone checks each morning.
+            </Text>
+          </Card>
+        )}
       </View>
     </View>
   );
@@ -397,5 +406,17 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 13,
     fontWeight: "700"
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: spacing.sm
   }
 });

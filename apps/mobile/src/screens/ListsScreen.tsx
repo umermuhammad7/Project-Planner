@@ -153,36 +153,45 @@ export function ListsScreen() {
         </>
       ) : null}
 
-      <Card>
-        <Text style={styles.formTitle}>Add item{activeList ? ` to ${activeList.title}` : ""}</Text>
-        <TextInput
-          accessibilityLabel="New list item"
-          placeholder="e.g. Oat milk"
-          placeholderTextColor={colors.muted}
-          value={newItem}
-          onChangeText={setNewItem}
-          style={styles.input}
-          returnKeyType="done"
-          onSubmitEditing={() => {
-            if (!canAdd || isSaving) return;
-            void createShoppingItem({ title: newItem }).then((ok) => {
-              if (ok) setNewItem("");
-            });
-          }}
-        />
-        <View style={styles.formActions}>
-          <PrimaryButton
-            label={isSaving ? "Adding..." : "Add"}
-            icon="add"
-            onPress={() => {
+      {activeList ? (
+        <Card>
+          <Text style={styles.formTitle}>Add item to {activeList.title}</Text>
+          <TextInput
+            accessibilityLabel="New list item"
+            placeholder="e.g. Oat milk"
+            placeholderTextColor={colors.muted}
+            value={newItem}
+            onChangeText={setNewItem}
+            style={styles.input}
+            returnKeyType="done"
+            onSubmitEditing={() => {
               if (!canAdd || isSaving) return;
               void createShoppingItem({ title: newItem }).then((ok) => {
                 if (ok) setNewItem("");
               });
             }}
           />
-        </View>
-      </Card>
+          <View style={styles.formActions}>
+            <PrimaryButton
+              label={isSaving ? "Adding..." : "Add"}
+              icon="add"
+              onPress={() => {
+                if (!canAdd || isSaving) return;
+                void createShoppingItem({ title: newItem }).then((ok) => {
+                  if (ok) setNewItem("");
+                });
+              }}
+            />
+          </View>
+        </Card>
+      ) : (
+        <Card>
+          <Text style={styles.emptyTitle}>Start with one shared list.</Text>
+          <Text style={styles.emptyText}>
+            A grocery list is usually the best first move. Once the first list exists, everyone can add items from here.
+          </Text>
+        </Card>
+      )}
 
       {Object.entries(grouped).map(([category, items]) => (
         <View key={category}>
@@ -216,6 +225,14 @@ export function ListsScreen() {
           </View>
         </View>
       ))}
+      {activeList && shoppingItems.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyTitle}>Nothing in {activeList.title} yet.</Text>
+          <Text style={styles.emptyText}>
+            Add the first item now so this list becomes useful the next time someone is in a store aisle.
+          </Text>
+        </Card>
+      ) : null}
     </View>
   );
 }
@@ -333,5 +350,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginTop: 2
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: spacing.sm
   }
 });

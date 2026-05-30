@@ -1,8 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, MemberAvatar, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { Card, MemberAvatar, Pill, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
@@ -17,6 +17,7 @@ function todayDayOfWeek() {
 export function KidsModeScreen({ onExit }: { onExit: () => void }) {
   const { chores, members, events, meals, completeChore, refreshFromBackend, isSaving, saveMessage } =
     useHomeThreadStore();
+  const [exitHintVisible, setExitHintVisible] = useState(false);
 
   const kidMembers = useMemo(() => members.filter((member) => member.role === "kid"), [members]);
   const kidIds = useMemo(() => new Set(kidMembers.map((member) => member.id)), [kidMembers]);
@@ -50,10 +51,29 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
     <View style={styles.root}>
       <View style={styles.modeBanner}>
         <Pill label="Kids mode" tone="mint" icon="happy" />
-        <Text style={styles.modeNote}>A simpler view for kids. Tap below when a grown-up is ready to switch back.</Text>
+        <Text style={styles.modeTitle}>Only the kid-safe stuff shows here.</Text>
+        <Text style={styles.modeNote}>
+          Chores, stars, dinner, and the next plan stay easy to see. Family settings and grown-up controls stay out of the way.
+        </Text>
       </View>
 
-      <PrimaryButton label="Back for grown-ups" icon="arrow-back" tone="dark" onPress={onExit} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Hold to exit kids mode"
+        delayLongPress={900}
+        onLongPress={onExit}
+        onPress={() => setExitHintVisible(true)}
+        style={({ pressed }) => [styles.exitCard, pressed && styles.exitCardPressed]}
+      >
+        <View style={styles.exitCopy}>
+          <Text style={styles.exitTitle}>Grown-ups only</Text>
+          <Text style={styles.exitText}>
+            Hold here for a moment to leave kids mode. This helps avoid accidental exits when a child is using the phone.
+          </Text>
+          {exitHintVisible ? <Text style={styles.exitHint}>Keep holding to go back.</Text> : null}
+        </View>
+        <Ionicons name="lock-closed" size={22} color={colors.ink} />
+      </Pressable>
 
       <Text style={styles.greeting}>You&apos;ve got this today</Text>
 
@@ -182,11 +202,52 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.lg
   },
+  modeTitle: {
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: "900",
+    lineHeight: 24
+  },
   modeNote: {
     color: colors.ink,
     fontSize: 14,
     fontWeight: "700",
     lineHeight: 20
+  },
+  exitCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    padding: spacing.lg
+  },
+  exitCardPressed: {
+    opacity: 0.9
+  },
+  exitCopy: {
+    flex: 1,
+    gap: spacing.xs
+  },
+  exitTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  exitText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18
+  },
+  exitHint: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.xs
   },
   greeting: {
     color: colors.ink,
