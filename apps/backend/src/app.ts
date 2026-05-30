@@ -15,6 +15,7 @@ import { listsRoutes } from "./routes/lists.js";
 import { mealsRoutes } from "./routes/meals.js";
 import { membersRoutes } from "./routes/members.js";
 import { calendarSyncRoutes } from "./routes/calendarSync.js";
+import { notificationsRoutes } from "./routes/notifications.js";
 import { recipesRoutes } from "./routes/recipes.js";
 
 export function buildApp() {
@@ -51,6 +52,7 @@ export function buildApp() {
   app.register(mealsRoutes, { prefix: "/api/v1/families/:familyId/meals" });
   app.register(recipesRoutes, { prefix: "/api/v1/families/:familyId/recipes" });
   app.register(calendarSyncRoutes, { prefix: "/api/v1/calendar-sync" });
+  app.register(notificationsRoutes, { prefix: "/api/v1/notifications" });
 
   return app;
 }

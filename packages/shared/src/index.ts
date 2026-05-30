@@ -71,6 +71,28 @@ export const notificationPrefsResponseSchema = z.object({
   })
 });
 
+export const notificationItemSchema = z.object({
+  id: uuidSchema,
+  type: z.string().min(1).max(80),
+  title: z.string().min(1).max(200),
+  body: z.string().min(1).max(4000),
+  sentAt: z.iso.datetime(),
+  readAt: z.iso.datetime().nullable(),
+  familyId: uuidSchema.nullable()
+});
+
+export const notificationsListResponseSchema = z.object({
+  notifications: z.array(notificationItemSchema)
+});
+
+export const markNotificationsReadSchema = z.object({
+  notificationIds: z.array(uuidSchema).min(1).max(50)
+});
+
+export const markNotificationsReadResponseSchema = z.object({
+  updated: z.number().int().nonnegative()
+});
+
 export const createFamilySchema = z.object({
   name: z.string().min(1).max(80),
   avatarUrl: z.url().optional().nullable()
@@ -364,6 +386,10 @@ export type NotificationPrefsInput = z.infer<typeof notificationPrefsSchema>;
 export type AuthStatusResponse = z.infer<typeof authStatusResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
 export type NotificationPrefsResponse = z.infer<typeof notificationPrefsResponseSchema>;
+export type NotificationItem = z.infer<typeof notificationItemSchema>;
+export type NotificationsListResponse = z.infer<typeof notificationsListResponseSchema>;
+export type MarkNotificationsReadInput = z.infer<typeof markNotificationsReadSchema>;
+export type MarkNotificationsReadResponse = z.infer<typeof markNotificationsReadResponseSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;

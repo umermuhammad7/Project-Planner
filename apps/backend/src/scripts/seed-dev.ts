@@ -13,6 +13,7 @@ import {
   lists,
   mealPlanItems,
   mealPlans,
+  notifications,
   recipes,
   rewards,
   users
@@ -36,6 +37,8 @@ const dinnerMondayId = "00000000-0000-4000-8000-000000000611";
 const dinnerTuesdayId = "00000000-0000-4000-8000-000000000612";
 const dinnerWednesdayId = "00000000-0000-4000-8000-000000000613";
 const fajitasRecipeId = "00000000-0000-4000-8000-000000000701";
+const digestNotificationId = "00000000-0000-4000-8000-000000000801";
+const choreNotificationId = "00000000-0000-4000-8000-000000000802";
 
 try {
   await db.transaction(async (tx) => {
@@ -252,6 +255,28 @@ try {
         }
       ])
       .onConflictDoNothing();
+
+    await tx
+      .insert(notifications)
+      .values([
+        {
+          id: digestNotificationId,
+          userId: devUserId,
+          familyId,
+          type: "daily_digest",
+          title: "Good morning, Parker Home",
+          body: "Two events and one chore are lined up for today."
+        },
+        {
+          id: choreNotificationId,
+          userId: devUserId,
+          familyId,
+          type: "chore_due",
+          title: "Jules has a chore due tonight",
+          body: "Unload dishwasher is due by 6:00 PM."
+        }
+      ])
+      .onConflictDoNothing();
   });
 
   await db
@@ -297,6 +322,10 @@ try {
         )
       );
   }
+
+  await db
+    .delete(notifications)
+    .where(and(eq(notifications.userId, devUserId), ne(notifications.id, digestNotificationId), ne(notifications.id, choreNotificationId)));
 
   const family = await db.query.families.findFirst({
     where: eq(families.id, familyId)

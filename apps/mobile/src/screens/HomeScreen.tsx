@@ -23,6 +23,8 @@ export function HomeScreen({
     events,
     meals,
     chores,
+    notifications,
+    markNotificationsRead,
     refreshFromBackend,
     syncSource,
     syncMessage,
@@ -33,6 +35,8 @@ export function HomeScreen({
   const allListItems = useMemo(() => Object.values(listItemsByListId).flat(), [listItemsByListId]);
   const openItems = allListItems.filter((item) => !item.checked);
   const dinners = meals.filter((meal) => meal.mealType === "dinner").slice(0, 3);
+  const recentNotifications = notifications.slice(0, 3);
+  const unreadNotifications = notifications.filter((item) => !item.readAt).length;
   const kidStarTotal = useMemo(
     () => members.filter((member) => member.role === "kid").reduce((sum, member) => sum + member.starBalance, 0),
     [members]
@@ -138,6 +142,45 @@ export function HomeScreen({
         <Metric value={openChores.length} label="chores left" tone={colors.coralSoft} />
         <Metric value={openItems.length} label="shopping items" tone={colors.mintSoft} />
         <Metric value={kidStarTotal} label="kid stars" tone={colors.goldSoft} />
+      </View>
+
+      <SectionTitle title="Notifications" action={unreadNotifications > 0 ? `${unreadNotifications} unread` : "All caught up"} />
+      <View style={styles.stack}>
+        {recentNotifications.length > 0 ? (
+          recentNotifications.map((notification) => (
+            <Card key={notification.id}>
+              <Row align="flex-start">
+                <View style={styles.heroIcon}>
+                  <Ionicons
+                    name={notification.readAt ? "notifications-outline" : "notifications"}
+                    size={20}
+                    color={notification.readAt ? colors.muted : colors.primary}
+                  />
+                </View>
+                <View style={styles.fill}>
+                  <Text style={styles.itemTitle}>{notification.title}</Text>
+                  <Text style={styles.itemMeta}>{notification.body}</Text>
+                  <Text style={styles.notificationMeta}>
+                    {new Date(notification.sentAt).toLocaleString()}
+                  </Text>
+                </View>
+                {!notification.readAt ? (
+                  <PrimaryButton
+                    label="Mark read"
+                    icon="checkmark"
+                    onPress={() => {
+                      void markNotificationsRead([notification.id]);
+                    }}
+                  />
+                ) : null}
+              </Row>
+            </Card>
+          ))
+        ) : (
+          <Card>
+            <Text style={styles.itemMeta}>No notifications yet. Push registration and preferences are ready when you are.</Text>
+          </Card>
+        )}
       </View>
 
       <SectionTitle title="This week for dinner" action={`${meals.length} meals`} />
@@ -264,6 +307,12 @@ const styles = StyleSheet.create({
   eventBadges: {
     alignItems: "flex-end",
     gap: spacing.sm
+  },
+  notificationMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: spacing.sm
   },
   itemTitle: {
     color: colors.ink,

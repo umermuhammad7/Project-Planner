@@ -186,6 +186,12 @@ describe("HomeThread mobile store semantics", () => {
               ]
             }
           };
+        case "/notifications":
+          return {
+            data: {
+              notifications: []
+            }
+          };
         default:
           throw new Error(`Unexpected path: ${path}`);
       }

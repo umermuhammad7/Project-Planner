@@ -63,6 +63,16 @@ export type CalendarSyncNowResponse = {
   results: CalendarSyncConnectionResult[];
 };
 
+export type NotificationItem = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  sentAt: string;
+  readAt: string | null;
+  familyId: string | null;
+};
+
 export type OfflineQueueStatus = "pending" | "failed";
 
 export type OfflineQueueMutationType = "create_event" | "create_chore" | "create_list_item";

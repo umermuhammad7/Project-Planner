@@ -26,6 +26,7 @@ import {
   FamilyMember,
   MealPlanItem,
   OfflineQueueItem,
+  NotificationItem,
   PlanEvent,
   Recipe,
   RecipeIngredient,
@@ -131,6 +132,7 @@ type HomeThreadState = {
   chores: Chore[];
   completedChoreIds: Record<string, true>;
   shoppingItems: ShoppingItem[];
+  notifications: NotificationItem[];
   textUpdates: TextUpdate[];
   syncSource: SyncSource;
   syncMessage: string;
@@ -145,6 +147,7 @@ type HomeThreadState = {
   hydrateFromBackend: (options?: { skipOfflineReplay?: boolean }) => Promise<void>;
   refreshFromBackend: (options?: { skipOfflineReplay?: boolean }) => Promise<void>;
   replayPendingOfflineMutations: () => Promise<{ replayed: number; failed: number; remaining: number }>;
+  markNotificationsRead: (notificationIds: string[]) => Promise<{ ok: boolean; updated: number; message?: string }>;
   regenerateInviteCode: () => Promise<{ ok: boolean; message?: string }>;
   updateFamilyName: (name: string) => Promise<{ ok: boolean; message?: string }>;
   leaveFamily: () => Promise<{ ok: boolean; message?: string; needsFamilySetup?: boolean }>;
@@ -209,6 +212,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   chores: initialChores,
   completedChoreIds: {},
   shoppingItems: initialMockListItemsByListId[mockGroceryListId] ?? [],
+  notifications: [],
   textUpdates: initialTexts,
   syncSource: "mock",
   syncMessage: "Using local prototype data",
@@ -243,6 +247,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         chores: [],
         completedChoreIds: {},
         shoppingItems: [],
+        notifications: [],
         textUpdates: [],
         isHydrating: false,
         syncSource: "mock",
@@ -262,13 +267,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       syncMessage: "Checking local HomeThread backend..."
     });
 
-    const [familyResult, eventsResult, choresResult, listsResult, mealsResult, recipesResult] = await Promise.all([
+    const [familyResult, eventsResult, choresResult, listsResult, mealsResult, recipesResult, notificationsResult] = await Promise.all([
       apiRequest<BackendFamilyResponse>(`/families/${targetFamilyId}`),
       apiRequest<BackendEventsResponse>(`/families/${targetFamilyId}/events`),
       apiRequest<BackendChoresResponse>(`/families/${targetFamilyId}/chores/today`),
       apiRequest<BackendListsResponse>(`/families/${targetFamilyId}/lists`),
       apiRequest<BackendMealsResponse>(`/families/${targetFamilyId}/meals?weekStart=${currentWeekStart()}`),
-      apiRequest<BackendRecipesResponse>(`/families/${targetFamilyId}/recipes`)
+      apiRequest<BackendRecipesResponse>(`/families/${targetFamilyId}/recipes`),
+      apiRequest<BackendNotificationsResponse>("/notifications")
     ]);
 
     if (
@@ -277,7 +283,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       !choresResult.data ||
       !listsResult.data ||
       !mealsResult.data ||
-      !recipesResult.data
+      !recipesResult.data ||
+      !notificationsResult.data
     ) {
       const previous = get();
       const failureMessage =
@@ -287,6 +294,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         listsResult.error?.message ??
         mealsResult.error?.message ??
         recipesResult.error?.message ??
+        notificationsResult.error?.message ??
         "Refresh failed";
 
       set({
@@ -340,6 +348,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       recipes: recipesResult.data.recipes.map(mapRecipe),
       chores: hydratedChores,
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
+      notifications: notificationsResult.data.notifications,
       syncSource: "api",
       syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${recipesResult.data.recipes.length} recipes, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
       offlineQueue: getOfflineQueue(),
@@ -352,6 +361,42 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   },
   refreshFromBackend: async (options) => {
     await get().hydrateFromBackend(options);
+  },
+  markNotificationsRead: async (notificationIds) => {
+    const ids = notificationIds.filter(Boolean);
+    if (ids.length === 0) {
+      return { ok: true, updated: 0 };
+    }
+
+    const result = await apiRequest<{ updated: number }>("/notifications/mark-read", {
+      method: "POST",
+      body: JSON.stringify({ notificationIds: ids })
+    });
+
+    if (typeof result.data?.updated !== "number") {
+      return {
+        ok: false,
+        updated: 0,
+        message: result.error?.message ?? "Could not mark notifications as read."
+      };
+    }
+
+    const readAt = new Date().toISOString();
+    set((state) => ({
+      notifications: state.notifications.map((item) =>
+        ids.includes(item.id)
+          ? {
+              ...item,
+              readAt
+            }
+          : item
+      )
+    }));
+
+    return {
+      ok: true,
+      updated: result.data.updated
+    };
   },
   regenerateInviteCode: async () => {
     const state = get();
@@ -448,15 +493,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       familyName: "HomeThread",
       inviteCode: null,
       isFamilyAdmin: false,
-      members: [],
-      events: [],
-      mealWeekStart: currentWeekStart(),
-      meals: [],
-      recipes: [],
-      chores: [],
-      completedChoreIds: {},
-      shoppingItems: [],
-      textUpdates: [],
+        members: [],
+        events: [],
+        mealWeekStart: currentWeekStart(),
+        meals: [],
+        recipes: [],
+        chores: [],
+        completedChoreIds: {},
+        shoppingItems: [],
+        notifications: [],
+        textUpdates: [],
       syncSource: "mock",
       isSaving: false,
       isHydrating: false,
@@ -1779,6 +1825,10 @@ type BackendRecipeRecord = {
 
 type BackendRecipesResponse = {
   recipes: BackendRecipeRecord[];
+};
+
+type BackendNotificationsResponse = {
+  notifications: NotificationItem[];
 };
 
 type BackendMealToGroceryResponse = {
