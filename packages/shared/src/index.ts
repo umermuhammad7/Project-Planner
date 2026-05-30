@@ -71,6 +71,46 @@ export const notificationPrefsResponseSchema = z.object({
   })
 });
 
+export const insightsWeeklyResponseSchema = z.object({
+  windowDays: z.number().int().positive(),
+  upcomingEvents: z.number().int().nonnegative(),
+  openChores: z.number().int().nonnegative(),
+  plannedMeals: z.number().int().nonnegative(),
+  unreadNotifications: z.number().int().nonnegative(),
+  activeMembers: z.number().int().nonnegative()
+});
+
+export const insightsChoreMemberSchema = z.object({
+  memberId: uuidSchema,
+  name: z.string().min(1),
+  role: memberRoleSchema,
+  completedCount: z.number().int().nonnegative(),
+  outstandingCount: z.number().int().nonnegative(),
+  starsEarned: z.number().int().nonnegative()
+});
+
+export const insightsChoresResponseSchema = z.object({
+  windowDays: z.number().int().positive(),
+  members: z.array(insightsChoreMemberSchema)
+});
+
+export const insightsBusynessDaySchema = z.object({
+  dayLabel: z.string().min(1),
+  eventCount: z.number().int().nonnegative()
+});
+
+export const insightsBusynessMemberSchema = z.object({
+  memberId: uuidSchema,
+  name: z.string().min(1),
+  eventCount: z.number().int().nonnegative()
+});
+
+export const insightsBusynessResponseSchema = z.object({
+  windowDays: z.number().int().positive(),
+  days: z.array(insightsBusynessDaySchema),
+  members: z.array(insightsBusynessMemberSchema)
+});
+
 export const notificationItemSchema = z.object({
   id: uuidSchema,
   type: z.string().min(1).max(80),
@@ -385,6 +425,9 @@ export type UserProfileInput = z.infer<typeof userProfileSchema>;
 export type NotificationPrefsInput = z.infer<typeof notificationPrefsSchema>;
 export type AuthStatusResponse = z.infer<typeof authStatusResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
+export type InsightsWeeklyResponse = z.infer<typeof insightsWeeklyResponseSchema>;
+export type InsightsChoresResponse = z.infer<typeof insightsChoresResponseSchema>;
+export type InsightsBusynessResponse = z.infer<typeof insightsBusynessResponseSchema>;
 export type NotificationPrefsResponse = z.infer<typeof notificationPrefsResponseSchema>;
 export type NotificationItem = z.infer<typeof notificationItemSchema>;
 export type NotificationsListResponse = z.infer<typeof notificationsListResponseSchema>;

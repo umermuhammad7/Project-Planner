@@ -10,6 +10,7 @@ import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
 import { FamilyScreen } from "./src/screens/FamilyScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
+import { InsightsScreen } from "./src/screens/InsightsScreen";
 import { KidsModeScreen } from "./src/screens/KidsModeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
 import { MealsScreen } from "./src/screens/MealsScreen";
@@ -38,6 +39,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [kidsMode, setKidsMode] = useState(false);
   const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
   const authMode = useAuthStore((state) => state.mode);
   const authFamilyId = useAuthStore((state) => state.familyId);
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
@@ -123,6 +125,7 @@ export default function App() {
         goTo={setActiveTab}
         onEnterKidsMode={() => setKidsMode(true)}
         onOpenFamilySettings={() => setFamilySettingsOpen(true)}
+        onOpenInsights={() => setInsightsOpen(true)}
       />
     );
   }, [activeTab]);
@@ -180,13 +183,15 @@ export default function App() {
             </View>
           ) : kidsMode ? (
             <KidsModeScreen onExit={() => setKidsMode(false)} />
+          ) : insightsOpen ? (
+            <InsightsScreen onClose={() => setInsightsOpen(false)} />
           ) : familySettingsOpen ? (
             <FamilyScreen onClose={() => setFamilySettingsOpen(false)} />
           ) : (
             content
           )}
         </ScrollView>
-        {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen ? (
+        {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen && !insightsOpen ? (
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
               <IconButton

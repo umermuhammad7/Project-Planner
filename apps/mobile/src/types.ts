@@ -331,3 +331,43 @@ export type FamilySetupResponse = {
     userId: string | null;
   };
 };
+
+export type InsightsWeekly = {
+  windowDays: number;
+  upcomingEvents: number;
+  openChores: number;
+  plannedMeals: number;
+  unreadNotifications: number;
+  activeMembers: number;
+};
+
+export type InsightsChoreMember = {
+  memberId: string;
+  name: string;
+  role: string;
+  completedCount: number;
+  outstandingCount: number;
+  starsEarned: number;
+};
+
+export type InsightsChores = {
+  windowDays: number;
+  members: InsightsChoreMember[];
+};
+
+export type InsightsBusynessDay = {
+  dayLabel: string;
+  eventCount: number;
+};
+
+export type InsightsBusynessMember = {
+  memberId: string;
+  name: string;
+  eventCount: number;
+};
+
+export type InsightsBusyness = {
+  windowDays: number;
+  days: InsightsBusynessDay[];
+  members: InsightsBusynessMember[];
+};

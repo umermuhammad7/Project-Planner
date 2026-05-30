@@ -11,11 +11,13 @@ import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 export function HomeScreen({
   goTo,
   onEnterKidsMode,
-  onOpenFamilySettings
+  onOpenFamilySettings,
+  onOpenInsights
 }: {
   goTo: (tab: TabKey) => void;
   onEnterKidsMode?: () => void;
   onOpenFamilySettings?: () => void;
+  onOpenInsights?: () => void;
 }) {
   const {
     familyName,
@@ -108,6 +110,9 @@ export function HomeScreen({
           ) : null}
           {onOpenFamilySettings ? (
             <PrimaryButton label="Family" icon="people" tone="dark" onPress={onOpenFamilySettings} />
+          ) : null}
+          {onOpenInsights ? (
+            <PrimaryButton label="Insights" icon="analytics" tone="dark" onPress={onOpenInsights} />
           ) : null}
         </View>
       </Card>
