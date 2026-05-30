@@ -36,10 +36,14 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     regenerateInviteCode,
     updateFamilyName,
     leaveFamily,
-    createVirtualMember
+    createVirtualMember,
+    updateVirtualMember,
+    removeVirtualMember
   } = useHomeThreadStore();
   const [childName, setChildName] = useState("");
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editingMemberName, setEditingMemberName] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
@@ -81,6 +85,39 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       return;
     }
     setChildName("");
+  }
+
+  async function handleSaveMember() {
+    if (!editingMemberId) {
+      return;
+    }
+
+    setFormMessage(null);
+    const result = await updateVirtualMember({
+      memberId: editingMemberId,
+      displayName: editingMemberName
+    });
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not update child profile.");
+      return;
+    }
+
+    setEditingMemberId(null);
+    setEditingMemberName("");
+  }
+
+  async function handleRemoveMember(memberId: string) {
+    setFormMessage(null);
+    const result = await removeVirtualMember(memberId);
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not remove child profile.");
+      return;
+    }
+
+    if (editingMemberId === memberId) {
+      setEditingMemberId(null);
+      setEditingMemberName("");
+    }
   }
 
   async function handleSignOut() {
@@ -224,6 +261,60 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
               </View>
               {member.role === "kid" ? <Pill label="Kids mode" tone="gold" /> : null}
             </Row>
+            {isFamilyAdmin && member.isVirtual ? (
+              <View style={styles.memberActions}>
+                {editingMemberId === member.id ? (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Child name"
+                      placeholderTextColor={colors.muted}
+                      value={editingMemberName}
+                      onChangeText={setEditingMemberName}
+                    />
+                    <View style={styles.memberButtonRow}>
+                      <PrimaryButton
+                        label={isSaving ? "Working..." : "Save child"}
+                        icon="checkmark"
+                        onPress={() => {
+                          if (isSaving || !backendConnected) return;
+                          void handleSaveMember();
+                        }}
+                      />
+                      <PrimaryButton
+                        label="Cancel"
+                        icon="close"
+                        tone="dark"
+                        onPress={() => {
+                          setEditingMemberId(null);
+                          setEditingMemberName("");
+                        }}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.memberButtonRow}>
+                    <PrimaryButton
+                      label="Rename"
+                      icon="create"
+                      onPress={() => {
+                        setEditingMemberId(member.id);
+                        setEditingMemberName(member.name);
+                      }}
+                    />
+                    <PrimaryButton
+                      label={isSaving ? "Working..." : "Remove"}
+                      icon="trash"
+                      tone="dark"
+                      onPress={() => {
+                        if (isSaving || !backendConnected) return;
+                        void handleRemoveMember(member.id);
+                      }}
+                    />
+                  </View>
+                )}
+              </View>
+            ) : null}
           </Card>
         ))}
       </View>
@@ -445,6 +536,15 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: spacing.sm
+  },
+  memberActions: {
+    gap: spacing.md,
+    marginTop: spacing.md
+  },
+  memberButtonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md
   },
   preferenceStack: {
     gap: spacing.md,

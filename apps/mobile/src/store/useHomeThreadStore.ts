@@ -152,6 +152,11 @@ type HomeThreadState = {
     displayName: string;
     role: "child" | "member";
   }) => Promise<{ ok: boolean; message?: string }>;
+  updateVirtualMember: (input: {
+    memberId: string;
+    displayName: string;
+  }) => Promise<{ ok: boolean; message?: string }>;
+  removeVirtualMember: (memberId: string) => Promise<{ ok: boolean; message?: string }>;
   createEvent: (input: { title: string; location?: string; startTime?: string; memberIds?: string[] }) => Promise<boolean>;
   createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<boolean>;
   completeChore: (id: string) => Promise<void>;
@@ -507,6 +512,90 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     await get().refreshFromBackend();
     set({ saveMessage: `${trimmedName} added to your household.` });
+    return { ok: true };
+  },
+  updateVirtualMember: async ({ memberId, displayName }) => {
+    const state = get();
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      return { ok: false, message: "Member name is required." };
+    }
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Connect to the local backend before editing members." };
+    }
+    if (!state.isFamilyAdmin) {
+      return { ok: false, message: "Only family admins can edit members." };
+    }
+
+    const member = state.members.find((item) => item.id === memberId);
+    if (!member?.isVirtual) {
+      return { ok: false, message: "Only virtual profiles can be edited in this build." };
+    }
+
+    set({ isSaving: true, saveMessage: "Saving member..." });
+    const result = await apiRequest<{ member: BackendMemberRecord }>(
+      `/families/${state.familyId}/members/${memberId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: trimmedName,
+          color: member.color,
+          role: member.role === "kid" ? "child" : "member",
+          isVirtual: true
+        })
+      }
+    );
+
+    if (!result.data?.member) {
+      set({
+        isSaving: false,
+        saveMessage: result.error?.message ?? "Could not update member."
+      });
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not update member."
+      };
+    }
+
+    await get().refreshFromBackend();
+    set({ saveMessage: `${trimmedName} updated.` });
+    return { ok: true };
+  },
+  removeVirtualMember: async (memberId) => {
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Connect to the local backend before removing members." };
+    }
+    if (!state.isFamilyAdmin) {
+      return { ok: false, message: "Only family admins can remove members." };
+    }
+
+    const member = state.members.find((item) => item.id === memberId);
+    if (!member?.isVirtual) {
+      return { ok: false, message: "Only virtual profiles can be removed in this build." };
+    }
+
+    set({ isSaving: true, saveMessage: "Removing member..." });
+    const result = await apiRequest<{ deleted: boolean }>(
+      `/families/${state.familyId}/members/${memberId}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    if (!result.data?.deleted) {
+      set({
+        isSaving: false,
+        saveMessage: result.error?.message ?? "Could not remove member."
+      });
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not remove member."
+      };
+    }
+
+    await get().refreshFromBackend();
+    set({ saveMessage: `${member.name} removed from your household.` });
     return { ok: true };
   },
   createEvent: async ({ title, location, startTime, memberIds: rawMemberIds }) => {
@@ -1609,6 +1698,7 @@ type BackendMemberRecord = {
   displayName: string;
   color: string;
   role: "admin" | "member" | "child";
+  isVirtual?: boolean;
   starBalance?: number;
 };
 
@@ -2023,6 +2113,7 @@ function mapMember(member: BackendMemberRecord): FamilyMember {
       .toUpperCase(),
     color: member.color,
     role: member.role === "child" ? "kid" : member.role === "admin" ? "parent" : "caregiver",
+    isVirtual: member.isVirtual ?? false,
     starBalance: member.starBalance ?? existing?.starBalance ?? 0
   };
 }

@@ -7,6 +7,7 @@ export type FamilyMember = {
   initials: string;
   color: string;
   role: MemberRole;
+  isVirtual?: boolean;
   starBalance: number;
 };
 

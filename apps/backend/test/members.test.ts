@@ -79,6 +79,68 @@ describe("family management routes", () => {
     });
   });
 
+  it("updates a virtual child member for admins", async () => {
+    const app = buildApp();
+    const createResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${parkerFamilyId}/members`,
+      headers: authHeaders,
+      payload: {
+        displayName: "Rename Me",
+        color: "#2DAA84",
+        role: "child",
+        isVirtual: true
+      }
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    const memberId = createResponse.json().member.id as string;
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${parkerFamilyId}/members/${memberId}`,
+      headers: authHeaders,
+      payload: {
+        displayName: "Renamed Child"
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      member: {
+        id: memberId,
+        displayName: "Renamed Child"
+      }
+    });
+  });
+
+  it("deletes a virtual child member for admins", async () => {
+    const app = buildApp();
+    const createResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${parkerFamilyId}/members`,
+      headers: authHeaders,
+      payload: {
+        displayName: "Delete Me",
+        color: "#F4B740",
+        role: "child",
+        isVirtual: true
+      }
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    const memberId = createResponse.json().member.id as string;
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${parkerFamilyId}/members/${memberId}`,
+      headers: authHeaders
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({ deleted: true });
+  });
+
   it("requires auth for member management routes", async () => {
     const app = buildApp();
     const response = await app.inject({
