@@ -218,7 +218,7 @@ export function AssistantScreen() {
             id: `assistant-${Date.now()}`,
             role: "assistant",
             body:
-              "Meal suggestions need API sync and a configured AI provider. In prototype mode, add meals manually on the Meals tab."
+              "Meal suggestions need API sync and a configured AI provider. In local preview, add meals manually on the Meals tab."
           }
         ]);
         setIsThinking(false);
@@ -246,8 +246,8 @@ export function AssistantScreen() {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           body: localDraft
-            ? "Assistant is in prototype mode. HomeThread used local parsing for this draft."
-            : "Assistant is in prototype mode. Add a clear event, chore, or grocery item to get a local draft."
+            ? "Assistant is in local preview. HomeThread used local parsing for this draft."
+            : "Assistant is in local preview. Add a clear event, chore, or grocery item to get a local draft."
         }
       ]);
       setIsThinking(false);

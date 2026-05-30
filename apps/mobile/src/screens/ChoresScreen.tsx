@@ -3,37 +3,31 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, radii, spacing } from "../constants/theme";
-import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ChoresScreen() {
-  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
+  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
-  const liveUpdateNote = useMemo(
-    () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
-    [realtimeMessage, realtimeStatus, syncSource]
-  );
 
   return (
     <View>
       <Text style={styles.title}>Chores</Text>
       <Text style={styles.subtitle}>Small, visible wins with rewards that kids can understand.</Text>
-      <Text style={styles.liveUpdateNote}>{liveUpdateNote}</Text>
 
-      <View style={styles.statusRow}>
-        <Pill
-          label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
-          tone={syncSource === "api" ? "primary" : "neutral"}
-          icon={syncSource === "api" ? "sparkles" : "information-circle"}
-        />
-        <Text style={styles.syncNote}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
-      </View>
+      <SyncStatusRow
+        syncSource={syncSource}
+        isHydrating={isHydrating}
+        realtimeStatus={realtimeStatus}
+        realtimeMessage={realtimeMessage}
+        showLiveNote
+      />
 
       <View style={styles.actionRow}>
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />

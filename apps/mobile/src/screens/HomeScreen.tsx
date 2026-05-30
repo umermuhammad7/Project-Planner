@@ -7,6 +7,8 @@ import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { Chore, TabKey } from "../types";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
+import { formatNotificationType } from "../utils/notificationLabels";
+import { getSyncPillLabel, getSyncPillTone } from "../utils/syncTrustCopy";
 
 type HomeHighlight = {
   key: string;
@@ -178,8 +180,8 @@ export function HomeScreen({
         <View style={styles.heroTop}>
           <View style={styles.heroCopy}>
             <Pill
-              label={backendConnected ? "Synced household" : "Prototype mode"}
-              tone={backendConnected ? "primary" : "neutral"}
+              label={getSyncPillLabel(syncSource)}
+              tone={getSyncPillTone(syncSource)}
               icon={backendConnected ? "sparkles" : "information-circle"}
             />
             <Text style={styles.heroTitle}>{heroTitle}</Text>
@@ -224,7 +226,9 @@ export function HomeScreen({
           <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
           <PrimaryButton label="Digest" icon="chatbubbles" tone="dark" onPress={() => goTo("thread")} />
         </View>
-        <Text style={styles.syncText}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
+        <Text style={styles.syncText}>
+          {isHydrating ? "Refreshing household data..." : backendConnected ? syncMessage : "Local preview — connect the backend to sync for everyone."}
+        </Text>
       </Card>
 
       <SectionTitle title="Today at a glance" />
@@ -343,6 +347,10 @@ export function HomeScreen({
                   />
                 </View>
                 <View style={styles.fill}>
+                  <Row>
+                    <Pill label={formatNotificationType(notification.type)} tone="neutral" />
+                    {!notification.readAt ? <Pill label="Unread" tone="primary" /> : null}
+                  </Row>
                   <Text style={styles.itemTitle}>{notification.title}</Text>
                   <Text style={styles.itemMeta}>{notification.body}</Text>
                   <Text style={styles.notificationMeta}>{new Date(notification.sentAt).toLocaleString()}</Text>
@@ -363,7 +371,7 @@ export function HomeScreen({
           <Card>
             <Text style={styles.emptyPanelTitle}>No updates yet.</Text>
             <Text style={styles.emptyPanelText}>
-              Notification history will show reminder sends, digests, and household updates once the family starts using them.
+              In-app alerts appear here after reminders or digests are recorded. Push delivery to your phone is not guaranteed in this build.
             </Text>
           </Card>
         )}

@@ -470,9 +470,18 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       </Card>
 
       <Card>
+        <Text style={styles.cardTitle}>Home screen widgets</Text>
+        <Text style={styles.cardText}>
+          No iOS or Android widget extension ships in this repo yet. After sync, HomeThread only caches a small JSON snapshot
+          on web for possible future widget work.
+        </Text>
+      </Card>
+
+      <Card>
         <Text style={styles.cardTitle}>Notifications</Text>
         <Text style={styles.cardText}>
-          Permission, device token registration, and reminder preferences are wired. Reminder delivery itself is still a later step.
+          Permission, device token registration, and reminder preferences are wired. Delivering pushes to every device still
+          needs EAS credentials, APNs/FCM setup, and server-side send jobs outside this repo.
         </Text>
         <Text style={styles.helperText}>
           Permission: {notificationPermission}
@@ -521,7 +530,8 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       <Card>
         <Text style={styles.cardTitle}>Family Plus</Text>
         <Text style={styles.cardText}>
-          Subscription status is real here. Purchase and restore flows still depend on external RevenueCat and store setup.
+          Subscription status is read from your profile. In-app purchase, restore, and store review are not complete — they
+          still need RevenueCat and App Store / Play Console setup.
         </Text>
         <Text style={styles.helperText}>
           Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}

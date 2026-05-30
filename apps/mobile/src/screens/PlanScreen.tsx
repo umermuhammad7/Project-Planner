@@ -2,16 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
-import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TravelReminderStatus } from "../types";
 import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } from "../utils/eventUrgency";
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 
 export function PlanScreen() {
-  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
+  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -27,10 +27,6 @@ export function PlanScreen() {
   const travelCandidate = useMemo(
     () => sortedEvents.find((event) => event.startAt && event.location),
     [sortedEvents]
-  );
-  const liveUpdateNote = useMemo(
-    () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
-    [realtimeMessage, realtimeStatus, syncSource]
   );
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
@@ -75,16 +71,14 @@ export function PlanScreen() {
     <View>
       <Text style={styles.title}>Family plan</Text>
       <Text style={styles.subtitle}>A shared timeline that still works when the update travels by text.</Text>
-      <Text style={styles.liveUpdateNote}>{liveUpdateNote}</Text>
 
-      <View style={styles.statusRow}>
-        <Pill
-          label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
-          tone={syncSource === "api" ? "primary" : "neutral"}
-          icon={syncSource === "api" ? "sparkles" : "information-circle"}
-        />
-        <Text style={styles.syncNote}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
-      </View>
+      <SyncStatusRow
+        syncSource={syncSource}
+        isHydrating={isHydrating}
+        realtimeStatus={realtimeStatus}
+        realtimeMessage={realtimeMessage}
+        showLiveNote
+      />
 
       <View style={styles.actionRow}>
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />

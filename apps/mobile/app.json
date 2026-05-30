@@ -6,6 +6,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "description": "Family household planner. EAS builds are configured; store submission and push delivery require external setup.",
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -21,6 +22,9 @@
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "plugins": [
+      "expo-notifications"
+    ]
   }
 }

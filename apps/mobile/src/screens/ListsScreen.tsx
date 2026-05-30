@@ -3,8 +3,8 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, radii, spacing } from "../constants/theme";
-import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
@@ -23,7 +23,6 @@ export function ListsScreen() {
     saveMessage,
     createShoppingItem,
     syncSource,
-    syncMessage,
     realtimeStatus,
     realtimeMessage
   } = useHomeThreadStore();
@@ -31,10 +30,6 @@ export function ListsScreen() {
   const [newListTitle, setNewListTitle] = useState("");
   const [newListType, setNewListType] = useState<"grocery" | "todo" | "packing" | "custom">("grocery");
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
-  const liveUpdateNote = useMemo(
-    () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
-    [realtimeMessage, realtimeStatus, syncSource]
-  );
   const canCreateList = useMemo(() => newListTitle.trim().length > 0, [newListTitle]);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const checkedCount = shoppingItems.filter((item) => item.checked).length;
@@ -47,16 +42,14 @@ export function ListsScreen() {
     <View>
       <Text style={styles.title}>Lists</Text>
       <Text style={styles.subtitle}>Groceries and errands that survive the jump between app and family texts.</Text>
-      <Text style={styles.realtimeNote}>{liveUpdateNote}</Text>
 
-      <View style={styles.statusRow}>
-        <Pill
-          label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
-          tone={syncSource === "api" ? "primary" : "neutral"}
-          icon={syncSource === "api" ? "sparkles" : "information-circle"}
-        />
-        <Text style={styles.syncNote}>{isHydrating ? "Refreshing..." : syncMessage}</Text>
-      </View>
+      <SyncStatusRow
+        syncSource={syncSource}
+        isHydrating={isHydrating}
+        realtimeStatus={realtimeStatus}
+        realtimeMessage={realtimeMessage}
+        showLiveNote
+      />
 
       <View style={styles.actionRow}>
         <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
@@ -107,7 +108,7 @@ export function MealsScreen() {
     isSaving,
     saveMessage,
     syncSource,
-    syncMessage
+    isHydrating
   } = useHomeThreadStore();
   const [title, setTitle] = useState("");
   const [recipeTitle, setRecipeTitle] = useState("");
@@ -177,7 +178,7 @@ export function MealsScreen() {
       setImportPreview(localRecipe);
       setImportNote(
         localRecipe
-          ? "Prototype mode: simple local parse only. Review before saving."
+          ? "Local preview: simple parse only. Review before saving."
           : "Add a title on the first line and ingredients on the following lines."
       );
       setIsParsingImport(false);
@@ -232,15 +233,8 @@ export function MealsScreen() {
       <Text style={styles.title}>Meals</Text>
       <Text style={styles.subtitle}>Keep the week visible so dinner stops turning into a 5 p.m. surprise.</Text>
 
-      <View style={styles.statusRow}>
-        <Pill
-          label={syncSource === "api" ? "Local backend connected" : "Prototype mode"}
-          tone={syncSource === "api" ? "primary" : "neutral"}
-        />
-        <Text style={styles.syncNote}>
-          Week of {mealWeekStart} - {syncMessage}
-        </Text>
-      </View>
+      <SyncStatusRow syncSource={syncSource} isHydrating={isHydrating} />
+      <Text style={styles.weekNote}>Meal plan week starting {mealWeekStart}</Text>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
 
       {meals.length > 0 ? (
@@ -575,6 +569,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: spacing.sm
+  },
+  weekNote: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.xs
   },
   weekGroceryRow: {
     marginTop: spacing.md

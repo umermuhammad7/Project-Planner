@@ -135,7 +135,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
                   <View style={styles.fill}>
                     <Text style={styles.itemTitle}>{member.name}</Text>
                     <Text style={styles.itemMeta}>
-                      {member.completedCount} completed - {member.outstandingCount} assigned - {member.starsEarned} stars
+                      {member.completedCount} completed · {member.outstandingCount} assigned · {member.starsEarned} stars
                     </Text>
                   </View>
                   <Pill label={member.role} tone="neutral" />
@@ -176,6 +176,11 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
               ))}
             </View>
           ) : null}
+          <Card>
+            <Text style={styles.cardText}>
+              Counts come from your connected HomeThread API. They refresh when you open this screen, not on a fixed schedule.
+            </Text>
+          </Card>
         </>
       ) : null}
     </View>

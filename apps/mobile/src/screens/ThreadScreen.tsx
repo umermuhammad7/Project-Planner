@@ -1,17 +1,39 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Linking, Platform, StyleSheet, Text, TextInput, View } from "react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { AssistantDraft } from "../types";
+import { AssistantDraft, TextUpdate } from "../types";
+import { formatThreadConversion, formatThreadDirection } from "../utils/threadLabels";
 
 export function ThreadScreen() {
-  const { textUpdates, importText, commitDraft, sendDigestToThread, isSaving, saveMessage } = useHomeThreadStore();
+  const {
+    textUpdates,
+    importText,
+    commitDraft,
+    sendDigestToThread,
+    isSaving,
+    saveMessage,
+    syncSource,
+    isHydrating,
+    realtimeStatus,
+    realtimeMessage
+  } = useHomeThreadStore();
   const [body, setBody] = useState("Grandma can grab bananas after Noah soccer at 5");
   const [lastDraft, setLastDraft] = useState<AssistantDraft | null>(null);
   const [lastDigest, setLastDigest] = useState<string | null>(null);
+
+  const inboundUpdates = useMemo(
+    () => textUpdates.filter((update) => update.direction === "inbound"),
+    [textUpdates]
+  );
+  const outboundUpdates = useMemo(
+    () => textUpdates.filter((update) => update.direction === "outbound"),
+    [textUpdates]
+  );
 
   const openSms = async (digest: string) => {
     const separator = Platform.OS === "ios" ? "&" : "?";
@@ -25,17 +47,27 @@ export function ThreadScreen() {
   return (
     <View>
       <Text style={styles.title}>Family thread</Text>
-      <Text style={styles.subtitle}>Use SMS as the bridge, not the source of chaos.</Text>
+      <Text style={styles.subtitle}>
+        Turn messy texts into clear household updates. SMS is optional — the thread history lives here first.
+      </Text>
+
+      <SyncStatusRow
+        syncSource={syncSource}
+        isHydrating={isHydrating}
+        realtimeStatus={realtimeStatus}
+        realtimeMessage={realtimeMessage}
+      />
 
       <SectionTitle title="Digest" />
       <Card>
         <Text style={styles.label}>Send a clean summary</Text>
         <Text style={styles.meta}>
-          This is an in-app digest entry. If you want, you can also open your SMS app with the digest pre-filled.
+          Builds a digest from today's plans, chores, and lists. Saving adds an outbound entry below; SMS only
+          pre-fills your phone's message app.
         </Text>
         <View style={styles.actions}>
           <PrimaryButton
-            label="Send digest to thread"
+            label="Save digest to thread"
             icon="send"
             onPress={() => {
               const digest = sendDigestToThread();
@@ -54,7 +86,7 @@ export function ThreadScreen() {
         </View>
         {lastDigest ? (
           <View style={styles.preview}>
-            <Pill label="preview" tone="neutral" />
+            <Pill label="Outbound preview" tone="neutral" />
             <Text style={styles.previewText}>{lastDigest}</Text>
           </View>
         ) : null}
@@ -63,16 +95,21 @@ export function ThreadScreen() {
       <SectionTitle title="Text import" />
       <Card>
         <Text style={styles.label}>Paste a family text</Text>
+        <Text style={styles.meta}>
+          HomeThread suggests an event, chore, or list item. Review the draft before saving — nothing sends automatically.
+        </Text>
         <TextInput
           accessibilityLabel="Paste a family text"
           multiline
           onChangeText={setBody}
+          placeholder="Paste the group text here..."
+          placeholderTextColor={colors.muted}
           style={styles.input}
           value={body}
         />
         <View style={styles.actions}>
           <PrimaryButton
-            label="Turn into item"
+            label="Parse text"
             icon="sparkles"
             onPress={() => {
               if (body.trim()) {
@@ -91,51 +128,74 @@ export function ThreadScreen() {
               });
             }}
           />
-          <PrimaryButton
-            label="Open SMS"
-            icon="chatbubble"
-            onPress={() => {
-              const digest = lastDigest ?? sendDigestToThread();
-              setLastDigest(digest);
-              void openSms(digest);
-            }}
-          />
         </View>
         <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
         {lastDraft ? (
           <View style={styles.result}>
             <Pill label={lastDraft.kind} tone="mint" />
             <Text style={styles.resultText}>{lastDraft.title}</Text>
-            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% parser confidence</Text>
+            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% parser confidence — review before saving</Text>
           </View>
         ) : null}
       </Card>
 
-      <SectionTitle title="Recent updates" />
-      <View style={styles.stack}>
-        {textUpdates.map((update) => (
-          <Card key={update.id}>
-            <Row align="flex-start">
-              <View style={[styles.bubbleIcon, update.direction === "outbound" && styles.bubbleIconOutbound]}>
-                <Ionicons
-                  name={update.direction === "outbound" ? "send" : "chatbubble-ellipses"}
-                  size={18}
-                  color={update.direction === "outbound" ? colors.primary : colors.coral}
-                />
-              </View>
-              <View style={styles.fill}>
-                <Row>
-                  <Text style={styles.author}>{update.author}</Text>
-                  <Text style={styles.time}>{update.createdAt}</Text>
-                </Row>
-                <Text style={styles.body}>{update.body}</Text>
-                {update.convertedTo ? <Pill label={`saved as ${update.convertedTo}`} tone="primary" /> : null}
-              </View>
-            </Row>
-          </Card>
-        ))}
-      </View>
+      <SectionTitle title="Thread history" action={`${textUpdates.length} entries`} />
+      {textUpdates.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyTitle}>No thread entries yet</Text>
+          <Text style={styles.meta}>
+            Save a digest or import a family text to start a readable history of what came from where.
+          </Text>
+        </Card>
+      ) : (
+        <View style={styles.stack}>
+          {inboundUpdates.length > 0 ? (
+            <>
+              <Text style={styles.sectionLabel}>From family texts</Text>
+              {inboundUpdates.map((update) => (
+                <ThreadEntry key={update.id} update={update} />
+              ))}
+            </>
+          ) : null}
+          {outboundUpdates.length > 0 ? (
+            <>
+              <Text style={styles.sectionLabel}>From HomeThread</Text>
+              {outboundUpdates.map((update) => (
+                <ThreadEntry key={update.id} update={update} />
+              ))}
+            </>
+          ) : null}
+        </View>
+      )}
     </View>
+  );
+}
+
+function ThreadEntry({ update }: { update: TextUpdate }) {
+  const conversion = formatThreadConversion(update.convertedTo);
+  const directionLabel = formatThreadDirection(update.direction);
+
+  return (
+    <Card>
+      <Row align="flex-start">
+        <View style={[styles.bubbleIcon, update.direction === "outbound" && styles.bubbleIconOutbound]}>
+          <Ionicons
+            name={update.direction === "outbound" ? "send" : "chatbubble-ellipses"}
+            size={18}
+            color={update.direction === "outbound" ? colors.primary : colors.coral}
+          />
+        </View>
+        <View style={styles.fill}>
+          <Row>
+            <Text style={styles.author}>{update.author}</Text>
+            <Text style={styles.time}>{update.createdAt}</Text>
+          </Row>
+          <Pill label={directionLabel} tone={update.direction === "outbound" ? "primary" : "neutral"} />
+          <Text style={styles.body}>{update.body}</Text>
+          {conversion ? <Pill label={conversion} tone="mint" /> : null}
+        </View>
+      </Row>
+    </Card>
   );
 }
 
@@ -171,6 +231,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
     marginTop: spacing.md
   },
@@ -210,7 +271,21 @@ const styles = StyleSheet.create({
   meta: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700"
+    fontWeight: "700",
+    lineHeight: 18
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: spacing.sm
+  },
+  sectionLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
   },
   stack: {
     gap: spacing.md
@@ -247,3 +322,4 @@ const styles = StyleSheet.create({
     lineHeight: 21
   }
 });
+
