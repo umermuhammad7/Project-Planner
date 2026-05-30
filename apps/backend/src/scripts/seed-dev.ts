@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 import { db, pool } from "../db/client.js";
 import {
@@ -253,6 +253,50 @@ try {
       ])
       .onConflictDoNothing();
   });
+
+  await db
+    .update(families)
+    .set({
+      name: "The Parker Home",
+      inviteCode: "HT2026"
+    })
+    .where(eq(families.id, familyId));
+
+  const maraMembership = await db.query.familyMembers.findFirst({
+    where: eq(familyMembers.id, maraMemberId)
+  });
+
+  if (!maraMembership) {
+    await db
+      .delete(familyMembers)
+      .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, devUserId)));
+    await db.insert(familyMembers).values({
+      id: maraMemberId,
+      familyId,
+      userId: devUserId,
+      displayName: "Mara",
+      color: "#3157D5",
+      role: "admin",
+      isVirtual: false
+    });
+  } else {
+    await db
+      .update(familyMembers)
+      .set({
+        role: "admin",
+        userId: devUserId
+      })
+      .where(eq(familyMembers.id, maraMemberId));
+    await db
+      .delete(familyMembers)
+      .where(
+        and(
+          eq(familyMembers.familyId, familyId),
+          eq(familyMembers.userId, devUserId),
+          ne(familyMembers.id, maraMemberId)
+        )
+      );
+  }
 
   const family = await db.query.families.findFirst({
     where: eq(families.id, familyId)

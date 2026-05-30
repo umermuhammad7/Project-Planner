@@ -11,6 +11,13 @@ import {
   textUpdates as initialTexts
 } from "../data/mockFamily";
 import { apiRequest } from "../services/api";
+import {
+  enqueueOfflineItem,
+  getOfflineQueue,
+  isRetryableApiError,
+  replayOfflineQueue as replayOfflineQueueService
+} from "../services/offlineQueue";
+import { loadOfflineQueueFromStorage } from "../services/offlineQueueStorage";
 import { useAuthStore } from "./useAuthStore";
 import {
   AssistantDraft,
@@ -18,11 +25,12 @@ import {
   FamilyList,
   FamilyMember,
   MealPlanItem,
-  PendingOfflineAction,
+  OfflineQueueItem,
   PlanEvent,
   Recipe,
   RecipeIngredient,
   ShoppingItem,
+  RealtimeSyncStatus,
   SyncSource,
   TextUpdate
 } from "../types";
@@ -36,6 +44,74 @@ const initialMockLists: FamilyList[] = [{ id: mockGroceryListId, title: "Groceri
 const initialMockListItemsByListId: Record<string, ShoppingItem[]> = {
   [mockGroceryListId]: initialShopping.map((item) => ({ ...item, backendListId: mockGroceryListId }))
 };
+
+let suppressOfflineReplay = false;
+
+function resolveQueueFamilyId(state: HomeThreadState) {
+  return state.familyId ?? useAuthStore.getState().familyId;
+}
+
+async function maybeReplayOfflineQueue(
+  get: () => HomeThreadState,
+  set: (partial: Partial<HomeThreadState> | ((state: HomeThreadState) => Partial<HomeThreadState>)) => void
+) {
+  if (suppressOfflineReplay) {
+    return { replayed: 0, failed: 0, remaining: getOfflineQueue().length };
+  }
+
+  const state = get();
+  if (state.syncSource !== "api" || !state.familyId) {
+    return { replayed: 0, failed: 0, remaining: getOfflineQueue().length };
+  }
+
+  set({
+    isReplayingOffline: true,
+    offlineReplayMessage: "Replaying queued changes..."
+  });
+
+  const result = await replayOfflineQueueService({
+    familyId: state.familyId,
+    listContext: {
+      familyId: state.familyId,
+      groceryListId: state.groceryListId,
+      lists: state.lists,
+      ensureList: async ({ listId, listTitle, listType }) => {
+        if (listId) {
+          return listId;
+        }
+
+        const current = get();
+        const ensured = await ensureActiveListId({
+          ...current,
+          selectedListId: current.selectedListId,
+          groceryListId: current.groceryListId ?? current.lists.find((list) => list.type === (listType ?? "grocery"))?.id ?? null,
+          lists: current.lists
+        });
+
+        return ensured?.id ?? null;
+      }
+    }
+  });
+
+  const replayMessage =
+    result.replayed > 0 || result.failed > 0
+      ? `Replayed ${result.replayed}, failed ${result.failed}, ${result.remaining} still waiting. No conflict merge yet.`
+      : null;
+
+  set({
+    offlineQueue: getOfflineQueue(),
+    isReplayingOffline: false,
+    offlineReplayMessage: replayMessage
+  });
+
+  if (result.replayed > 0) {
+    suppressOfflineReplay = true;
+    await get().hydrateFromBackend();
+    suppressOfflineReplay = false;
+  }
+
+  return result;
+}
 
 type HomeThreadState = {
   familyId: string | null;
@@ -61,11 +137,17 @@ type HomeThreadState = {
   isHydrating: boolean;
   isSaving: boolean;
   saveMessage: string;
-  pendingOfflineActions: PendingOfflineAction[];
-  recordPendingOffline: (summary: string) => void;
-  hydrateFromBackend: () => Promise<void>;
-  refreshFromBackend: () => Promise<void>;
+  offlineQueue: OfflineQueueItem[];
+  isReplayingOffline: boolean;
+  offlineReplayMessage: string | null;
+  realtimeStatus: RealtimeSyncStatus;
+  realtimeMessage: string;
+  hydrateFromBackend: (options?: { skipOfflineReplay?: boolean }) => Promise<void>;
+  refreshFromBackend: (options?: { skipOfflineReplay?: boolean }) => Promise<void>;
+  replayPendingOfflineMutations: () => Promise<{ replayed: number; failed: number; remaining: number }>;
   regenerateInviteCode: () => Promise<{ ok: boolean; message?: string }>;
+  updateFamilyName: (name: string) => Promise<{ ok: boolean; message?: string }>;
+  leaveFamily: () => Promise<{ ok: boolean; message?: string; needsFamilySetup?: boolean }>;
   createVirtualMember: (input: {
     displayName: string;
     role: "child" | "member";
@@ -128,20 +210,13 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   isHydrating: false,
   isSaving: false,
   saveMessage: "Quick add is ready",
-  pendingOfflineActions: [],
-  recordPendingOffline: (summary) => {
-    set((state) => ({
-      pendingOfflineActions: [
-        {
-          id: `pending-${Date.now()}`,
-          summary,
-          createdAt: new Date().toISOString()
-        },
-        ...state.pendingOfflineActions
-      ].slice(0, 20)
-    }));
-  },
-  hydrateFromBackend: async () => {
+  offlineQueue: loadOfflineQueueFromStorage(),
+  isReplayingOffline: false,
+  offlineReplayMessage: null,
+  realtimeStatus: "inactive",
+  realtimeMessage: "",
+  replayPendingOfflineMutations: async () => maybeReplayOfflineQueue(get, set),
+  hydrateFromBackend: async (options) => {
     const authState = useAuthStore.getState();
 
     if (authState.mode === "supabase" && !authState.familyId) {
@@ -167,7 +242,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         isHydrating: false,
         syncSource: "mock",
         saveMessage: "Family setup is still required before HomeThread can save household changes.",
-        pendingOfflineActions: [],
+        offlineQueue: getOfflineQueue(),
+        isReplayingOffline: false,
         syncMessage:
           "Signed in, but this account has no family membership yet. HomeThread cannot load household data."
       });
@@ -261,12 +337,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       syncSource: "api",
       syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${recipesResult.data.recipes.length} recipes, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
-      pendingOfflineActions: [],
+      offlineQueue: getOfflineQueue(),
       isHydrating: false
     });
+
+    if (!options?.skipOfflineReplay) {
+      await maybeReplayOfflineQueue(get, set);
+    }
   },
-  refreshFromBackend: async () => {
-    await get().hydrateFromBackend();
+  refreshFromBackend: async (options) => {
+    await get().hydrateFromBackend(options);
   },
   regenerateInviteCode: async () => {
     const state = get();
@@ -295,6 +375,97 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       saveMessage: "Invite code updated."
     });
     return { ok: true };
+  },
+  updateFamilyName: async (name) => {
+    const state = get();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { ok: false, message: "Family name is required." };
+    }
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Connect to the local backend before renaming the family." };
+    }
+    if (!state.isFamilyAdmin) {
+      return { ok: false, message: "Only family admins can rename the household." };
+    }
+
+    set({ isSaving: true, saveMessage: "Saving family name..." });
+    const result = await apiRequest<{ family: { name: string } }>(`/families/${state.familyId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: trimmedName })
+    });
+    set({ isSaving: false });
+
+    if (!result.data?.family?.name) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not update the family name."
+      };
+    }
+
+    set({
+      familyName: result.data.family.name,
+      saveMessage: "Family name updated."
+    });
+    return { ok: true };
+  },
+  leaveFamily: async () => {
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Connect to the local backend before leaving a family." };
+    }
+
+    set({ isSaving: true, saveMessage: "Leaving household..." });
+    const familyId = state.familyId;
+    const result = await apiRequest<{ left: boolean }>(`/families/${familyId}/leave`, {
+      method: "DELETE"
+    });
+
+    if (!result.data?.left) {
+      set({
+        isSaving: false,
+        saveMessage: result.error?.message ?? "Could not leave this household."
+      });
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not leave this household."
+      };
+    }
+
+    const refreshed = await useAuthStore.getState().refreshMembership();
+    set({
+      familyId: null,
+      currentMemberId: null,
+      groceryListId: null,
+      lists: [],
+      selectedListId: null,
+      listItemsByListId: {},
+      familyName: "HomeThread",
+      inviteCode: null,
+      isFamilyAdmin: false,
+      members: [],
+      events: [],
+      mealWeekStart: currentWeekStart(),
+      meals: [],
+      recipes: [],
+      chores: [],
+      completedChoreIds: {},
+      shoppingItems: [],
+      textUpdates: [],
+      syncSource: "mock",
+      isSaving: false,
+      isHydrating: false,
+      saveMessage: "You left this household.",
+      syncMessage: refreshed.familyId
+        ? "Membership refreshed after leave."
+        : "You left this household. Join or create a family to continue."
+    });
+
+    return {
+      ok: true,
+      needsFamilySetup: !refreshed.familyId,
+      message: refreshed.familyId ? undefined : "You left this household."
+    };
   },
   createVirtualMember: async ({ displayName, role }) => {
     const state = get();
@@ -341,13 +512,6 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   createEvent: async ({ title, location, startTime, memberIds: rawMemberIds }) => {
     const state = get();
     const normalizedTitle = title.trim();
-    if (state.syncSource !== "api" || !state.familyId) {
-      get().recordPendingOffline(`Event not saved: ${normalizedTitle || "untitled"}`);
-      set({
-        saveMessage: "Backend sync is unavailable - event was not created"
-      });
-      return false;
-    }
     if (!normalizedTitle) {
       set({ saveMessage: "Event title is required" });
       return false;
@@ -361,24 +525,60 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     const memberIds = dedupeMemberIds(rawMemberIds);
+    const endAt = new Date(startAt!.getTime() + 60 * 60 * 1000);
+    const queueFamilyId = resolveQueueFamilyId(state);
+    const eventPayload = {
+      title: normalizedTitle,
+      description: null,
+      location: location?.trim() ? location.trim() : null,
+      startAt: startAt!.toISOString(),
+      endAt: endAt.toISOString(),
+      allDay: false,
+      memberIds
+    };
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      if (!queueFamilyId) {
+        set({ saveMessage: "Backend sync is unavailable - event was not queued" });
+        return false;
+      }
+
+      enqueueOfflineItem({
+        familyId: queueFamilyId,
+        type: "create_event",
+        summary: `Create event: ${normalizedTitle}`,
+        payload: eventPayload
+      });
+      set({
+        offlineQueue: getOfflineQueue(),
+        saveMessage: "Backend unavailable - event queued for replay when the server is reachable"
+      });
+      return false;
+    }
 
     set({ isSaving: true, saveMessage: "Creating event..." });
 
-    const endAt = new Date(startAt!.getTime() + 60 * 60 * 1000);
     const result = await apiRequest<{ event: BackendEventRecord }>(`/families/${state.familyId}/events`, {
       method: "POST",
-      body: JSON.stringify({
-        title: normalizedTitle,
-        description: null,
-        location: location?.trim() ? location.trim() : null,
-        startAt: startAt!.toISOString(),
-        endAt: endAt.toISOString(),
-        allDay: false,
-        memberIds
-      })
+      body: JSON.stringify(eventPayload)
     });
 
     if (!result.data) {
+      if (isRetryableApiError(result)) {
+        enqueueOfflineItem({
+          familyId: state.familyId,
+          type: "create_event",
+          summary: `Create event: ${normalizedTitle}`,
+          payload: eventPayload
+        });
+        set({
+          isSaving: false,
+          offlineQueue: getOfflineQueue(),
+          saveMessage: "Network error - event queued for replay"
+        });
+        return false;
+      }
+
       set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create event" });
       return false;
     }
@@ -401,13 +601,6 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   },
   createChore: async ({ title, dueTime, assignedTo, starsValue }) => {
     const state = get();
-    if (state.syncSource !== "api" || !state.familyId) {
-      set({
-        saveMessage: "Backend sync is unavailable - chore was not created",
-      });
-      return false;
-    }
-
     const normalizedTitle = title.trim();
     if (!normalizedTitle) {
       set({ saveMessage: "Chore title is required" });
@@ -420,26 +613,62 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return false;
     }
 
-    set({ isSaving: true, saveMessage: "Creating chore..." });
-
     const fallbackAssignee =
       state.members.find((member) => member.role === "kid")?.id ?? state.currentMemberId;
+    const chorePayload = {
+      title: normalizedTitle,
+      description: null,
+      icon: null,
+      starsValue: starsValue ?? 2,
+      assignedTo: assignedTo ?? fallbackAssignee ?? null,
+      recurrenceRule: null,
+      dueTime: normalizedDueTime,
+      isActive: true
+    };
+    const queueFamilyId = resolveQueueFamilyId(state);
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      if (!queueFamilyId) {
+        set({ saveMessage: "Backend sync is unavailable - chore was not queued" });
+        return false;
+      }
+
+      enqueueOfflineItem({
+        familyId: queueFamilyId,
+        type: "create_chore",
+        summary: `Create chore: ${normalizedTitle}`,
+        payload: chorePayload
+      });
+      set({
+        offlineQueue: getOfflineQueue(),
+        saveMessage: "Backend unavailable - chore queued for replay when the server is reachable"
+      });
+      return false;
+    }
+
+    set({ isSaving: true, saveMessage: "Creating chore..." });
 
     const result = await apiRequest<{ chore: BackendChoreRecord }>(`/families/${state.familyId}/chores`, {
       method: "POST",
-      body: JSON.stringify({
-        title: normalizedTitle,
-        description: null,
-        icon: null,
-        starsValue: starsValue ?? 2,
-        assignedTo: assignedTo ?? fallbackAssignee ?? null,
-        recurrenceRule: null,
-        dueTime: normalizedDueTime,
-        isActive: true
-      })
+      body: JSON.stringify(chorePayload)
     });
 
     if (!result.data) {
+      if (isRetryableApiError(result)) {
+        enqueueOfflineItem({
+          familyId: state.familyId,
+          type: "create_chore",
+          summary: `Create chore: ${normalizedTitle}`,
+          payload: chorePayload
+        });
+        set({
+          isSaving: false,
+          offlineQueue: getOfflineQueue(),
+          saveMessage: "Network error - chore queued for replay"
+        });
+        return false;
+      }
+
       set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create chore" });
       return false;
     }
@@ -738,8 +967,32 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     const state = get();
+    const queueFamilyId = resolveQueueFamilyId(state);
+    const listIdHint = state.selectedListId ?? state.groceryListId ?? state.lists.find((list) => list.type === "grocery")?.id ?? null;
+    const listItemPayload = {
+      content: trimmed,
+      category: category ?? inferListCategory(trimmed),
+      listId: listIdHint,
+      listTitle: "Groceries",
+      listType: "grocery"
+    };
+
     if (state.syncSource !== "api" || !state.familyId) {
-      set({ saveMessage: "Backend sync is unavailable - item was not added" });
+      if (!queueFamilyId) {
+        set({ saveMessage: "Backend sync is unavailable - item was not queued" });
+        return false;
+      }
+
+      enqueueOfflineItem({
+        familyId: queueFamilyId,
+        type: "create_list_item",
+        summary: `Add list item: ${trimmed}`,
+        payload: listItemPayload
+      });
+      set({
+        offlineQueue: getOfflineQueue(),
+        saveMessage: "Backend unavailable - list item queued for replay when the server is reachable"
+      });
       return false;
     }
 
@@ -758,12 +1011,30 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         method: "POST",
         body: JSON.stringify({
           content: trimmed,
-          category: category ?? inferListCategory(trimmed)
+          category: listItemPayload.category
         })
       }
     );
 
     if (!result.data) {
+      if (isRetryableApiError(result)) {
+        enqueueOfflineItem({
+          familyId: state.familyId,
+          type: "create_list_item",
+          summary: `Add list item: ${trimmed}`,
+          payload: {
+            ...listItemPayload,
+            listId
+          }
+        });
+        set({
+          isSaving: false,
+          offlineQueue: getOfflineQueue(),
+          saveMessage: "Network error - list item queued for replay"
+        });
+        return false;
+      }
+
       set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add item" });
       return false;
     }
@@ -1348,6 +1619,9 @@ type BackendEventRecord = {
   countdownLabel?: string | null;
   startAt: string;
   memberIds: string[];
+  externalSource?: string | null;
+  importedFrom?: string | null;
+  externalCalendarId?: string | null;
 };
 
 type BackendEventsResponse = {
@@ -1768,7 +2042,10 @@ function mapEvent(
     location: event.location ?? undefined,
     countdownLabel: event.countdownLabel ?? null,
     assignedTo,
-    source
+    source,
+    externalSource: event.externalSource ?? null,
+    importedFrom: event.importedFrom ?? null,
+    externalCalendarId: event.externalCalendarId ?? null
   };
 }
 

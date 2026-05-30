@@ -63,10 +63,10 @@ export function getCalendarSyncStatus() {
   return {
     googleOAuthConfigured,
     googleConnectImplemented: googleOAuthConfigured,
-    icalImportImplemented: false,
+    icalImportImplemented: true,
     message: googleOAuthConfigured
-      ? "Google OAuth credentials are present. HomeThread can start a Google Calendar connection, but ongoing sync is still limited in this build."
-      : "External calendar sync is not configured on this server yet."
+      ? "Google OAuth credentials are present. Connect Google Calendar or save an iCal feed, then use Sync now to import future events manually."
+      : "External calendar sync can import iCal feeds manually. Google OAuth is not configured on this server yet."
   };
 }
 

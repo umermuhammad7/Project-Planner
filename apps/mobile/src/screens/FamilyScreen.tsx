@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
@@ -24,10 +24,33 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     isSaving,
     saveMessage,
     regenerateInviteCode,
+    updateFamilyName,
+    leaveFamily,
     createVirtualMember
   } = useHomeThreadStore();
   const [childName, setChildName] = useState("");
+  const [editedFamilyName, setEditedFamilyName] = useState(familyName);
   const [formMessage, setFormMessage] = useState<string | null>(null);
+
+  async function handleSaveFamilyName() {
+    setFormMessage(null);
+    const result = await updateFamilyName(editedFamilyName);
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not update family name.");
+      return;
+    }
+    setEditedFamilyName(useHomeThreadStore.getState().familyName);
+  }
+
+  async function handleLeaveFamily() {
+    setFormMessage(null);
+    const result = await leaveFamily();
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not leave this household.");
+      return;
+    }
+    onClose();
+  }
 
   async function handleRegenerateInvite() {
     setFormMessage(null);
@@ -54,6 +77,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
   const backendConnected = syncSource === "api";
 
+  useEffect(() => {
+    setEditedFamilyName(familyName);
+  }, [familyName]);
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -70,6 +97,30 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <Text style={styles.closeLabel}>Close</Text>
         </Pressable>
       </View>
+
+      {isFamilyAdmin ? (
+        <Card>
+          <Text style={styles.cardTitle}>Household name</Text>
+          <Text style={styles.cardText}>Admins can rename the family. Avatar uploads are not wired in this build.</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Family name"
+            placeholderTextColor={colors.muted}
+            value={editedFamilyName}
+            onChangeText={setEditedFamilyName}
+          />
+          <View style={styles.cardActions}>
+            <PrimaryButton
+              label={isSaving ? "Working..." : "Save name"}
+              icon="create"
+              onPress={() => {
+                if (isSaving || !backendConnected) return;
+                void handleSaveFamilyName();
+              }}
+            />
+          </View>
+        </Card>
+      ) : null}
 
       <Card>
         <Text style={styles.cardTitle}>Invite code</Text>
@@ -145,6 +196,25 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
       {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
       {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
+
+      <Card>
+        <Text style={styles.cardTitle}>Leave household</Text>
+        <Text style={styles.cardText}>
+          Leave removes your membership from this family on the server. You can join again with an invite code or create
+          a new household.
+        </Text>
+        <View style={styles.cardActions}>
+          <PrimaryButton
+            label={isSaving ? "Working..." : "Leave household"}
+            icon="exit"
+            tone="dark"
+            onPress={() => {
+              if (isSaving || !backendConnected) return;
+              void handleLeaveFamily();
+            }}
+          />
+        </View>
+      </Card>
 
       <Card>
         <Text style={styles.cardTitle}>Session</Text>

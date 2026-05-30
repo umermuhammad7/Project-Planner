@@ -18,6 +18,7 @@ import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
 import { useAuthStore } from "./src/store/useAuthStore";
 import { useHomeThreadStore } from "./src/store/useHomeThreadStore";
+import { startFamilyRealtimeSync, stopFamilyRealtimeSync } from "./src/services/familyRealtimeSync";
 import { TabKey } from "./src/types";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -44,16 +45,30 @@ export default function App() {
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
   const syncSource = useHomeThreadStore((state) => state.syncSource);
-  const pendingOfflineCount = useHomeThreadStore((state) => state.pendingOfflineActions.length);
+  const familyId = useHomeThreadStore((state) => state.familyId);
+  const listIdsKey = useHomeThreadStore((state) =>
+    state.lists
+      .map((list) => list.id)
+      .slice()
+      .sort()
+      .join(",")
+  );
+  const pendingOfflineCount = useHomeThreadStore((state) =>
+    state.offlineQueue.filter((item) => item.status === "pending").length
+  );
+  const failedOfflineCount = useHomeThreadStore((state) =>
+    state.offlineQueue.filter((item) => item.status === "failed").length
+  );
+  const offlineReplayMessage = useHomeThreadStore((state) => state.offlineReplayMessage);
+  const isReplayingOffline = useHomeThreadStore((state) => state.isReplayingOffline);
+  const replayPendingOfflineMutations = useHomeThreadStore((state) => state.replayPendingOfflineMutations);
 
   useEffect(() => {
     void bootstrapAuth();
   }, [bootstrapAuth]);
 
   useEffect(() => {
-    if (authMode === "dev_token") {
-      setEnteredApp(true);
-    } else if (authMode === "supabase") {
+    if (authMode === "dev_token" || authMode === "supabase") {
       setEnteredApp(Boolean(authFamilyId));
     } else if (authMode === "signed_out") {
       setEnteredApp(false);
@@ -65,6 +80,36 @@ export default function App() {
       void hydrateFromBackend();
     }
   }, [enteredApp, authMode, hydrateFromBackend]);
+
+  useEffect(() => {
+    if (!enteredApp || authMode === "loading" || authMode === "signed_out") {
+      stopFamilyRealtimeSync();
+      useHomeThreadStore.setState({
+        realtimeStatus: "inactive",
+        realtimeMessage: ""
+      });
+      return;
+    }
+
+    const listIds = listIdsKey ? listIdsKey.split(",") : [];
+    const enabled = authMode === "supabase" && syncSource === "api" && Boolean(familyId);
+
+    startFamilyRealtimeSync({
+      familyId: familyId ?? "",
+      listIds,
+      enabled,
+      onStatus: (realtimeStatus, realtimeMessage) => {
+        useHomeThreadStore.setState({ realtimeStatus, realtimeMessage });
+      },
+      onRefreshRequested: () => {
+        void useHomeThreadStore.getState().refreshFromBackend({ skipOfflineReplay: true });
+      }
+    });
+
+    return () => {
+      stopFamilyRealtimeSync();
+    };
+  }, [authMode, enteredApp, familyId, listIdsKey, syncSource]);
 
   const content = useMemo(() => {
     if (activeTab === "plan") return <PlanScreen />;
@@ -98,8 +143,22 @@ export default function App() {
           showsVerticalScrollIndicator={false}
         >
           <OfflineBanner
-            visible={enteredApp && !isHydrating && syncSource !== "api"}
+            visible={
+              enteredApp &&
+              !isHydrating &&
+              (syncSource !== "api" || pendingOfflineCount > 0 || failedOfflineCount > 0)
+            }
             pendingCount={enteredApp ? pendingOfflineCount : 0}
+            failedCount={enteredApp ? failedOfflineCount : 0}
+            replayMessage={enteredApp ? offlineReplayMessage : null}
+            isReplaying={enteredApp ? isReplayingOffline : false}
+            onRetryReplay={
+              enteredApp && syncSource === "api"
+                ? () => {
+                    void replayPendingOfflineMutations();
+                  }
+                : undefined
+            }
           />
           {showWelcome ? (
             authMode === "loading" ? (

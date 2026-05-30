@@ -301,7 +301,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       {backendAuthMode ? (
         <Text style={styles.meta}>
           Backend auth mode: {backendAuthMode}
-          {supabaseConfiguredOnClient ? " · Supabase client configured" : " · Supabase client missing"}
+          {supabaseConfiguredOnClient ? " - Supabase client configured" : " - Supabase client missing"}
         </Text>
       ) : null}
       {authMessage ? <Text style={styles.formMessage}>{authMessage}</Text> : null}

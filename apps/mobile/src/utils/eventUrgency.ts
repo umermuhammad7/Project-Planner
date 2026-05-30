@@ -80,3 +80,22 @@ function differenceInCalendarDays(a: Date, b: Date) {
   const bStart = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
   return Math.round((aStart - bStart) / 86400000);
 }
+
+export function describeImportedEventSource(
+  event: Pick<PlanEvent, "externalSource" | "importedFrom">
+): string | null {
+  const provider = event.externalSource ?? event.importedFrom;
+  if (!provider) {
+    return null;
+  }
+
+  if (provider === "google") {
+    return "Google calendar";
+  }
+
+  if (provider === "ical") {
+    return "iCal feed";
+  }
+
+  return `Imported (${provider})`;
+}

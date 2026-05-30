@@ -5,15 +5,48 @@ import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitive
 import { colors, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { CalendarConnectAttempt, CalendarConnection, CalendarSyncStatus } from "../types";
+import {
+  CalendarConnectAttempt,
+  CalendarConnection,
+  CalendarSyncConnectionResult,
+  CalendarSyncNowResponse,
+  CalendarSyncStatus
+} from "../types";
+
+function formatProviderLabel(provider: CalendarConnection["provider"]) {
+  if (provider === "google") return "Google Calendar";
+  if (provider === "ical") return "iCal feed";
+  return provider;
+}
+
+function formatConnectionSyncResult(result: CalendarSyncConnectionResult) {
+  const parts = [`+${result.added} added`, `${result.skipped} skipped`];
+  if (result.failed > 0) {
+    parts.push(`${result.failed} failed`);
+  }
+  return `${formatProviderLabel(result.provider)}: ${parts.join(", ")}. ${result.message}`;
+}
+
+function formatSyncSummary(result: CalendarSyncNowResponse) {
+  if (result.results.length === 0) {
+    return result.message;
+  }
+
+  const lines = result.results.map((item) => formatConnectionSyncResult(item));
+  return `${result.message}\n${lines.join("\n")}`;
+}
 
 export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
-  const { familyId, syncSource } = useHomeThreadStore();
+  const { familyId, syncSource, refreshFromBackend } = useHomeThreadStore();
   const [status, setStatus] = useState<CalendarSyncStatus | null>(null);
   const [connections, setConnections] = useState<CalendarConnection[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [icalUrl, setIcalUrl] = useState("");
+  const [lastSyncByConnectionId, setLastSyncByConnectionId] = useState<
+    Record<string, CalendarSyncConnectionResult>
+  >({});
 
   async function loadCalendarSync() {
     if (syncSource !== "api" || !familyId) {
@@ -89,13 +122,49 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     }
   }
 
+  async function syncNow(connectionId?: string) {
+    if (!familyId || syncSource !== "api") {
+      setNote("Sync now needs API mode and a loaded family.");
+      return;
+    }
+
+    setIsSyncing(true);
+    setNote("Syncing connected calendars...");
+
+    const result = await apiRequest<CalendarSyncNowResponse>("/calendar-sync/sync", {
+      method: "POST",
+      body: JSON.stringify({
+        familyId,
+        ...(connectionId ? { connectionId } : {})
+      })
+    });
+
+    setIsSyncing(false);
+
+    if (!result.data) {
+      setNote(result.error?.message ?? "Calendar sync failed.");
+      return;
+    }
+
+    setLastSyncByConnectionId((current) => {
+      const next = { ...current };
+      for (const item of result.data!.results) {
+        next[item.connectionId] = item;
+      }
+      return next;
+    });
+    setNote(formatSyncSummary(result.data));
+    await Promise.all([loadCalendarSync(), refreshFromBackend()]);
+  }
+
   return (
     <View>
       <PrimaryButton label="Back to plan" icon="arrow-back" tone="dark" onPress={onBack} />
 
       <Text style={styles.title}>Calendar sync</Text>
       <Text style={styles.subtitle}>
-        Connect external calendars when OAuth and sync jobs are configured. Nothing is faked in this build.
+        Connect Google or save an iCal feed, then use Sync now to import future events manually. Background sync and
+        remote edit/delete reconciliation are not implemented yet.
       </Text>
 
       {isLoading ? <Text style={styles.note}>Loading calendar status...</Text> : null}
@@ -109,8 +178,8 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
           />
           <Text style={styles.statusMessage}>{status.message}</Text>
           <Text style={styles.helper}>
-            Google connect: {status.googleConnectImplemented ? "available" : "not implemented"} - iCal import:{" "}
-            {status.icalImportImplemented ? "available" : "not implemented"}
+            Google connect: {status.googleConnectImplemented ? "available" : "not configured"} - Manual iCal import:{" "}
+            {status.icalImportImplemented ? "available" : "not available"}
           </Text>
         </Card>
       ) : null}
@@ -118,16 +187,43 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
       <SectionTitle title="Connected calendars" action={`${connections.length}`} />
       {connections.length > 0 ? (
         <View style={styles.stack}>
-          {connections.map((connection) => (
+          {connections.map((connection) => {
+            const lastSync = lastSyncByConnectionId[connection.id];
+            return (
             <Card key={connection.id}>
-              <Text style={styles.connectionTitle}>{connection.provider}</Text>
+              <Text style={styles.connectionTitle}>{formatProviderLabel(connection.provider)}</Text>
               <Text style={styles.helper}>
                 {connection.lastSyncedAt
                   ? `Last synced ${new Date(connection.lastSyncedAt).toLocaleString()}`
                   : "Never synced"}
               </Text>
+              {connection.externalCalendarId ? (
+                <Text style={styles.helper}>Calendar id: {connection.externalCalendarId}</Text>
+              ) : null}
+              {connection.icalUrl ? (
+                <Text style={styles.helper} numberOfLines={1}>
+                  Feed: {connection.icalUrl}
+                </Text>
+              ) : null}
+              {lastSync ? (
+                <Text style={styles.syncResult}>
+                  Last run: {lastSync.added} added, {lastSync.skipped} skipped
+                  {lastSync.failed > 0 ? `, ${lastSync.failed} failed` : ""}. {lastSync.message}
+                </Text>
+              ) : null}
+              <View style={styles.cardActions}>
+                <PrimaryButton
+                  label={isSyncing ? "Syncing..." : "Sync now"}
+                  icon="sync"
+                  onPress={() => {
+                    if (isSyncing) return;
+                    void syncNow(connection.id);
+                  }}
+                />
+              </View>
             </Card>
-          ))}
+            );
+          })}
         </View>
       ) : (
         <Card>
@@ -136,7 +232,16 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
       )}
 
       <View style={styles.actions}>
-        <PrimaryButton label="Refresh status" icon="sync" onPress={() => void loadCalendarSync()} />
+        <PrimaryButton label="Refresh status" icon="refresh" onPress={() => void loadCalendarSync()} />
+        <PrimaryButton
+          label={isSyncing ? "Syncing..." : "Sync all connections"}
+          icon="sync"
+          tone="dark"
+          onPress={() => {
+            if (isSyncing) return;
+            void syncNow();
+          }}
+        />
         <PrimaryButton
           label="Try Google connect"
           icon="link"
@@ -150,7 +255,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
       <SectionTitle title="iCal feed" />
       <Card>
         <Text style={styles.helper}>
-          Paste a public iCal feed URL to remember it for this family. HomeThread will save the connection, but automatic event import is not implemented yet.
+          Paste a public iCal feed URL to save the connection, then use Sync now to import future events from that feed.
         </Text>
         <TextInput
           accessibilityLabel="iCal feed URL"
@@ -210,6 +315,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: spacing.sm
   },
+  syncResult: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
+    marginTop: spacing.sm
+  },
   input: {
     backgroundColor: colors.canvas,
     borderColor: colors.line,
@@ -228,6 +340,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     textTransform: "capitalize"
+  },
+  cardActions: {
+    marginTop: spacing.md
   },
   actions: {
     gap: spacing.md,

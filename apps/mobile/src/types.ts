@@ -20,6 +20,9 @@ export type PlanEvent = {
   countdownLabel?: string | null;
   assignedTo: string[];
   source: "manual" | "text" | "assistant";
+  externalSource?: string | null;
+  importedFrom?: string | null;
+  externalCalendarId?: string | null;
 };
 
 export type CalendarConnection = {
@@ -44,6 +47,69 @@ export type CalendarConnectAttempt = {
   authUrl?: string;
 };
 
+export type CalendarSyncConnectionResult = {
+  connectionId: string;
+  provider: CalendarConnection["provider"];
+  added: number;
+  skipped: number;
+  failed: number;
+  message: string;
+};
+
+export type CalendarSyncNowResponse = {
+  ok: boolean;
+  message: string;
+  results: CalendarSyncConnectionResult[];
+};
+
+export type OfflineQueueStatus = "pending" | "failed";
+
+export type OfflineQueueMutationType = "create_event" | "create_chore" | "create_list_item";
+
+export type OfflineQueueCreateEventPayload = {
+  title: string;
+  description: string | null;
+  location: string | null;
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+  memberIds: string[];
+};
+
+export type OfflineQueueCreateChorePayload = {
+  title: string;
+  description: string | null;
+  icon: string | null;
+  starsValue: number;
+  assignedTo: string | null;
+  recurrenceRule: string | null;
+  dueTime: string | null;
+  isActive: boolean;
+};
+
+export type OfflineQueueCreateListItemPayload = {
+  content: string;
+  category: string | null;
+  listId?: string | null;
+  listTitle?: string;
+  listType?: string;
+};
+
+export type OfflineQueueItem = {
+  id: string;
+  familyId: string;
+  type: OfflineQueueMutationType;
+  summary: string;
+  payload:
+    | OfflineQueueCreateEventPayload
+    | OfflineQueueCreateChorePayload
+    | OfflineQueueCreateListItemPayload;
+  createdAt: string;
+  status: OfflineQueueStatus;
+  lastError: string | null;
+};
+
+/** @deprecated Use OfflineQueueItem */
 export type PendingOfflineAction = {
   id: string;
   summary: string;
@@ -189,6 +255,8 @@ export type AssistantMealSuggestResponse = {
 export type TabKey = "home" | "plan" | "chores" | "lists" | "meals" | "thread" | "add";
 
 export type SyncSource = "mock" | "api";
+
+export type RealtimeSyncStatus = "inactive" | "connecting" | "connected" | "unavailable" | "error";
 
 export type AuthStatusResponse = {
   supabaseConfigured: boolean;

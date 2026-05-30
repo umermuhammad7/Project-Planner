@@ -28,6 +28,7 @@ type AuthState = {
   signInWithDevToken: () => Promise<{ ok: boolean; message?: string }>;
   createFamily: (name: string) => Promise<{ ok: boolean; message?: string; inviteCode?: string }>;
   joinFamily: (inviteCode: string) => Promise<{ ok: boolean; message?: string }>;
+  refreshMembership: () => Promise<{ ok: boolean; familyId?: string | null; message?: string }>;
   signOut: () => Promise<void>;
 };
 
@@ -267,6 +268,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
 
     return { ok: true };
+  },
+  refreshMembership: async () => {
+    const { accessToken, mode } = get();
+    if (!accessToken || mode === "loading" || mode === "signed_out") {
+      return { ok: false, message: "Sign in before refreshing membership." };
+    }
+
+    const membership = await loadMembership(accessToken);
+    if (!membership.ok) {
+      return { ok: false, message: membership.message };
+    }
+
+    set({
+      userId: membership.userId,
+      email: membership.email,
+      familyId: membership.familyId,
+      authMessage: membership.familyId
+        ? null
+        : "Signed in, not linked to a family yet."
+    });
+
+    return { ok: true, familyId: membership.familyId };
   },
   signInWithDevToken: async () => {
     set({

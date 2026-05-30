@@ -1,12 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiRequestMock } = vi.hoisted(() => ({
-  apiRequestMock: vi.fn()
+const { apiRequestMock, refreshMembershipMock } = vi.hoisted(() => ({
+  apiRequestMock: vi.fn(),
+  refreshMembershipMock: vi.fn(async () => ({ ok: true, familyId: null }))
 }));
 
 vi.mock("../../mobile/src/services/api.js", () => ({
   apiRequest: apiRequestMock
 }));
+
+vi.mock("../../mobile/src/store/useAuthStore.js", () => ({
+  useAuthStore: {
+    getState: () => ({
+      mode: "dev_token",
+      familyId: "00000000-0000-4000-8000-000000000201",
+      userId: "user-parent",
+      accessToken: "dev-token",
+      refreshMembership: refreshMembershipMock
+    })
+  }
+}));
+
+vi.mock("../../mobile/src/services/offlineQueueStorage.js", () => {
+  let queue: unknown[] = [];
+  return {
+    loadOfflineQueueFromStorage: () => queue,
+    saveOfflineQueueToStorage: (items: unknown[]) => {
+      queue = items;
+    },
+    clearOfflineQueueStorage: () => {
+      queue = [];
+    }
+  };
+});
 
 vi.mock("../../mobile/src/constants/theme.js", () => ({
   colors: {
@@ -18,10 +44,12 @@ vi.mock("../../mobile/src/constants/theme.js", () => ({
 }));
 
 import { useHomeThreadStore } from "../../mobile/src/store/useHomeThreadStore.js";
+import { clearOfflineQueue } from "../../mobile/src/services/offlineQueue.js";
 
 describe("HomeThread mobile store semantics", () => {
   beforeEach(() => {
     apiRequestMock.mockReset();
+    clearOfflineQueue();
     useHomeThreadStore.setState(useHomeThreadStore.getInitialState(), true);
   });
 
@@ -854,5 +882,73 @@ describe("HomeThread mobile store semantics", () => {
       }
     ]);
     expect(state.shoppingItems.map((item) => item.title)).toEqual(["tortillas", "salsa"]);
+  });
+
+  it("queues create_event when backend sync is unavailable instead of pretending success", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "mock",
+      familyId: "00000000-0000-4000-8000-000000000201"
+    });
+
+    const saved = await useHomeThreadStore.getState().createEvent({
+      title: "Queued soccer practice",
+      location: "Field 3"
+    });
+
+    expect(saved).toBe(false);
+    const state = useHomeThreadStore.getState();
+    expect(state.offlineQueue).toHaveLength(1);
+    expect(state.offlineQueue[0]?.type).toBe("create_event");
+    expect(state.offlineQueue[0]?.summary).toContain("Queued soccer practice");
+    expect(state.saveMessage).toContain("queued");
+  });
+
+  it("updates the family name through the backend patch route", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      familyName: "Old Name",
+      isFamilyAdmin: true
+    });
+
+    apiRequestMock.mockResolvedValueOnce({
+      data: {
+        family: {
+          name: "New Household Name"
+        }
+      }
+    });
+
+    const result = await useHomeThreadStore.getState().updateFamilyName("New Household Name");
+    expect(result.ok).toBe(true);
+    expect(apiRequestMock).toHaveBeenCalledWith("/families/family-1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "New Household Name" })
+    });
+    expect(useHomeThreadStore.getState().familyName).toBe("New Household Name");
+  });
+
+  it("clears household state after leaving a family", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      familyName: "Parker Home",
+      members: [{ id: "member-1", name: "Mara", initials: "M", color: "#000", role: "parent", starBalance: 0 }],
+      events: [{ id: "event-1", title: "Soccer", time: "4:00 PM", dateLabel: "Fri", assignedTo: [], source: "manual" }]
+    });
+
+    apiRequestMock.mockResolvedValueOnce({
+      data: { left: true }
+    });
+
+    const result = await useHomeThreadStore.getState().leaveFamily();
+    expect(result.ok).toBe(true);
+    expect(result.needsFamilySetup).toBe(true);
+    expect(refreshMembershipMock).toHaveBeenCalled();
+    const state = useHomeThreadStore.getState();
+    expect(state.familyId).toBeNull();
+    expect(state.members).toEqual([]);
+    expect(state.events).toEqual([]);
+    expect(state.syncMessage).toContain("Join or create a family");
   });
 });

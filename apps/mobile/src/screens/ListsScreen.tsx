@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
@@ -22,12 +23,18 @@ export function ListsScreen() {
     saveMessage,
     createShoppingItem,
     syncSource,
-    syncMessage
+    syncMessage,
+    realtimeStatus,
+    realtimeMessage
   } = useHomeThreadStore();
   const [newItem, setNewItem] = useState("");
   const [newListTitle, setNewListTitle] = useState("");
   const [newListType, setNewListType] = useState<"grocery" | "todo" | "packing" | "custom">("grocery");
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
+  const liveUpdateNote = useMemo(
+    () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
+    [realtimeMessage, realtimeStatus, syncSource]
+  );
   const canCreateList = useMemo(() => newListTitle.trim().length > 0, [newListTitle]);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const checkedCount = shoppingItems.filter((item) => item.checked).length;
@@ -40,10 +47,7 @@ export function ListsScreen() {
     <View>
       <Text style={styles.title}>Lists</Text>
       <Text style={styles.subtitle}>Groceries and errands that survive the jump between app and family texts.</Text>
-      <Text style={styles.realtimeNote}>
-        Live multi-device list sync needs Supabase Realtime, which is not wired in this build. Use Refresh to pull the
-        latest lists from the backend.
-      </Text>
+      <Text style={styles.realtimeNote}>{liveUpdateNote}</Text>
 
       <View style={styles.statusRow}>
         <Pill

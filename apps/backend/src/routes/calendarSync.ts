@@ -1,5 +1,7 @@
 import {
   calendarConnectAttemptResponseSchema,
+  calendarSyncNowBodySchema,
+  calendarSyncNowResponseSchema,
   uuidSchema
 } from "@homethread/shared";
 import { and, eq } from "drizzle-orm";
@@ -10,6 +12,8 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { calendarConnections } from "../db/schema.js";
 import { getCalendarSyncStatus, getGoogleOAuthConfig } from "../env.js";
+import { syncGoogleConnection, syncIcalConnection } from "../lib/calendarImport.js";
+import { sendError } from "../lib/http.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -199,10 +203,119 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
 
     const payload = calendarConnectAttemptResponseSchema.parse({
       ok: true,
-      message: "iCal feed saved. HomeThread can remember this calendar connection, but automatic event import is not implemented yet."
+      message: "iCal feed saved. Use Sync now to import future events from this feed."
     });
 
     return reply.status(201).send(payload);
+  });
+
+  app.post("/sync", { preHandler: requireAuth }, async (request, reply) => {
+    const body = calendarSyncNowBodySchema.parse(request.body);
+    const membership = await requireFamilyMember(request, reply, body.familyId);
+    if (!membership) return;
+
+    const filters = [
+      eq(calendarConnections.familyId, body.familyId),
+      eq(calendarConnections.isActive, true)
+    ];
+    if (body.connectionId) {
+      filters.push(eq(calendarConnections.id, body.connectionId));
+    }
+
+    const rows = await db.query.calendarConnections.findMany({
+      where: and(...filters)
+    });
+
+    if (rows.length === 0) {
+      return sendError(reply, 404, "No active calendar connections found for this family.", "CALENDAR_CONNECTION_NOT_FOUND");
+    }
+
+    const oauth = getGoogleOAuthConfig();
+    const results = [];
+
+    for (const connection of rows) {
+      try {
+        if (connection.provider === "google") {
+          if (!oauth) {
+            results.push({
+              connectionId: connection.id,
+              provider: connection.provider as "google",
+              added: 0,
+              skipped: 0,
+              failed: 0,
+              message: "Google OAuth is not configured on this server."
+            });
+            continue;
+          }
+
+          if (!connection.accessToken && !connection.refreshToken) {
+            results.push({
+              connectionId: connection.id,
+              provider: "google",
+              added: 0,
+              skipped: 0,
+              failed: 0,
+              message: "Google Calendar is connected without usable tokens. Reconnect Google Calendar."
+            });
+            continue;
+          }
+
+          const counts = await syncGoogleConnection({
+            connection,
+            userId: request.currentUser!.id,
+            oauth
+          });
+
+          results.push({
+            connectionId: connection.id,
+            provider: "google",
+            ...counts
+          });
+          continue;
+        }
+
+        if (connection.provider === "ical") {
+          const counts = await syncIcalConnection({
+            connection,
+            userId: request.currentUser!.id
+          });
+
+          results.push({
+            connectionId: connection.id,
+            provider: "ical",
+            ...counts
+          });
+          continue;
+        }
+
+        results.push({
+          connectionId: connection.id,
+          provider: connection.provider as "apple" | "outlook",
+          added: 0,
+          skipped: 0,
+          failed: 0,
+          message: `${connection.provider} calendar sync is not implemented in this build.`
+        });
+      } catch (error) {
+        results.push({
+          connectionId: connection.id,
+          provider: connection.provider as "google" | "apple" | "outlook" | "ical",
+          added: 0,
+          skipped: 0,
+          failed: 1,
+          message: error instanceof Error ? error.message : "Calendar sync failed."
+        });
+      }
+    }
+
+    const payload = calendarSyncNowResponseSchema.parse({
+      ok: results.some((result) => result.added > 0 || result.skipped > 0),
+      message:
+        "Manual calendar sync finished. Duplicate external event IDs were skipped; remote edits and deletions are not reconciled yet.",
+      results
+    });
+
+    return reply.send(payload);
   });
 }
 

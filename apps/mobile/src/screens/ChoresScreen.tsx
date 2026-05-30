@@ -4,21 +4,27 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ChoresScreen() {
-  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage } =
+  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
+  const liveUpdateNote = useMemo(
+    () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
+    [realtimeMessage, realtimeStatus, syncSource]
+  );
 
   return (
     <View>
       <Text style={styles.title}>Chores</Text>
       <Text style={styles.subtitle}>Small, visible wins with rewards that kids can understand.</Text>
+      <Text style={styles.liveUpdateNote}>{liveUpdateNote}</Text>
 
       <View style={styles.statusRow}>
         <Pill
@@ -168,6 +174,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: spacing.sm
+  },
+  liveUpdateNote: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: spacing.md
   },
   actionRow: {
     flexDirection: "row",

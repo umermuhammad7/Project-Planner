@@ -3,12 +3,13 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, radii, spacing } from "../constants/theme";
+import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
+import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } from "../utils/eventUrgency";
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 
 export function PlanScreen() {
-  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage } =
+  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -19,6 +20,10 @@ export function PlanScreen() {
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
   const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
+  const liveUpdateNote = useMemo(
+    () => describeLiveUpdateSync({ syncSource, realtimeStatus, realtimeMessage }),
+    [realtimeMessage, realtimeStatus, syncSource]
+  );
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
@@ -31,6 +36,7 @@ export function PlanScreen() {
     <View>
       <Text style={styles.title}>Family plan</Text>
       <Text style={styles.subtitle}>A shared timeline that still works when the update travels by text.</Text>
+      <Text style={styles.liveUpdateNote}>{liveUpdateNote}</Text>
 
       <View style={styles.statusRow}>
         <Pill
@@ -151,6 +157,7 @@ export function PlanScreen() {
             .filter(Boolean)
             .join(", ");
           const urgency = getEventUrgency(event);
+          const importedSource = describeImportedEventSource(event);
 
           return (
             <Card key={event.id}>
@@ -164,7 +171,10 @@ export function PlanScreen() {
                     <Text style={styles.time}>{event.time}</Text>
                     {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
                     {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
-                    <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
+                    {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
+                    {!importedSource ? (
+                      <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
+                    ) : null}
                   </Row>
                   <Text style={styles.eventTitle}>{event.title}</Text>
                   <Text style={styles.meta}>{assigned}</Text>
@@ -191,6 +201,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: spacing.sm
+  },
+  liveUpdateNote: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: spacing.md
   },
   actionRow: {
     flexDirection: "row",

@@ -91,4 +91,58 @@ describe("family setup routes", () => {
     expect(createResponse.statusCode).toBe(401);
     expect(joinResponse.statusCode).toBe(401);
   });
+
+  it("lets admins rename a family", async () => {
+    const app = buildApp();
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: {
+        name: "Rename Test Home"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const familyId = createResponse.json().family.id;
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyId}`,
+      headers: authHeaders,
+      payload: {
+        name: "Renamed Test Home"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      family: {
+        id: familyId,
+        name: "Renamed Test Home"
+      }
+    });
+  });
+
+  it("lets a member leave a family", async () => {
+    const app = buildApp();
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: {
+        name: "Leave Test Home"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const familyId = createResponse.json().family.id;
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${familyId}/leave`,
+      headers: authHeaders
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ left: true });
+  });
 });
