@@ -18,12 +18,16 @@ function roleLabel(role: string) {
 
 export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const authMode = useAuthStore((state) => state.mode);
+  const email = useAuthStore((state) => state.email);
+  const displayName = useAuthStore((state) => state.displayName);
   const pushToken = useAuthStore((state) => state.pushToken);
   const notificationPrefs = useAuthStore((state) => state.notificationPrefs);
   const notificationPermission = useAuthStore((state) => state.notificationPermission);
+  const updateProfile = useAuthStore((state) => state.updateProfile);
   const savePushToken = useAuthStore((state) => state.savePushToken);
   const updateNotificationPrefs = useAuthStore((state) => state.updateNotificationPrefs);
   const setNotificationPermission = useAuthStore((state) => state.setNotificationPermission);
+  const deleteAccount = useAuthStore((state) => state.deleteAccount);
   const signOut = useAuthStore((state) => state.signOut);
   const {
     familyName,
@@ -42,12 +46,14 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   } = useHomeThreadStore();
   const [childName, setChildName] = useState("");
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
+  const [editedDisplayName, setEditedDisplayName] = useState(displayName ?? "");
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
   const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   async function handleSaveFamilyName() {
     setFormMessage(null);
@@ -125,6 +131,31 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     onClose();
   }
 
+  async function handleSaveProfile() {
+    setFormMessage(null);
+    const result = await updateProfile({ displayName: editedDisplayName });
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not update your profile.");
+      return;
+    }
+    setEditedDisplayName(useAuthStore.getState().displayName ?? editedDisplayName.trim());
+  }
+
+  async function handleDeleteAccount() {
+    setFormMessage(null);
+    setIsDeletingAccount(true);
+    try {
+      const result = await deleteAccount();
+      if (!result.ok) {
+        setFormMessage(result.message ?? "Could not delete this account.");
+        return;
+      }
+      onClose();
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  }
+
   async function loadNotificationCapability() {
     const capability = await getNotificationCapability();
     setNotificationPermission(capability.permission);
@@ -176,6 +207,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     setEditedFamilyName(familyName);
   }, [familyName]);
+
+  useEffect(() => {
+    setEditedDisplayName(displayName ?? "");
+  }, [displayName]);
 
   useEffect(() => {
     void loadNotificationCapability();
@@ -352,6 +387,32 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
 
       <Card>
+        <Text style={styles.cardTitle}>Account</Text>
+        <Text style={styles.cardText}>
+          Keep your profile name current so invites, notifications, and family activity stay readable.
+        </Text>
+        <Text style={styles.label}>Display name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Your name"
+          placeholderTextColor={colors.muted}
+          value={editedDisplayName}
+          onChangeText={setEditedDisplayName}
+        />
+        <Text style={styles.helperText}>{email ?? "No email on file for this session."}</Text>
+        <View style={styles.cardActions}>
+          <PrimaryButton
+            label={isSaving ? "Working..." : "Save profile"}
+            icon="person-circle"
+            onPress={() => {
+              if (isSaving || !backendConnected) return;
+              void handleSaveProfile();
+            }}
+          />
+        </View>
+      </Card>
+
+      <Card>
         <Text style={styles.cardTitle}>Notifications</Text>
         <Text style={styles.cardText}>
           HomeThread can request notification permission and register this device token. Reminder delivery itself is
@@ -436,6 +497,27 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         <View style={styles.cardActions}>
           <PrimaryButton label="Sign out" icon="log-out" tone="dark" onPress={() => void handleSignOut()} />
         </View>
+        {authMode === "supabase" ? (
+          <>
+            <Text style={styles.dangerText}>
+              Delete account removes this signed-in profile from HomeThread. It does not preserve family membership or
+              settings in this build.
+            </Text>
+            <View style={styles.cardActions}>
+              <PrimaryButton
+                label={isDeletingAccount ? "Deleting..." : "Delete account"}
+                icon="trash"
+                tone="dark"
+                onPress={() => {
+                  if (isDeletingAccount || isSaving || !backendConnected) return;
+                  void handleDeleteAccount();
+                }}
+              />
+            </View>
+          </>
+        ) : (
+          <Text style={styles.helperText}>The dev-token session is seeded locally, so account deletion is disabled.</Text>
+        )}
       </Card>
     </View>
   );
@@ -608,5 +690,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     lineHeight: 19
+  },
+  dangerText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 19,
+    marginTop: spacing.lg
   }
 });

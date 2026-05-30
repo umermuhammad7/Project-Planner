@@ -24,6 +24,7 @@ type AuthState = {
   accessToken: string | null;
   userId: string | null;
   email: string | null;
+  displayName: string | null;
   familyId: string | null;
   pushToken: string | null;
   notificationPrefs: NotificationPrefs;
@@ -39,11 +40,13 @@ type AuthState = {
   createFamily: (name: string) => Promise<{ ok: boolean; message?: string; inviteCode?: string }>;
   joinFamily: (inviteCode: string) => Promise<{ ok: boolean; message?: string }>;
   refreshMembership: () => Promise<{ ok: boolean; familyId?: string | null; message?: string }>;
+  updateProfile: (input: { displayName: string }) => Promise<{ ok: boolean; message?: string }>;
   savePushToken: (pushToken: string) => Promise<{ ok: boolean; message?: string }>;
   updateNotificationPrefs: (
     prefs: NotificationPrefs
   ) => Promise<{ ok: boolean; message?: string }>;
   setNotificationPermission: (permission: NotificationPermissionState) => void;
+  deleteAccount: () => Promise<{ ok: boolean; message?: string }>;
   signOut: () => Promise<void>;
 };
 
@@ -75,6 +78,7 @@ async function loadMembership(accessToken: string) {
     ok: true as const,
     userId: result.data.user.id,
     email: result.data.user.email ?? null,
+    displayName: result.data.user.displayName ?? null,
     familyId: primaryMembership?.family.id ?? null,
     pushToken: result.data.user.pushToken ?? null,
     notificationPrefs: result.data.user.notificationPrefs ?? defaultNotificationPrefs
@@ -86,6 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
   userId: null,
   email: null,
+  displayName: null,
   familyId: null,
   pushToken: null,
   notificationPrefs: defaultNotificationPrefs,
@@ -106,6 +111,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         mode: "signed_out",
         backendAuthMode,
         devTokenAvailable,
+        displayName: null,
         pushToken: null,
         notificationPrefs: defaultNotificationPrefs,
         authMessage: isSupabaseConfigured
@@ -121,6 +127,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         mode: "signed_out",
         backendAuthMode,
+        displayName: null,
         pushToken: null,
         notificationPrefs: defaultNotificationPrefs,
         authMessage: error.message
@@ -132,6 +139,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         mode: "signed_out",
         backendAuthMode,
+        displayName: null,
         pushToken: null,
         notificationPrefs: defaultNotificationPrefs,
         authMessage: null
@@ -145,6 +153,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         mode: "signed_out",
         accessToken: null,
         backendAuthMode,
+        displayName: null,
         pushToken: null,
         notificationPrefs: defaultNotificationPrefs,
         authMessage: membership.message
@@ -157,6 +166,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: data.session.access_token,
       userId: membership.userId,
       email: membership.email,
+      displayName: membership.displayName,
       familyId: membership.familyId,
       pushToken: membership.pushToken,
       notificationPrefs: membership.notificationPrefs,
@@ -188,6 +198,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         accessToken: null,
         userId: null,
         email: null,
+        displayName: null,
         familyId: null,
         pushToken: null,
         notificationPrefs: defaultNotificationPrefs,
@@ -201,6 +212,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: data.session.access_token,
       userId: membership.userId,
       email: membership.email,
+      displayName: membership.displayName,
       familyId: membership.familyId,
       pushToken: membership.pushToken,
       notificationPrefs: membership.notificationPrefs,
@@ -241,6 +253,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         accessToken: null,
         userId: null,
         email: null,
+        displayName: null,
         familyId: null,
         pushToken: null,
         notificationPrefs: defaultNotificationPrefs,
@@ -254,6 +267,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: data.session.access_token,
       userId: membership.userId,
       email: membership.email,
+      displayName: membership.displayName,
       familyId: membership.familyId,
       pushToken: membership.pushToken,
       notificationPrefs: membership.notificationPrefs,
@@ -328,6 +342,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       userId: membership.userId,
       email: membership.email,
+      displayName: membership.displayName,
       familyId: membership.familyId,
       pushToken: membership.pushToken,
       notificationPrefs: membership.notificationPrefs,
@@ -337,6 +352,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
 
     return { ok: true, familyId: membership.familyId };
+  },
+  updateProfile: async ({ displayName }) => {
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      return { ok: false, message: "Display name is required." };
+    }
+
+    const result = await apiRequest<{ user: { displayName: string | null } }>("/auth/profile", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: trimmedName,
+        avatarUrl: null,
+        phone: null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        locale: Intl.DateTimeFormat().resolvedOptions().locale || "en"
+      })
+    });
+
+    if (!result.data?.user) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not update your profile."
+      };
+    }
+
+    set({
+      displayName: result.data.user.displayName ?? trimmedName
+    });
+
+    return { ok: true };
   },
   signInWithDevToken: async () => {
     set({
@@ -352,6 +397,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         accessToken: null,
         userId: null,
         email: null,
+        displayName: null,
         familyId: null,
         authMessage: membership.message
       });
@@ -363,6 +409,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: devAuthToken,
       userId: membership.userId,
       email: membership.email,
+      displayName: membership.displayName,
       familyId: membership.familyId,
       pushToken: membership.pushToken,
       notificationPrefs: membership.notificationPrefs,
@@ -417,6 +464,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setNotificationPermission: (permission) => {
     set({ notificationPermission: permission });
   },
+  deleteAccount: async () => {
+    const result = await apiRequest<{ deleted: boolean }>("/auth/account", {
+      method: "DELETE"
+    });
+
+    if (!result.data?.deleted) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not delete this account."
+      };
+    }
+
+    if (supabaseClient) {
+      await supabaseClient.auth.signOut();
+    }
+
+    set({
+      mode: "signed_out",
+      accessToken: null,
+      userId: null,
+      email: null,
+      displayName: null,
+      familyId: null,
+      pushToken: null,
+      notificationPrefs: defaultNotificationPrefs,
+      notificationPermission: "unknown",
+      authMessage: "Account deleted."
+    });
+
+    return { ok: true };
+  },
   signOut: async () => {
     if (supabaseClient) {
       await supabaseClient.auth.signOut();
@@ -427,6 +505,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: null,
       userId: null,
       email: null,
+      displayName: null,
       familyId: null,
       pushToken: null,
       notificationPrefs: defaultNotificationPrefs,

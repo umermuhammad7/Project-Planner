@@ -87,6 +87,33 @@ describe("auth guard", () => {
     });
   });
 
+  it("updates the authenticated profile", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/profile",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        displayName: "Mara Parker",
+        avatarUrl: null,
+        phone: null,
+        timezone: "Asia/Karachi",
+        locale: "en-PK"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      user: {
+        displayName: "Mara Parker",
+        timezone: "Asia/Karachi",
+        locale: "en-PK"
+      }
+    });
+  });
+
   it("saves notification preferences for the authenticated user", async () => {
     const app = buildApp();
     const response = await app.inject({
