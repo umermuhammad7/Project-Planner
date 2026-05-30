@@ -8,6 +8,7 @@ import { colors, spacing } from "./src/constants/theme";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
+import { FamilyScreen } from "./src/screens/FamilyScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { KidsModeScreen } from "./src/screens/KidsModeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
@@ -35,6 +36,7 @@ export default function App() {
   const [enteredApp, setEnteredApp] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [kidsMode, setKidsMode] = useState(false);
+  const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
   const authMode = useAuthStore((state) => state.mode);
   const authFamilyId = useAuthStore((state) => state.familyId);
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
@@ -71,7 +73,13 @@ export default function App() {
     if (activeTab === "meals") return <MealsScreen />;
     if (activeTab === "thread") return <ThreadScreen />;
     if (activeTab === "add") return <AssistantScreen />;
-    return <HomeScreen goTo={setActiveTab} onEnterKidsMode={() => setKidsMode(true)} />;
+    return (
+      <HomeScreen
+        goTo={setActiveTab}
+        onEnterKidsMode={() => setKidsMode(true)}
+        onOpenFamilySettings={() => setFamilySettingsOpen(true)}
+      />
+    );
   }, [activeTab]);
 
   const showConnecting = enteredApp && authMode !== "loading" && authMode !== "signed_out" && isHydrating;
@@ -113,11 +121,13 @@ export default function App() {
             </View>
           ) : kidsMode ? (
             <KidsModeScreen onExit={() => setKidsMode(false)} />
+          ) : familySettingsOpen ? (
+            <FamilyScreen onClose={() => setFamilySettingsOpen(false)} />
           ) : (
             content
           )}
         </ScrollView>
-        {enteredApp && authMode !== "signed_out" && !kidsMode ? (
+        {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen ? (
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
               <IconButton

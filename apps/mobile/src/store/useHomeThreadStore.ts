@@ -45,6 +45,8 @@ type HomeThreadState = {
   selectedListId: string | null;
   listItemsByListId: Record<string, ShoppingItem[]>;
   familyName: string;
+  inviteCode: string | null;
+  isFamilyAdmin: boolean;
   members: FamilyMember[];
   events: PlanEvent[];
   mealWeekStart: string;
@@ -63,6 +65,11 @@ type HomeThreadState = {
   recordPendingOffline: (summary: string) => void;
   hydrateFromBackend: () => Promise<void>;
   refreshFromBackend: () => Promise<void>;
+  regenerateInviteCode: () => Promise<{ ok: boolean; message?: string }>;
+  createVirtualMember: (input: {
+    displayName: string;
+    role: "child" | "member";
+  }) => Promise<{ ok: boolean; message?: string }>;
   createEvent: (input: { title: string; location?: string; startTime?: string; memberIds?: string[] }) => Promise<boolean>;
   createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<boolean>;
   completeChore: (id: string) => Promise<void>;
@@ -105,6 +112,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   selectedListId: mockGroceryListId,
   listItemsByListId: initialMockListItemsByListId,
   familyName: "The Parker Home",
+  inviteCode: null,
+  isFamilyAdmin: false,
   members: initialMembers,
   events: initialEvents,
   mealWeekStart: "2026-05-25",
@@ -144,6 +153,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         selectedListId: null,
         listItemsByListId: {},
         familyName: "HomeThread",
+        inviteCode: null,
+        isFamilyAdmin: false,
         members: [],
         events: [],
         mealWeekStart: currentWeekStart(),
@@ -208,7 +219,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return;
     }
 
-    const currentMember = familyResult.data.members.find((member) => member.userId) ?? familyResult.data.members[0] ?? null;
+    const authUserId = authState.userId;
+    const currentMember =
+      (authUserId
+        ? familyResult.data.members.find((member) => member.userId === authUserId)
+        : undefined) ??
+      familyResult.data.members.find((member) => member.userId) ??
+      familyResult.data.members[0] ??
+      null;
     const memberId = currentMember?.id ?? "family";
     const backendLists = listsResult.data.lists;
     const groceryList = backendLists.find((list) => list.type === "grocery") ?? backendLists[0] ?? null;
@@ -232,6 +250,8 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       selectedListId,
       listItemsByListId,
       familyName: familyResult.data.family.name,
+      inviteCode: familyResult.data.family.inviteCode,
+      isFamilyAdmin: currentMember?.role === "admin",
       members: familyResult.data.members.map(mapMember),
       events: eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? [])),
       mealWeekStart: mealsResult.data.weekStart,
@@ -247,6 +267,76 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   },
   refreshFromBackend: async () => {
     await get().hydrateFromBackend();
+  },
+  regenerateInviteCode: async () => {
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Connect to the local backend before regenerating invite codes." };
+    }
+    if (!state.isFamilyAdmin) {
+      return { ok: false, message: "Only family admins can regenerate invite codes." };
+    }
+
+    set({ isSaving: true, saveMessage: "Regenerating invite code..." });
+    const result = await apiRequest<{ inviteCode: string }>(`/families/${state.familyId}/invite`, {
+      method: "POST"
+    });
+    set({ isSaving: false });
+
+    if (!result.data?.inviteCode) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not regenerate the invite code."
+      };
+    }
+
+    set({
+      inviteCode: result.data.inviteCode,
+      saveMessage: "Invite code updated."
+    });
+    return { ok: true };
+  },
+  createVirtualMember: async ({ displayName, role }) => {
+    const state = get();
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      return { ok: false, message: "Member name is required." };
+    }
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Connect to the local backend before adding members." };
+    }
+    if (!state.isFamilyAdmin) {
+      return { ok: false, message: "Only family admins can add members." };
+    }
+
+    const memberColors = ["#F9735B", "#2DAA84", "#F4B740", "#A85576", "#3A91C9", "#3157D5"];
+    const color = memberColors[state.members.length % memberColors.length];
+
+    set({ isSaving: true, saveMessage: "Adding member..." });
+    const result = await apiRequest<{ member: BackendMemberRecord }>(`/families/${state.familyId}/members`, {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: trimmedName,
+        color,
+        role,
+        isVirtual: true
+      })
+    });
+
+    if (!result.data?.member) {
+      set({
+        isSaving: false,
+        saveMessage: result.error?.message ?? "Could not add member."
+      });
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not add member."
+      };
+    }
+
+    await get().refreshFromBackend();
+    set({ saveMessage: `${trimmedName} added to your household.` });
+    return { ok: true };
   },
   createEvent: async ({ title, location, startTime, memberIds: rawMemberIds }) => {
     const state = get();
@@ -1237,6 +1327,7 @@ type BackendFamilyResponse = {
   family: {
     id: string;
     name: string;
+    inviteCode: string;
   };
   members: BackendMemberRecord[];
 };

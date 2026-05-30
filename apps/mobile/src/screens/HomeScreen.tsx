@@ -10,10 +10,12 @@ import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
 export function HomeScreen({
   goTo,
-  onEnterKidsMode
+  onEnterKidsMode,
+  onOpenFamilySettings
 }: {
   goTo: (tab: TabKey) => void;
   onEnterKidsMode?: () => void;
+  onOpenFamilySettings?: () => void;
 }) {
   const {
     familyName,
@@ -99,6 +101,9 @@ export function HomeScreen({
           <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
           {onEnterKidsMode ? (
             <PrimaryButton label="Kids mode" icon="happy" tone="dark" onPress={onEnterKidsMode} />
+          ) : null}
+          {onOpenFamilySettings ? (
+            <PrimaryButton label="Family" icon="people" tone="dark" onPress={onOpenFamilySettings} />
           ) : null}
         </View>
       </Card>
