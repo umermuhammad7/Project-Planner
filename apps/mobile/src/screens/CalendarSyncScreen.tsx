@@ -227,7 +227,10 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
         </View>
       ) : (
         <Card>
-          <Text style={styles.helper}>No external calendars are connected for this family yet.</Text>
+          <Text style={styles.emptyTitle}>No calendars connected yet.</Text>
+          <Text style={styles.emptyText}>
+            Connect Google Calendar or save an iCal feed when you want HomeThread to pull family events in manually.
+          </Text>
         </Card>
       )}
 
@@ -313,6 +316,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
+    marginTop: spacing.sm
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
     marginTop: spacing.sm
   },
   syncResult: {

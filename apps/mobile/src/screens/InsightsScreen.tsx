@@ -81,7 +81,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
 
       {isLoading ? (
         <Card>
-          <Text style={styles.cardTitle}>Loading insights…</Text>
+          <Text style={styles.cardTitle}>Loading insights...</Text>
           <Text style={styles.cardText}>Pulling the latest family summary from the HomeThread API.</Text>
         </Card>
       ) : null}
@@ -135,7 +135,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
                   <View style={styles.fill}>
                     <Text style={styles.itemTitle}>{member.name}</Text>
                     <Text style={styles.itemMeta}>
-                      {member.completedCount} completed • {member.outstandingCount} assigned • {member.starsEarned} stars
+                      {member.completedCount} completed - {member.outstandingCount} assigned - {member.starsEarned} stars
                     </Text>
                   </View>
                   <Pill label={member.role} tone="neutral" />

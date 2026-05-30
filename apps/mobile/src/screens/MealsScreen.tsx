@@ -52,7 +52,7 @@ function formatRecipeTiming(draft: RecipeImportDraft) {
   if (draft.servings != null) {
     parts.push(`Serves ${draft.servings}`);
   }
-  return parts.length > 0 ? parts.join(" · ") : null;
+  return parts.length > 0 ? parts.join(" - ") : null;
 }
 
 function parseRecipeTextLocally(text: string): RecipeImportDraft | null {
@@ -259,7 +259,7 @@ export function MealsScreen() {
       <Card>
         <Text style={styles.formTitle}>Import recipe</Text>
         <Text style={styles.helperText}>
-          Paste recipe text for AI or simple parsing. URL mode does not fetch web pages in this build.
+          Paste recipe text for AI or simple parsing. URL mode keeps things honest here - it does not fetch recipe pages in this build.
         </Text>
         <View style={styles.pickerRow}>
           <Pressable accessibilityRole="button" onPress={() => setImportSource("text")}>
@@ -394,7 +394,12 @@ export function MealsScreen() {
             ))}
           </View>
         ) : (
-          <Text style={styles.helperText}>Saved recipes show up here for quick grocery runs.</Text>
+          <View style={styles.emptyPanel}>
+            <Text style={styles.emptyTitle}>No saved recipes yet.</Text>
+            <Text style={styles.emptyText}>
+              Save one reliable family favorite first. It makes planning and grocery building feel much more useful.
+            </Text>
+          </View>
         )}
       </Card>
 
@@ -476,12 +481,21 @@ export function MealsScreen() {
         </View>
       </Card>
 
+      {meals.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyTitle}>No meals planned yet.</Text>
+          <Text style={styles.emptyText}>
+            Start with the busiest dinner night this week. A small plan is better than waiting for the perfect one.
+          </Text>
+        </Card>
+      ) : null}
+
       {grouped.map((group) => (
         <View key={group.label}>
           <SectionTitle title={group.label} action={`${group.items.length} planned`} />
           {group.items.length === 0 ? (
             <Card>
-              <Text style={styles.emptyText}>Nothing planned yet.</Text>
+              <Text style={styles.emptyText}>Nothing planned yet. Leave this day open if the family really keeps it flexible.</Text>
             </Card>
           ) : (
             <View style={styles.stack}>
@@ -615,6 +629,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: spacing.md
   },
+  emptyPanel: {
+    marginTop: spacing.md
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: spacing.xs
+  },
   importNote: {
     color: colors.primary,
     fontSize: 12,
@@ -676,6 +699,7 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700"
+    fontWeight: "700",
+    lineHeight: 20
   }
 });
