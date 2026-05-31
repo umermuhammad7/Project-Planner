@@ -10,6 +10,7 @@ const originalGoogleClientId = env.GOOGLE_OAUTH_CLIENT_ID;
 const originalGoogleClientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET;
 const originalGoogleRedirectUri = env.GOOGLE_OAUTH_REDIRECT_URI;
 const originalGoogleScopes = env.GOOGLE_CALENDAR_SCOPES;
+const originalCalendarTokenEncryptionKey = env.CALENDAR_TOKEN_ENCRYPTION_KEY;
 
 describe("calendar-sync routes", () => {
   beforeEach(() => {
@@ -18,6 +19,7 @@ describe("calendar-sync routes", () => {
     env.GOOGLE_OAUTH_CLIENT_SECRET = undefined;
     env.GOOGLE_OAUTH_REDIRECT_URI = undefined;
     env.GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar.readonly";
+    env.CALENDAR_TOKEN_ENCRYPTION_KEY = undefined;
   });
 
   afterEach(async () => {
@@ -25,6 +27,7 @@ describe("calendar-sync routes", () => {
     env.GOOGLE_OAUTH_CLIENT_SECRET = originalGoogleClientSecret;
     env.GOOGLE_OAUTH_REDIRECT_URI = originalGoogleRedirectUri;
     env.GOOGLE_CALENDAR_SCOPES = originalGoogleScopes;
+    env.CALENDAR_TOKEN_ENCRYPTION_KEY = originalCalendarTokenEncryptionKey;
     await db.delete(calendarConnections);
     await db.delete(events).where(eq(events.externalSource, "ical"));
   });
@@ -73,6 +76,7 @@ describe("calendar-sync routes", () => {
   it("returns an auth url when Google OAuth is configured", async () => {
     env.GOOGLE_OAUTH_CLIENT_ID = "google-client-id";
     env.GOOGLE_OAUTH_CLIENT_SECRET = "google-client-secret";
+    env.CALENDAR_TOKEN_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef";
 
     const app = buildApp();
     const response = await app.inject({
@@ -97,6 +101,7 @@ describe("calendar-sync routes", () => {
   it("stores a google calendar connection after callback exchange", async () => {
     env.GOOGLE_OAUTH_CLIENT_ID = "google-client-id";
     env.GOOGLE_OAUTH_CLIENT_SECRET = "google-client-secret";
+    env.CALENDAR_TOKEN_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef";
 
     const app = buildApp();
     const connectResponse = await app.inject({
@@ -167,6 +172,7 @@ describe("calendar-sync routes", () => {
   it("rejects callbacks with invalid state", async () => {
     env.GOOGLE_OAUTH_CLIENT_ID = "google-client-id";
     env.GOOGLE_OAUTH_CLIENT_SECRET = "google-client-secret";
+    env.CALENDAR_TOKEN_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef";
 
     const app = buildApp();
     const response = await app.inject({
@@ -217,6 +223,29 @@ describe("calendar-sync routes", () => {
           isActive: true
         })
       ]
+    });
+
+    await app.close();
+  });
+
+  it("rejects non-https iCal feed URLs", async () => {
+    const app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/calendar-sync/ical",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        familyId: "00000000-0000-4000-8000-000000000201",
+        icalUrl: "http://example.com/family.ics"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      code: "VALIDATION_ERROR"
     });
 
     await app.close();

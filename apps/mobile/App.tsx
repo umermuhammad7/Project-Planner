@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { IconButton } from "./src/components/Primitives";
+import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
 import { colors, spacing } from "./src/constants/theme";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
@@ -17,9 +18,12 @@ import { MealsScreen } from "./src/screens/MealsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
+import { getApiConfigurationStatus } from "./src/services/api";
+import { refreshPushTokenIfAvailable } from "./src/services/notifications";
 import { useAuthStore } from "./src/store/useAuthStore";
-import { useHomeThreadStore } from "./src/store/useHomeThreadStore";
+import { useHomeThreadStore, resetHomeThreadStoreForSignedOut } from "./src/store/useHomeThreadStore";
 import { startFamilyRealtimeSync, stopFamilyRealtimeSync } from "./src/services/familyRealtimeSync";
+import { isSupabaseConfigured, supabaseClient } from "./src/services/supabase";
 import { TabKey } from "./src/types";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -34,7 +38,7 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "add", label: "Add", icon: "add-circle" }
 ];
 
-export default function App() {
+function AppShell() {
   const [enteredApp, setEnteredApp] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [kidsMode, setKidsMode] = useState(false);
@@ -43,6 +47,7 @@ export default function App() {
   const authMode = useAuthStore((state) => state.mode);
   const authFamilyId = useAuthStore((state) => state.familyId);
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
+  const savePushToken = useAuthStore((state) => state.savePushToken);
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
@@ -70,10 +75,42 @@ export default function App() {
   }, [bootstrapAuth]);
 
   useEffect(() => {
+    const apiConfig = getApiConfigurationStatus();
+    if (apiConfig.message) {
+      console.error(apiConfig.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabaseClient) {
+      return;
+    }
+
+    const subscription = supabaseClient.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        void useAuthStore.getState().signOut();
+        return;
+      }
+
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        void useAuthStore.getState().bootstrap();
+      }
+    });
+
+    return () => {
+      subscription.data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     if (authMode === "dev_token" || authMode === "supabase") {
       setEnteredApp(Boolean(authFamilyId));
     } else if (authMode === "signed_out") {
       setEnteredApp(false);
+      setKidsMode(false);
+      setFamilySettingsOpen(false);
+      setInsightsOpen(false);
+      resetHomeThreadStoreForSignedOut();
     }
   }, [authFamilyId, authMode]);
 
@@ -82,6 +119,19 @@ export default function App() {
       void hydrateFromBackend();
     }
   }, [enteredApp, authMode, hydrateFromBackend]);
+
+  useEffect(() => {
+    if (!enteredApp || authMode === "signed_out" || authMode === "loading") {
+      return;
+    }
+
+    void (async () => {
+      const refreshed = await refreshPushTokenIfAvailable();
+      if (refreshed.ok && refreshed.pushToken) {
+        await savePushToken(refreshed.pushToken);
+      }
+    })();
+  }, [authMode, enteredApp, savePushToken]);
 
   useEffect(() => {
     if (!enteredApp || authMode === "loading" || authMode === "signed_out") {
@@ -206,6 +256,14 @@ export default function App() {
         ) : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <AppShell />
+    </AppErrorBoundary>
   );
 }
 

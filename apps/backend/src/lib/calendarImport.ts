@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "../db/client.js";
 import { calendarConnections, events } from "../db/schema.js";
+import { decryptCalendarToken, encryptCalendarToken } from "./calendarTokenCrypto.js";
 
 export type ImportedCalendarEvent = {
   externalId: string;
@@ -68,6 +69,10 @@ export function parseIcalFeed(icsText: string, now = new Date()): ImportedCalend
 }
 
 export async function fetchIcalFeed(url: string) {
+  if (!url.startsWith("https://")) {
+    throw new Error("iCal feeds must use HTTPS.");
+  }
+
   const response = await fetch(url, {
     headers: {
       Accept: "text/calendar,text/plain,*/*"
@@ -192,7 +197,12 @@ export async function resolveGoogleAccessToken(
   const needsRefresh = expiresAt <= Date.now() + 60_000;
 
   if (!needsRefresh && connection.accessToken) {
-    return connection.accessToken;
+    return (
+      decryptCalendarToken(connection.accessToken) ??
+      (() => {
+        throw new Error("Google Calendar connection is missing an access token. Reconnect Google Calendar.");
+      })()
+    );
   }
 
   if (!connection.refreshToken) {
@@ -200,7 +210,11 @@ export async function resolveGoogleAccessToken(
   }
 
   const refreshed = await refreshGoogleAccessToken({
-    refreshToken: connection.refreshToken,
+    refreshToken:
+      decryptCalendarToken(connection.refreshToken) ??
+      (() => {
+        throw new Error("Google Calendar connection is missing a refresh token. Reconnect Google Calendar.");
+      })(),
     clientId: oauth.clientId,
     clientSecret: oauth.clientSecret
   });
@@ -208,7 +222,7 @@ export async function resolveGoogleAccessToken(
   await db
     .update(calendarConnections)
     .set({
-      accessToken: refreshed.accessToken,
+      accessToken: encryptCalendarToken(refreshed.accessToken),
       tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000)
     })
     .where(eq(calendarConnections.id, connection.id));

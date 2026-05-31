@@ -7,9 +7,14 @@ import { runRecipeImport } from "../lib/recipeImport.js";
 import { requireAuth } from "../plugins/auth.js";
 
 export async function aiRoutes(app: FastifyInstance) {
+  const aiRateLimit = {
+    max: 20,
+    timeWindow: "1 minute"
+  } as const;
+
   app.addHook("preHandler", requireAuth);
 
-  app.get("/status", async () => {
+  app.get("/status", { config: { rateLimit: aiRateLimit } }, async () => {
     const status = getAssistantProviderStatus();
     return {
       configured: status.openaiConfigured || status.groqKeysConfigured > 0,
@@ -21,15 +26,15 @@ export async function aiRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/assist", async (request) => {
+  app.post("/assist", { config: { rateLimit: aiRateLimit } }, async (request) => {
     return runAssistantAssist(request.body);
   });
 
-  app.post("/meal-suggest", async (request) => {
+  app.post("/meal-suggest", { config: { rateLimit: aiRateLimit } }, async (request) => {
     return runMealSuggest(request.body);
   });
 
-  app.post("/recipe-import", async (request) => {
+  app.post("/recipe-import", { config: { rateLimit: aiRateLimit } }, async (request) => {
     return runRecipeImport(request.body);
   });
 }

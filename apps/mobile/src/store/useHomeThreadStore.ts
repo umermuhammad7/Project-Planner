@@ -12,6 +12,7 @@ import {
 } from "../data/mockFamily";
 import { apiRequest } from "../services/api";
 import {
+  clearOfflineQueue,
   enqueueOfflineItem,
   getOfflineQueue,
   isRetryableApiError,
@@ -48,6 +49,71 @@ const initialMockListItemsByListId: Record<string, ShoppingItem[]> = {
 };
 
 let suppressOfflineReplay = false;
+
+function buildSignedOutHomeState(): Pick<
+  HomeThreadState,
+  | "familyId"
+  | "currentMemberId"
+  | "groceryListId"
+  | "lists"
+  | "selectedListId"
+  | "listItemsByListId"
+  | "familyName"
+  | "inviteCode"
+  | "isFamilyAdmin"
+  | "members"
+  | "events"
+  | "mealWeekStart"
+  | "meals"
+  | "recipes"
+  | "chores"
+  | "completedChoreIds"
+  | "shoppingItems"
+  | "notifications"
+  | "textUpdates"
+  | "syncSource"
+  | "syncMessage"
+  | "isHydrating"
+  | "isSaving"
+  | "saveMessage"
+  | "offlineQueue"
+  | "isReplayingOffline"
+  | "offlineReplayMessage"
+  | "realtimeStatus"
+  | "realtimeMessage"
+> {
+  return {
+    familyId: null,
+    currentMemberId: null,
+    groceryListId: null,
+    lists: [],
+    selectedListId: null,
+    listItemsByListId: {},
+    familyName: "HomeThread",
+    inviteCode: null,
+    isFamilyAdmin: false,
+    members: [],
+    events: [],
+    mealWeekStart: currentWeekStart(),
+    meals: [],
+    recipes: [],
+    chores: [],
+    completedChoreIds: {},
+    shoppingItems: [],
+    notifications: [],
+    textUpdates: [],
+    syncSource: "mock",
+    syncMessage: "Sign in to load household data.",
+    isHydrating: false,
+    isSaving: false,
+    saveMessage: "Sign in to keep household changes in sync.",
+    offlineQueue: [],
+    isReplayingOffline: false,
+    offlineReplayMessage: null,
+    realtimeStatus: "inactive",
+    realtimeMessage: ""
+  };
+}
 
 function resolveQueueFamilyId(state: HomeThreadState) {
   return state.familyId ?? useAuthStore.getState().familyId;
@@ -1745,6 +1811,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     return digest;
   }
 }));
+
+export function resetHomeThreadStoreForSignedOut() {
+  clearOfflineQueue();
+  suppressOfflineReplay = false;
+  useHomeThreadStore.setState(buildSignedOutHomeState());
+}
 
 type BackendFamilyResponse = {
   family: {

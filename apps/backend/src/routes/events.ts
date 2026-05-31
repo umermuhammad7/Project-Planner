@@ -179,10 +179,29 @@ export async function eventsRoutes(app: FastifyInstance) {
   });
 
   app.patch("/:eventId", async (request, reply) => {
+    const currentUser = request.currentUser!;
     const { familyId, eventId } = eventParamsSchema.parse(request.params);
     scopeQuerySchema.parse(request.query);
     const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
+
+    const existingEvent = await db.query.events.findFirst({
+      where: and(eq(events.familyId, familyId), eq(events.id, eventId))
+    });
+
+    if (!existingEvent) {
+      return reply.status(404).send({
+        error: "Event not found",
+        code: "EVENT_NOT_FOUND"
+      });
+    }
+
+    if (!canManageEvent(membership.role, currentUser.id, existingEvent.createdBy)) {
+      return reply.status(403).send({
+        error: "Only the event creator or a family admin can edit this event",
+        code: "EVENT_FORBIDDEN"
+      });
+    }
 
     const body = updateEventSchema.parse(request.body);
     const [event] = await db
@@ -220,12 +239,35 @@ export async function eventsRoutes(app: FastifyInstance) {
   });
 
   app.delete("/:eventId", async (request, reply) => {
+    const currentUser = request.currentUser!;
     const { familyId, eventId } = eventParamsSchema.parse(request.params);
     scopeQuerySchema.parse(request.query);
     const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
+    const existingEvent = await db.query.events.findFirst({
+      where: and(eq(events.familyId, familyId), eq(events.id, eventId))
+    });
+
+    if (!existingEvent) {
+      return reply.status(404).send({
+        error: "Event not found",
+        code: "EVENT_NOT_FOUND"
+      });
+    }
+
+    if (!canManageEvent(membership.role, currentUser.id, existingEvent.createdBy)) {
+      return reply.status(403).send({
+        error: "Only the event creator or a family admin can delete this event",
+        code: "EVENT_FORBIDDEN"
+      });
+    }
+
     await db.delete(events).where(and(eq(events.familyId, familyId), eq(events.id, eventId)));
     return { deleted: true };
   });
+}
+
+function canManageEvent(memberRole: string, currentUserId: string, createdBy: string) {
+  return memberRole === "admin" || currentUserId === createdBy;
 }

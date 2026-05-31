@@ -13,11 +13,16 @@ import { getAuthStatus } from "../env.js";
 import { deleteSupabaseUser, requireAuth } from "../plugins/auth.js";
 
 export async function authRoutes(app: FastifyInstance) {
-  app.get("/status", async () => {
+  const authRateLimit = {
+    max: 5,
+    timeWindow: "1 minute"
+  } as const;
+
+  app.get("/status", { config: { rateLimit: authRateLimit } }, async () => {
     return getAuthStatus();
   });
 
-  app.post("/profile", { preHandler: requireAuth }, async (request) => {
+  app.post("/profile", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = userProfileSchema.parse(request.body);
 
@@ -49,7 +54,7 @@ export async function authRoutes(app: FastifyInstance) {
     return { user: profile };
   });
 
-  app.get("/me", { preHandler: requireAuth }, async (request) => {
+  app.get("/me", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const profile = await db.query.users.findFirst({
       where: eq(users.id, currentUser.id)
@@ -73,14 +78,15 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  app.delete("/account", { preHandler: requireAuth }, async (request) => {
+  app.delete("/account", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
-    await db.delete(users).where(eq(users.id, currentUser.id));
     await deleteSupabaseUser(currentUser.id);
+    await db.delete(familyMembers).where(eq(familyMembers.userId, currentUser.id));
+    await db.delete(users).where(eq(users.id, currentUser.id));
     return { deleted: true };
   });
 
-  app.put("/push-token", { preHandler: requireAuth }, async (request) => {
+  app.put("/push-token", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = pushTokenSchema.parse(request.body);
     await ensureAuthUserProfile(currentUser.id, currentUser.email);
@@ -97,7 +103,7 @@ export async function authRoutes(app: FastifyInstance) {
     return { user: profile };
   });
 
-  app.put("/notification-prefs", { preHandler: requireAuth }, async (request) => {
+  app.put("/notification-prefs", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = notificationPrefsSchema.parse(request.body);
     await ensureAuthUserProfile(currentUser.id, currentUser.email);

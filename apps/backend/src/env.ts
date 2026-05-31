@@ -22,6 +22,7 @@ const envSchema = z.object({
   GOOGLE_CALENDAR_SCOPES: z
     .string()
     .default("https://www.googleapis.com/auth/calendar.readonly"),
+  CALENDAR_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   JOBS_ENABLED: z.coerce.boolean().default(false),
   EXPO_PUSH_ACCESS_TOKEN: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
@@ -68,19 +69,26 @@ export function getCalendarSyncStatus() {
   const googleOAuthConfigured = Boolean(
     env.GOOGLE_OAUTH_CLIENT_ID?.trim() && env.GOOGLE_OAUTH_CLIENT_SECRET?.trim()
   );
+  const tokenEncryptionConfigured = Boolean(env.CALENDAR_TOKEN_ENCRYPTION_KEY?.trim());
 
   return {
     googleOAuthConfigured,
-    googleConnectImplemented: googleOAuthConfigured,
+    googleConnectImplemented: googleOAuthConfigured && tokenEncryptionConfigured,
     icalImportImplemented: true,
     message: googleOAuthConfigured
-      ? "Google OAuth credentials are present. Connect Google Calendar or save an iCal feed, then use Sync now to import future events manually."
+      ? tokenEncryptionConfigured
+        ? "Google OAuth credentials are present. Connect Google Calendar or save an iCal feed, then use Sync now to import future events manually."
+        : "Google OAuth credentials are present, but CALENDAR_TOKEN_ENCRYPTION_KEY is still missing. Google Calendar connect stays off until tokens can be stored safely."
       : "External calendar sync can import iCal feeds manually. Google OAuth is not configured on this server yet."
   };
 }
 
 export function getGoogleOAuthConfig() {
-  if (!env.GOOGLE_OAUTH_CLIENT_ID?.trim() || !env.GOOGLE_OAUTH_CLIENT_SECRET?.trim()) {
+  if (
+    !env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
+    !env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() ||
+    !env.CALENDAR_TOKEN_ENCRYPTION_KEY?.trim()
+  ) {
     return null;
   }
 

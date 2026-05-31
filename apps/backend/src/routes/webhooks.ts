@@ -10,11 +10,18 @@ import { sendError } from "../lib/http.js";
 export async function webhookRoutes(app: FastifyInstance) {
   app.post("/revenuecat", async (request, reply) => {
     const secret = env.REVENUECAT_WEBHOOK_SECRET?.trim();
-    if (secret) {
-      const header = request.headers.authorization?.replace(/^Bearer\s+/u, "");
-      if (!header || header !== secret) {
-        return sendError(reply, 401, "RevenueCat webhook secret is invalid", "WEBHOOK_FORBIDDEN");
-      }
+    if (!secret) {
+      return sendError(
+        reply,
+        503,
+        "RevenueCat webhook secret is not configured on this server.",
+        "WEBHOOK_NOT_CONFIGURED"
+      );
+    }
+
+    const header = request.headers.authorization?.replace(/^Bearer\s+/u, "");
+    if (!header || header !== secret) {
+      return sendError(reply, 401, "RevenueCat webhook secret is invalid", "WEBHOOK_FORBIDDEN");
     }
 
     const payload = revenueCatWebhookSchema.parse(request.body);

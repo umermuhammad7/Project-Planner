@@ -1,6 +1,11 @@
 import { create } from "zustand";
 
-import { apiRequest, setApiAccessTokenProvider } from "../services/api";
+import {
+  apiRequest,
+  getApiConfigurationStatus,
+  setApiAccessTokenProvider,
+  setApiUnauthorizedHandler
+} from "../services/api";
 import { isSupabaseConfigured, supabaseClient } from "../services/supabase";
 import {
   AuthMeResponse,
@@ -57,6 +62,18 @@ const defaultNotificationPrefs: NotificationPrefs = {
   family_activity: true
 };
 
+const signedOutState = {
+  mode: "signed_out" as const,
+  accessToken: null,
+  userId: null,
+  email: null,
+  displayName: null,
+  familyId: null,
+  pushToken: null,
+  notificationPrefs: defaultNotificationPrefs,
+  notificationPermission: "unknown" as const
+};
+
 const devAuthToken = process.env.EXPO_PUBLIC_DEV_AUTH_TOKEN?.trim() ?? "homethread-dev-token";
 
 async function loadMembership(accessToken: string) {
@@ -101,19 +118,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   devTokenAvailable: Boolean(devAuthToken),
   bootstrap: async () => {
     setApiAccessTokenProvider(() => get().accessToken);
+    setApiUnauthorizedHandler(async () => {
+      const currentMode = get().mode;
+      if (currentMode === "signed_out" || currentMode === "loading") {
+        return;
+      }
+
+      if (supabaseClient) {
+        await supabaseClient.auth.signOut();
+      }
+
+      set({
+        ...signedOutState,
+        authMessage: "Your session expired. Sign in again to keep household data in sync."
+      });
+    });
 
     const statusResult = await apiRequest<AuthStatusResponse>("/auth/status");
     const backendAuthMode = statusResult.data?.mode ?? null;
     const devTokenAvailable = Boolean(devAuthToken) && (statusResult.data?.devTokenAllowed ?? false);
+    const apiConfig = getApiConfigurationStatus();
 
     if (!supabaseClient) {
       set({
-        mode: "signed_out",
+        ...signedOutState,
         backendAuthMode,
         devTokenAvailable,
-        displayName: null,
-        pushToken: null,
-        notificationPrefs: defaultNotificationPrefs,
         authMessage: isSupabaseConfigured
           ? null
           : "Supabase is not configured in the app. Sign in with the local dev token or add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY."
@@ -125,11 +155,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (error) {
       set({
-        mode: "signed_out",
+        ...signedOutState,
         backendAuthMode,
-        displayName: null,
-        pushToken: null,
-        notificationPrefs: defaultNotificationPrefs,
         authMessage: error.message
       });
       return;
@@ -137,12 +164,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (!data.session?.access_token) {
       set({
-        mode: "signed_out",
+        ...signedOutState,
         backendAuthMode,
-        displayName: null,
-        pushToken: null,
-        notificationPrefs: defaultNotificationPrefs,
-        authMessage: null
+        authMessage: statusResult.data ? apiConfig.message : statusResult.error?.message ?? apiConfig.message
       });
       return;
     }
@@ -150,12 +174,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const membership = await loadMembership(data.session.access_token);
     if (!membership.ok) {
       set({
-        mode: "signed_out",
-        accessToken: null,
+        ...signedOutState,
         backendAuthMode,
-        displayName: null,
-        pushToken: null,
-        notificationPrefs: defaultNotificationPrefs,
         authMessage: membership.message
       });
       return;
@@ -194,14 +214,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!membership.ok) {
       await supabaseClient.auth.signOut();
       set({
-        mode: "signed_out",
-        accessToken: null,
-        userId: null,
-        email: null,
-        displayName: null,
-        familyId: null,
-        pushToken: null,
-        notificationPrefs: defaultNotificationPrefs,
+        ...signedOutState,
         authMessage: membership.message
       });
       return { ok: false, message: membership.message };
@@ -249,14 +262,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!membership.ok) {
       await supabaseClient.auth.signOut();
       set({
-        mode: "signed_out",
-        accessToken: null,
-        userId: null,
-        email: null,
-        displayName: null,
-        familyId: null,
-        pushToken: null,
-        notificationPrefs: defaultNotificationPrefs,
+        ...signedOutState,
         authMessage: membership.message
       });
       return { ok: false, message: membership.message };
@@ -304,7 +310,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return { ok: true, inviteCode: result.data.family.inviteCode };
   },
   joinFamily: async (inviteCode) => {
-    const trimmedCode = inviteCode.trim();
+    const trimmedCode = inviteCode.trim().toUpperCase();
     if (!trimmedCode) {
       return { ok: false, message: "Invite code is required." };
     }
@@ -393,12 +399,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const membership = await loadMembership(devAuthToken);
     if (!membership.ok) {
       set({
-        mode: "signed_out",
-        accessToken: null,
-        userId: null,
-        email: null,
-        displayName: null,
-        familyId: null,
+        ...signedOutState,
         authMessage: membership.message
       });
       return { ok: false, message: membership.message };
@@ -481,35 +482,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     set({
-      mode: "signed_out",
-      accessToken: null,
-      userId: null,
-      email: null,
-      displayName: null,
-      familyId: null,
-      pushToken: null,
-      notificationPrefs: defaultNotificationPrefs,
-      notificationPermission: "unknown",
+      ...signedOutState,
       authMessage: "Account deleted."
     });
 
     return { ok: true };
   },
   signOut: async () => {
+    if (get().mode === "signed_out") {
+      return;
+    }
+
     if (supabaseClient) {
       await supabaseClient.auth.signOut();
     }
 
     set({
-      mode: "signed_out",
-      accessToken: null,
-      userId: null,
-      email: null,
-      displayName: null,
-      familyId: null,
-      pushToken: null,
-      notificationPrefs: defaultNotificationPrefs,
-      notificationPermission: "unknown",
+      ...signedOutState,
       authMessage: null
     });
   }

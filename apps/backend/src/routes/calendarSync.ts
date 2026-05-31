@@ -13,6 +13,7 @@ import { db } from "../db/client.js";
 import { calendarConnections } from "../db/schema.js";
 import { getCalendarSyncStatus, getGoogleOAuthConfig } from "../env.js";
 import { syncGoogleConnection, syncIcalConnection } from "../lib/calendarImport.js";
+import { encryptCalendarToken } from "../lib/calendarTokenCrypto.js";
 import { sendError } from "../lib/http.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
@@ -23,7 +24,9 @@ const familyQuerySchema = z.object({
 
 const icalBodySchema = z.object({
   familyId: uuidSchema,
-  icalUrl: z.url()
+  icalUrl: z
+    .url()
+    .refine((value) => value.startsWith("https://"), "iCal feeds must use HTTPS.")
 });
 
 const googleCallbackQuerySchema = z.object({
@@ -42,11 +45,16 @@ type CalendarOAuthState = {
 const stateMaxAgeMs = 15 * 60 * 1000;
 
 export async function calendarSyncRoutes(app: FastifyInstance) {
-  app.get("/status", { preHandler: requireAuth }, async () => {
+  const calendarRateLimit = {
+    max: 10,
+    timeWindow: "1 minute"
+  } as const;
+
+  app.get("/status", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async () => {
     return getCalendarSyncStatus();
   });
 
-  app.get("/connections", { preHandler: requireAuth }, async (request, reply) => {
+  app.get("/connections", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async (request, reply) => {
     const { familyId } = familyQuerySchema.parse(request.query);
     const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
@@ -67,7 +75,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/google/connect", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/google/connect", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async (request, reply) => {
     const { familyId } = familyQuerySchema.parse(request.body);
     const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
@@ -190,7 +198,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/ical", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/ical", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async (request, reply) => {
     const body = icalBodySchema.parse(request.body);
     const membership = await requireFamilyMember(request, reply, body.familyId);
     if (!membership) return;
@@ -209,7 +217,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     return reply.status(201).send(payload);
   });
 
-  app.post("/sync", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/sync", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async (request, reply) => {
     const body = calendarSyncNowBodySchema.parse(request.body);
     const membership = await requireFamilyMember(request, reply, body.familyId);
     if (!membership) return;
@@ -435,8 +443,10 @@ async function upsertGoogleConnection(input: {
       .update(calendarConnections)
       .set({
         externalCalendarId: input.externalCalendarId,
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken ?? existing.refreshToken,
+        accessToken: encryptCalendarToken(input.accessToken),
+        refreshToken: input.refreshToken
+          ? encryptCalendarToken(input.refreshToken)
+          : existing.refreshToken,
         tokenExpiresAt,
         isActive: true
       })
@@ -449,8 +459,8 @@ async function upsertGoogleConnection(input: {
     userId: input.userId,
     provider: "google",
     externalCalendarId: input.externalCalendarId,
-    accessToken: input.accessToken,
-    refreshToken: input.refreshToken,
+    accessToken: encryptCalendarToken(input.accessToken),
+    refreshToken: input.refreshToken ? encryptCalendarToken(input.refreshToken) : null,
     tokenExpiresAt,
     isActive: true
   });

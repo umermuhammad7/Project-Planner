@@ -57,6 +57,25 @@ describe("family setup routes", () => {
     });
   });
 
+  it("normalizes invite codes before joining a family", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/families/join",
+      headers: authHeaders,
+      payload: {
+        inviteCode: "  ht2026  "
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      family: {
+        inviteCode: "HT2026"
+      }
+    });
+  });
+
   it("rejects unknown invite codes", async () => {
     const app = buildApp();
     const response = await app.inject({

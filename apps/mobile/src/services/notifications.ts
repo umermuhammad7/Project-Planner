@@ -148,3 +148,35 @@ export async function requestNotificationPermissionAndToken(): Promise<Notificat
     };
   }
 }
+
+export async function refreshPushTokenIfAvailable(): Promise<NotificationRegistrationResult> {
+  try {
+    const capability = await getNotificationCapability();
+    if (!capability.supported || capability.permission !== "granted" || !capability.canRegisterPushToken) {
+      return {
+        ok: false,
+        permission: capability.permission,
+        pushToken: null,
+        message: capability.message
+      };
+    }
+
+    const tokenResult = await Notifications.getExpoPushTokenAsync({
+      projectId: easProjectId
+    });
+
+    return {
+      ok: true,
+      permission: capability.permission,
+      pushToken: tokenResult.data,
+      message: "Push token refreshed from this device."
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      permission: "unknown",
+      pushToken: null,
+      message: error instanceof Error ? error.message : "Could not refresh push token."
+    };
+  }
+}

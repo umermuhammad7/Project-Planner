@@ -107,7 +107,13 @@ export async function familiesRoutes(app: FastifyInstance) {
 
   app.post("/join", async (request, reply) => {
     const currentUser = request.currentUser!;
-    const body = joinFamilySchema.parse(request.body);
+    const body = joinFamilySchema.parse({
+      ...(request.body as Record<string, unknown>),
+      inviteCode:
+        typeof (request.body as { inviteCode?: unknown })?.inviteCode === "string"
+          ? (request.body as { inviteCode: string }).inviteCode.trim().toUpperCase()
+          : (request.body as { inviteCode?: unknown })?.inviteCode
+    });
     await ensureUserProfile(currentUser.id, currentUser.email);
 
     const family = await db.query.families.findFirst({

@@ -32,7 +32,14 @@ export function buildApp() {
 
   app.register(rateLimit, {
     max: 120,
-    timeWindow: "1 minute"
+    timeWindow: "1 minute",
+    errorResponseBuilder: function (_request, context) {
+      const retryAfterMs = Number(context.after) || 0;
+      return {
+        error: `Too many requests. Try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))} seconds.`,
+        code: "RATE_LIMITED"
+      };
+    }
   });
 
   app.setErrorHandler((error, _request, reply) => {
