@@ -8,6 +8,9 @@ import { events } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { getTravelReminderRecommendation } from "../lib/travelReminder.js";
 
+const DAILY_DIGEST_QUEUE = "daily-digest-send";
+const TRAVEL_REMINDER_QUEUE = "travel-reminder-send";
+
 let boss: PgBoss | null = null;
 let bossStarted = false;
 
@@ -18,10 +21,14 @@ export async function startJobWorker() {
   }
 
   boss = new PgBoss(env.DATABASE_URL);
+  boss.on("error", (error) => {
+    console.error("HomeThread job worker error", error);
+  });
   await boss.start();
+  await ensureQueues(boss);
   bossStarted = true;
 
-  await boss.work<{ familyId: string }>("daily-digest-send", async (jobs) => {
+  await boss.work<{ familyId: string }>(DAILY_DIGEST_QUEUE, async (jobs) => {
     for (const job of jobs) {
       const familyId = String(job.data.familyId);
       const digest = await buildDailyDigest(familyId);
@@ -34,7 +41,7 @@ export async function startJobWorker() {
     }
   });
 
-  await boss.work<{ familyId: string; eventId: string }>("travel-reminder-send", async (jobs) => {
+  await boss.work<{ familyId: string; eventId: string }>(TRAVEL_REMINDER_QUEUE, async (jobs) => {
     for (const job of jobs) {
       const familyId = String(job.data.familyId);
       const eventId = String(job.data.eventId);
@@ -79,7 +86,7 @@ export async function enqueueDailyDigestJob(familyId: string) {
     return null;
   }
 
-  return boss.send("daily-digest-send", { familyId });
+  return boss.send(DAILY_DIGEST_QUEUE, { familyId });
 }
 
 export async function enqueueTravelReminderJob(familyId: string, eventId: string) {
@@ -87,7 +94,7 @@ export async function enqueueTravelReminderJob(familyId: string, eventId: string
     return null;
   }
 
-  return boss.send("travel-reminder-send", { familyId, eventId });
+  return boss.send(TRAVEL_REMINDER_QUEUE, { familyId, eventId });
 }
 
 export function getJobWorkerStatus() {
@@ -95,4 +102,16 @@ export function getJobWorkerStatus() {
     enabled: getJobsConfig().enabled,
     started: bossStarted
   };
+}
+
+async function ensureQueues(worker: PgBoss) {
+  for (const queueName of [DAILY_DIGEST_QUEUE, TRAVEL_REMINDER_QUEUE]) {
+    try {
+      await worker.createQueue(queueName);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.toLowerCase().includes("already exists")) {
+        throw error;
+      }
+    }
+  }
 }
