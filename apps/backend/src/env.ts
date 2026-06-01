@@ -36,6 +36,12 @@ const envSchema = z.object({
 
 export const env = envSchema.parse(process.env);
 
+export function getAllowedFrontendOrigins() {
+  return env.FRONTEND_URL.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 export function getAuthStatus() {
   const supabaseConfigured = Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim());
   const devTokenAllowed = env.NODE_ENV !== "production";

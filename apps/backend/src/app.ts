@@ -3,7 +3,7 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { ZodError } from "zod";
 
-import { env } from "./env.js";
+import { env, getAllowedFrontendOrigins } from "./env.js";
 import { sendError, sendZodError } from "./lib/http.js";
 import { aiRoutes } from "./routes/ai.js";
 import { authRoutes } from "./routes/auth.js";
@@ -27,7 +27,7 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: env.NODE_ENV === "production" ? [env.FRONTEND_URL] : true
+    origin: env.NODE_ENV === "production" ? getAllowedFrontendOrigins() : true
   });
 
   app.register(rateLimit, {
