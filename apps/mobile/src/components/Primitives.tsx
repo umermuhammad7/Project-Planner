@@ -1,8 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { PropsWithChildren } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { PropsWithChildren, useRef } from "react";
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { colors, radii, shadow, spacing } from "../constants/theme";
+import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { FamilyMember } from "../types";
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -63,18 +63,28 @@ export function IconButton({
   onPress: () => void;
   selected?: boolean;
 }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={[styles.iconButton, selected && styles.iconButtonSelected]}
-    >
-      <Ionicons name={icon} size={20} color={selected ? colors.primary : colors.muted} />
-      <Text style={[styles.iconButtonText, selected && styles.iconButtonTextSelected]} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
+    <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={onPress}
+        onPressIn={() => animatePress(scale, 0.96)}
+        onPressOut={() => animatePress(scale, 1)}
+        style={({ pressed }) => [
+          styles.iconButton,
+          selected && styles.iconButtonSelected,
+          pressed && styles.iconButtonPressed
+        ]}
+      >
+        <Ionicons name={icon} size={20} color={selected ? colors.primary : colors.muted} />
+        <Text style={[styles.iconButtonText, selected && styles.iconButtonTextSelected]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -87,18 +97,31 @@ export function PrimaryButton({
   label: string;
   icon?: IconName;
   onPress: () => void;
-  tone?: "primary" | "dark";
+  tone?: "primary" | "dark" | "soft" | "ghost";
 }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const iconColor = buttonForeground(tone);
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={[styles.primaryButton, tone === "dark" && styles.darkButton]}
-    >
-      {icon ? <Ionicons name={icon} size={18} color="#FFFFFF" /> : null}
-      <Text style={styles.primaryButtonText}>{label}</Text>
-    </Pressable>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        onPress={onPress}
+        onPressIn={() => animatePress(scale, 0.97)}
+        onPressOut={() => animatePress(scale, 1)}
+        style={({ pressed }) => [
+          styles.primaryButton,
+          tone === "dark" && styles.darkButton,
+          tone === "soft" && styles.softButton,
+          tone === "ghost" && styles.ghostButton,
+          pressed && styles[pressedToneStyleName(tone)]
+        ]}
+      >
+        {icon ? <Ionicons name={icon} size={18} color={iconColor} /> : null}
+        <Text style={[styles.primaryButtonText, { color: iconColor }]}>{label}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -110,13 +133,36 @@ function toneColor(tone: "neutral" | "primary" | "mint" | "coral" | "gold") {
   return colors.muted;
 }
 
+function buttonForeground(tone: "primary" | "dark" | "soft" | "ghost") {
+  if (tone === "soft") return colors.primary;
+  if (tone === "ghost") return colors.ink;
+  return "#FFFFFF";
+}
+
+function pressedToneStyleName(tone: "primary" | "dark" | "soft" | "ghost") {
+  if (tone === "dark") return "darkButtonPressed";
+  if (tone === "soft") return "softButtonPressed";
+  if (tone === "ghost") return "ghostButtonPressed";
+  return "primaryButtonPressed";
+}
+
+function animatePress(scale: Animated.Value, toValue: number) {
+  Animated.spring(scale, {
+    toValue,
+    useNativeDriver: Platform.OS !== "web",
+    stiffness: 240,
+    damping: 24,
+    mass: 1
+  }).start();
+}
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.line,
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    padding: spacing.lg,
+    padding: spacing.md,
     ...shadow.card
   },
   row: {
@@ -132,13 +178,14 @@ const styles = StyleSheet.create({
   },
   sectionText: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "800"
+    fontFamily: fonts.display,
+    fontSize: 23,
+    fontWeight: "700"
   },
   sectionAction: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: "800"
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700"
   },
   pill: {
     alignItems: "center",
@@ -150,7 +197,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7
   },
   neutralPill: {
-    backgroundColor: "#F1ECE5"
+    backgroundColor: colors.surfaceRaised
   },
   primaryPill: {
     backgroundColor: colors.primarySoft
@@ -166,11 +213,13 @@ const styles = StyleSheet.create({
   },
   pillText: {
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "700"
   },
   avatar: {
     alignItems: "center",
     borderRadius: radii.pill,
+    borderColor: "rgba(255,255,255,0.9)",
+    borderWidth: 2,
     justifyContent: "center"
   },
   avatarText: {
@@ -180,20 +229,24 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     alignItems: "center",
-    borderRadius: radii.md,
+    borderRadius: radii.lg,
     flex: 1,
-    gap: 3,
-    minHeight: 52,
+    gap: 4,
+    minHeight: 60,
     justifyContent: "center",
-    paddingHorizontal: 4
+    paddingHorizontal: 4,
+    paddingVertical: 6
   },
   iconButtonSelected: {
     backgroundColor: colors.primarySoft
   },
+  iconButtonPressed: {
+    opacity: 0.84
+  },
   iconButtonText: {
-    color: colors.muted,
+    color: colors.tertiary,
     fontSize: 10,
-    fontWeight: "800"
+    fontWeight: "700"
   },
   iconButtonTextSelected: {
     color: colors.primary
@@ -201,19 +254,51 @@ const styles = StyleSheet.create({
   primaryButton: {
     alignItems: "center",
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
     borderRadius: radii.pill,
+    borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
     minHeight: 52,
-    paddingHorizontal: spacing.lg
+    paddingHorizontal: spacing.lg,
+    shadowColor: colors.ink,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }
+  },
+  primaryButtonPressed: {
+    backgroundColor: colors.primaryPressed,
+    opacity: 0.96
   },
   darkButton: {
-    backgroundColor: colors.ink
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
+  },
+  darkButtonPressed: {
+    backgroundColor: "#1F190F",
+    opacity: 0.96
+  },
+  softButton: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "rgba(139,107,74,0.18)",
+    shadowOpacity: 0.03
+  },
+  softButtonPressed: {
+    backgroundColor: "#E9D8C5",
+    opacity: 0.98
+  },
+  ghostButton: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    shadowOpacity: 0.02
+  },
+  ghostButtonPressed: {
+    backgroundColor: "#F5EFE7",
+    opacity: 0.98
   },
   primaryButtonText: {
-    color: "#FFFFFF",
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "700"
   }
 });

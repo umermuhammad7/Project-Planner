@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import {
@@ -548,13 +548,16 @@ function buildLocalDaySummary(context: AssistantContext) {
 const styles = StyleSheet.create({
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    letterSpacing: 0
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22,
     marginTop: spacing.sm
   },
@@ -565,8 +568,9 @@ const styles = StyleSheet.create({
   },
   guardrailTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
     lineHeight: 22,
     marginTop: spacing.md
   },
@@ -613,8 +617,8 @@ const styles = StyleSheet.create({
     lineHeight: 20
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -640,8 +644,9 @@ const styles = StyleSheet.create({
   },
   draftTitle: {
     color: colors.ink,
-    fontSize: 22,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "700",
     lineHeight: 27
   },
   meta: {
@@ -659,14 +664,14 @@ const styles = StyleSheet.create({
   reviewNote: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     lineHeight: 18,
     marginTop: spacing.md
   },
   saveStatus: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.md
   },
   saveRow: {

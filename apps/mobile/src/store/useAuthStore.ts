@@ -41,6 +41,7 @@ type AuthState = {
   bootstrap: () => Promise<void>;
   signInWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
+  signInWithGoogle: () => Promise<{ ok: boolean; message?: string }>;
   signInWithDevToken: () => Promise<{ ok: boolean; message?: string }>;
   createFamily: (name: string) => Promise<{ ok: boolean; message?: string; inviteCode?: string }>;
   joinFamily: (inviteCode: string) => Promise<{ ok: boolean; message?: string }>;
@@ -75,6 +76,14 @@ const signedOutState = {
 };
 
 const devAuthToken = process.env.EXPO_PUBLIC_DEV_AUTH_TOKEN?.trim() ?? "homethread-dev-token";
+
+function getBrowserRedirectUrl() {
+  if (typeof window === "undefined" || !window.location) {
+    return null;
+  }
+
+  return `${window.location.origin}${window.location.pathname}`;
+}
 
 async function loadMembership(accessToken: string) {
   const previousToken = useAuthStore.getState().accessToken;
@@ -117,84 +126,94 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   supabaseConfiguredOnClient: isSupabaseConfigured,
   devTokenAvailable: Boolean(devAuthToken),
   bootstrap: async () => {
-    setApiAccessTokenProvider(() => get().accessToken);
-    setApiUnauthorizedHandler(async () => {
-      const currentMode = get().mode;
-      if (currentMode === "signed_out" || currentMode === "loading") {
+    try {
+      setApiAccessTokenProvider(() => get().accessToken);
+      setApiUnauthorizedHandler(async () => {
+        const currentMode = get().mode;
+        if (currentMode === "signed_out" || currentMode === "loading") {
+          return;
+        }
+
+        if (supabaseClient) {
+          await supabaseClient.auth.signOut();
+        }
+
+        set({
+          ...signedOutState,
+          authMessage: "Your session expired. Sign in again to keep household data in sync."
+        });
+      });
+
+      const statusResult = await apiRequest<AuthStatusResponse>("/auth/status");
+      const backendAuthMode = statusResult.data?.mode ?? null;
+      const devTokenAvailable = Boolean(devAuthToken) && (statusResult.data?.devTokenAllowed ?? false);
+      const apiConfig = getApiConfigurationStatus();
+
+      if (!supabaseClient) {
+        set({
+          ...signedOutState,
+          backendAuthMode,
+          devTokenAvailable,
+          authMessage: isSupabaseConfigured
+            ? null
+            : "Supabase is not configured in the app. Sign in with the local dev token or add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY."
+        });
         return;
       }
 
-      if (supabaseClient) {
-        await supabaseClient.auth.signOut();
+      const { data, error } = await supabaseClient.auth.getSession();
+
+      if (error) {
+        set({
+          ...signedOutState,
+          backendAuthMode,
+          authMessage: error.message
+        });
+        return;
+      }
+
+      if (!data.session?.access_token) {
+        set({
+          ...signedOutState,
+          backendAuthMode,
+          authMessage: statusResult.data ? apiConfig.message : statusResult.error?.message ?? apiConfig.message
+        });
+        return;
+      }
+
+      const membership = await loadMembership(data.session.access_token);
+      if (!membership.ok) {
+        set({
+          ...signedOutState,
+          backendAuthMode,
+          authMessage: membership.message
+        });
+        return;
       }
 
       set({
-        ...signedOutState,
-        authMessage: "Your session expired. Sign in again to keep household data in sync."
-      });
-    });
-
-    const statusResult = await apiRequest<AuthStatusResponse>("/auth/status");
-    const backendAuthMode = statusResult.data?.mode ?? null;
-    const devTokenAvailable = Boolean(devAuthToken) && (statusResult.data?.devTokenAllowed ?? false);
-    const apiConfig = getApiConfigurationStatus();
-
-    if (!supabaseClient) {
-      set({
-        ...signedOutState,
+        mode: "supabase",
+        accessToken: data.session.access_token,
+        userId: membership.userId,
+        email: membership.email,
+        displayName: membership.displayName,
+        familyId: membership.familyId,
+        pushToken: membership.pushToken,
+        notificationPrefs: membership.notificationPrefs,
         backendAuthMode,
-        devTokenAvailable,
-        authMessage: isSupabaseConfigured
+        authMessage: membership.familyId
           ? null
-          : "Supabase is not configured in the app. Sign in with the local dev token or add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY."
+          : "Signed in, but this account is not linked to a family yet."
       });
-      return;
-    }
-
-    const { data, error } = await supabaseClient.auth.getSession();
-
-    if (error) {
+    } catch (error) {
       set({
         ...signedOutState,
-        backendAuthMode,
-        authMessage: error.message
+        authMessage:
+          error instanceof Error
+            ? `HomeThread could not start sign-in services: ${error.message}`
+            : "HomeThread could not start sign-in services."
       });
-      return;
     }
-
-    if (!data.session?.access_token) {
-      set({
-        ...signedOutState,
-        backendAuthMode,
-        authMessage: statusResult.data ? apiConfig.message : statusResult.error?.message ?? apiConfig.message
-      });
-      return;
-    }
-
-    const membership = await loadMembership(data.session.access_token);
-    if (!membership.ok) {
-      set({
-        ...signedOutState,
-        backendAuthMode,
-        authMessage: membership.message
-      });
-      return;
-    }
-
-    set({
-      mode: "supabase",
-      accessToken: data.session.access_token,
-      userId: membership.userId,
-      email: membership.email,
-      displayName: membership.displayName,
-      familyId: membership.familyId,
-      pushToken: membership.pushToken,
-      notificationPrefs: membership.notificationPrefs,
-      backendAuthMode,
-      authMessage: membership.familyId
-        ? null
-        : "Signed in, but this account is not linked to a family yet."
-    });
   },
   signInWithPassword: async (email, password) => {
     if (!supabaseClient) {
@@ -281,6 +300,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         ? null
         : "Account created. Family setup is still required before HomeThread can load household data."
     });
+
+    return { ok: true };
+  },
+  signInWithGoogle: async () => {
+    if (!supabaseClient) {
+      return { ok: false, message: "Supabase is not configured in this app build." };
+    }
+
+    const redirectTo = getBrowserRedirectUrl();
+    if (!redirectTo) {
+      return {
+        ok: false,
+        message: "Google sign-in is only wired for the browser in this build."
+      };
+    }
+
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo
+      }
+    });
+
+    if (error) {
+      return { ok: false, message: error.message };
+    }
 
     return { ok: true };
   },

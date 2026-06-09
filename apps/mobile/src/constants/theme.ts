@@ -1,46 +1,65 @@
 import { Platform, StyleSheet } from "react-native";
 
 export const colors = {
-  ink: "#172033",
-  muted: "#667085",
-  canvas: "#F7F4EF",
-  surface: "#FFFFFF",
-  line: "#E7E0D6",
-  primary: "#3157D5",
-  primarySoft: "#E7ECFF",
-  coral: "#F9735B",
-  coralSoft: "#FFE8E2",
-  mint: "#2DAA84",
-  mintSoft: "#DFF7EE",
-  gold: "#F4B740",
-  goldSoft: "#FFF3CF",
-  berry: "#A85576",
-  sky: "#3A91C9",
-  skySoft: "#E5F4FF",
-  danger: "#D83F31"
+  ink: "#2C2416",
+  muted: "#7A6E5F",
+  tertiary: "#A89F92",
+  canvas: "#F7F3EE",
+  surface: "#FFFCF8",
+  surfaceRaised: "#EFEBE4",
+  line: "#E8E2D9",
+  lineStrong: "#D7CDBC",
+  primary: "#8B6B4A",
+  primaryPressed: "#6D5238",
+  primarySoft: "#F2E7DA",
+  coral: "#A0493B",
+  coralSoft: "#F6E6E2",
+  mint: "#5C7A5A",
+  mintSoft: "#E6EEE2",
+  gold: "#C17D3C",
+  goldSoft: "#F6E8D3",
+  berry: "#9B6B8A",
+  sky: "#6B7FAD",
+  skySoft: "#E8ECF5",
+  danger: "#A0493B"
 };
 
 export const spacing = {
   xs: 4,
   sm: 8,
-  md: 12,
-  lg: 16,
+  md: 16,
+  lg: 20,
   xl: 24,
-  xxl: 32
+  xxl: 32,
+  xxxl: 48
 };
 
 export const radii = {
   sm: 6,
   md: 12,
-  lg: 20,
+  lg: 16,
+  xl: 24,
   pill: 999
+};
+
+export const fonts = {
+  display: Platform.select({
+    ios: "Georgia",
+    android: "serif",
+    default: "Georgia"
+  }),
+  body: Platform.select({
+    ios: "System",
+    android: "sans-serif",
+    default: "System"
+  })
 };
 
 export const shadow = StyleSheet.create({
   card: {
     ...Platform.select({
       ios: {
-        shadowColor: "#000",
+        shadowColor: colors.ink,
         shadowOpacity: 0.06,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 6 }
@@ -49,7 +68,7 @@ export const shadow = StyleSheet.create({
         elevation: 2
       },
       default: {
-        shadowColor: "rgba(0,0,0,0.08)",
+        shadowColor: "rgba(44,36,22,0.10)",
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 6 }
       }

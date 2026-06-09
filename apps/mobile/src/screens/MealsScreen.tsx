@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { MealType, RecipeImportDraft, RecipeImportResponse, RecipeIngredient } from "../types";
@@ -141,6 +141,10 @@ export function MealsScreen() {
       items: meals.filter((meal) => meal.dayOfWeek === index)
     }));
   }, [meals]);
+  const plannedDinnerCount = useMemo(
+    () => meals.filter((meal) => meal.mealType === "dinner").length,
+    [meals]
+  );
 
   async function savePlannedMeal() {
     const ok = await createMeal({
@@ -168,7 +172,7 @@ export function MealsScreen() {
     if (syncSource !== "api") {
       if (importSource === "url") {
         setImportNote(
-          "URL import needs the API backend. HomeThread does not fetch recipe pages in this build — paste the recipe text instead."
+          "URL import needs the API backend. HomeThread does not fetch recipe pages in this build - paste the recipe text instead."
         );
         setIsParsingImport(false);
         return;
@@ -230,18 +234,35 @@ export function MealsScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>Meals</Text>
-      <Text style={styles.subtitle}>Keep the week visible so dinner stops turning into a 5 p.m. surprise.</Text>
+      <Text style={styles.title}>This week's meals</Text>
+      <Text style={styles.subtitle}>Keep the week visible so dinner stops turning into a five o'clock surprise.</Text>
 
       <SyncStatusRow syncSource={syncSource} isHydrating={isHydrating} />
       <Text style={styles.weekNote}>Meal plan week starting {mealWeekStart}</Text>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <Card>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryBlock}>
+            <Text style={styles.summaryLabel}>Dinner coverage</Text>
+            <Text style={styles.summaryValue}>{plannedDinnerCount}</Text>
+            <Text style={styles.summaryMeta}>planned dinners this week</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryBlock}>
+            <Text style={styles.summaryLabel}>Recipe shelf</Text>
+            <Text style={styles.summaryValue}>{recipes.length}</Text>
+            <Text style={styles.summaryMeta}>saved recipes ready to reuse</Text>
+          </View>
+        </View>
+      </Card>
 
       {meals.length > 0 ? (
         <View style={styles.weekGroceryRow}>
           <PrimaryButton
             label={isSaving ? "Working..." : "Week to grocery"}
             icon="basket"
+            tone="soft"
             onPress={() => {
               if (isSaving) return;
               void addWeekMealsToGrocery();
@@ -281,6 +302,7 @@ export function MealsScreen() {
           <PrimaryButton
             label={isParsingImport ? "Parsing..." : "Parse recipe"}
             icon="sparkles"
+            tone="soft"
             onPress={() => {
               if (isParsingImport) return;
               void parseRecipeImport();
@@ -378,7 +400,7 @@ export function MealsScreen() {
                 <PrimaryButton
                   label="To grocery"
                   icon="basket"
-                  tone="dark"
+                  tone="soft"
                   onPress={() => {
                     if (isSaving) return;
                     void addMealIngredientsToGrocery({ recipeId: recipe.id });
@@ -510,7 +532,7 @@ export function MealsScreen() {
                     <PrimaryButton
                       label="To grocery"
                       icon="basket"
-                      tone="dark"
+                      tone="soft"
                       onPress={() => {
                         if (isSaving) return;
                         void addMealIngredientsToGrocery({
@@ -522,7 +544,7 @@ export function MealsScreen() {
                     <PrimaryButton
                       label="Remove"
                       icon="trash"
-                      tone="dark"
+                      tone="ghost"
                       onPress={() => {
                         if (isSaving) return;
                         void removeMeal(item.id);
@@ -542,13 +564,16 @@ export function MealsScreen() {
 const styles = StyleSheet.create({
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    letterSpacing: 0
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22,
     marginTop: spacing.sm
   },
@@ -567,27 +592,59 @@ const styles = StyleSheet.create({
   statusText: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.sm
   },
   weekNote: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.xs
   },
   weekGroceryRow: {
     marginTop: spacing.md
   },
+  summaryRow: {
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  summaryBlock: {
+    flex: 1,
+    gap: spacing.xs
+  },
+  summaryDivider: {
+    backgroundColor: colors.line,
+    width: 1
+  },
+  summaryLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  summaryValue: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 32
+  },
+  summaryMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
+  },
   formTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
     marginBottom: spacing.md
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -600,9 +657,9 @@ const styles = StyleSheet.create({
     textAlignVertical: "top"
   },
   pickerLabel: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "800",
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
     marginTop: spacing.md
   },
   pickerRow: {
@@ -634,8 +691,9 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
     marginBottom: spacing.xs
   },
   importNote: {
@@ -660,8 +718,8 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   selectedRecipeNote: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -688,7 +746,7 @@ const styles = StyleSheet.create({
   itemTitle: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   itemMeta: {
     color: colors.muted,
@@ -699,7 +757,7 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 20
   }
 });

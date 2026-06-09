@@ -46,6 +46,20 @@ vi.mock("../../mobile/src/constants/theme.js", () => ({
 import { useHomeThreadStore } from "../../mobile/src/store/useHomeThreadStore.js";
 import { clearOfflineQueue } from "../../mobile/src/services/offlineQueue.js";
 
+function currentWeekStart() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diff);
+  monday.setHours(0, 0, 0, 0);
+
+  const year = monday.getFullYear();
+  const month = String(monday.getMonth() + 1).padStart(2, "0");
+  const date = String(monday.getDate()).padStart(2, "0");
+  return `${year}-${month}-${date}`;
+}
+
 describe("HomeThread mobile store semantics", () => {
   beforeEach(() => {
     apiRequestMock.mockReset();
@@ -54,6 +68,8 @@ describe("HomeThread mobile store semantics", () => {
   });
 
   it("hydrates multi-list backend state while preserving selected list and event assignments", async () => {
+    const weekStart = currentWeekStart();
+
     useHomeThreadStore.setState({
       selectedListId: "list-hardware",
       completedChoreIds: { "chore-1": true }
@@ -158,11 +174,10 @@ describe("HomeThread mobile store semantics", () => {
               ]
             }
           };
-        case "/families/00000000-0000-4000-8000-000000000201/meals?weekStart=2026-05-26":
-        case "/families/00000000-0000-4000-8000-000000000201/meals?weekStart=2026-05-25":
+        case `/families/00000000-0000-4000-8000-000000000201/meals?weekStart=${weekStart}`:
           return {
             data: {
-              weekStart: "2026-05-25",
+              weekStart,
               items: [
                 {
                   id: "meal-1",

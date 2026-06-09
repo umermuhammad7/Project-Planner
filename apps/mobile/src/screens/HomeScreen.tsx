@@ -1,9 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { Chore, TabKey } from "../types";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
@@ -44,10 +45,7 @@ export function HomeScreen({
   } = useHomeThreadStore();
   const listItemsByListId = useHomeThreadStore((state) => state.listItemsByListId);
 
-  const todayLabel = useMemo(
-    () => new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }),
-    []
-  );
+  const todayLabel = useMemo(() => formatLongDate(new Date()), []);
   const backendConnected = syncSource === "api";
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
   const openItems = useMemo(
@@ -97,39 +95,39 @@ export function HomeScreen({
     if (nextEvent) {
       entries.push({
         key: "next-event",
-        icon: "calendar",
+        icon: "calendar-outline",
         label: "Next plan",
         value: `${nextEvent.title} at ${nextEvent.time}`,
         tone: nextUrgency?.tone ?? "primary"
       });
     }
 
-    if (todayDinner) {
-      entries.push({
-        key: "dinner",
-        icon: "restaurant",
-        label: "Dinner",
-        value: todayDinner.title,
-        tone: "coral"
-      });
-    }
-
     if (openChores.length > 0) {
       entries.push({
         key: "chores",
-        icon: "checkmark-done",
+        icon: "checkmark-done-outline",
         label: "Open chores",
-        value: `${openChores.length} still need attention`,
+        value: `${openChores.length} still need eyes on them`,
         tone: "gold"
+      });
+    }
+
+    if (todayDinner) {
+      entries.push({
+        key: "dinner",
+        icon: "restaurant-outline",
+        label: "Tonight",
+        value: todayDinner.title,
+        tone: "coral"
       });
     }
 
     if (openItems.length > 0) {
       entries.push({
         key: "shopping",
-        icon: "bag-handle",
+        icon: "bag-handle-outline",
         label: "Shopping",
-        value: `${openItems.length} items left to grab`,
+        value: `${openItems.length} items left to pick up`,
         tone: "mint"
       });
     }
@@ -137,111 +135,130 @@ export function HomeScreen({
     if (unreadNotifications.length > 0) {
       entries.push({
         key: "notifications",
-        icon: "notifications",
-        label: "Unread updates",
-        value: `${unreadNotifications.length} waiting`,
+        icon: "notifications-outline",
+        label: "Unread",
+        value: `${unreadNotifications.length} family updates are waiting`,
         tone: "primary"
       });
     }
 
     return entries.slice(0, 4);
-  }, [nextEvent, nextUrgency?.tone, todayDinner, openChores.length, openItems.length, unreadNotifications.length]);
+  }, [nextEvent, nextUrgency?.tone, openChores.length, todayDinner, openItems.length, unreadNotifications.length]);
 
-  const heroTitle = nextEvent
-    ? `${nextEvent.title} is the next thing that matters.`
+  const dayHeadline = nextEvent
+    ? `${nextEvent.title} is setting the pace today.`
     : openChores.length > 0
-      ? "A few chores are still open today."
+      ? "A few house jobs still need a clear owner."
       : todayDinner
-        ? "Tonight's dinner already has a plan."
-        : "The day is clear right now.";
+        ? "Dinner is already one less thing to think about."
+        : "The day looks calm from here.";
 
-  const heroText = nextEvent
-    ? `${nextUrgency?.label ?? nextEvent.dateLabel}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
-    : openChores.length > 0
-      ? `${openChores.length} chores and ${openItems.length} shopping items are still open.`
-      : "Add the first plan, list, or chore so everyone knows what today looks like.";
+  const daySupport = buildHomeSummary({
+    nextEventTitle: nextEvent?.title,
+    nextEventTime: nextEvent?.time,
+    openChoreCount: openChores.length,
+    openItemCount: openItems.length,
+    unreadCount: unreadNotifications.length
+  });
 
   return (
     <View>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={styles.kicker}>HomeThread</Text>
-          <Text style={styles.title}>{familyName}</Text>
-          <Text style={styles.subhead}>{todayLabel}</Text>
+          <Text style={styles.kicker}>Today in {familyName}</Text>
+          <Text style={styles.title}>{todayLabel}</Text>
+          <Text style={styles.subhead}>{daySupport}</Text>
         </View>
         <View style={styles.memberStack}>
           {members.slice(0, 3).map((member) => (
-            <MemberAvatar key={member.id} member={member} size={36} />
+            <MemberAvatar key={member.id} member={member} size={38} />
           ))}
         </View>
       </View>
 
       <Card>
-        <View style={styles.heroTop}>
-          <View style={styles.heroCopy}>
-            <Pill
-              label={getSyncPillLabel(syncSource)}
-              tone={getSyncPillTone(syncSource)}
-              icon={backendConnected ? "sparkles" : "information-circle"}
-            />
-            <Text style={styles.heroTitle}>{heroTitle}</Text>
-            <Text style={styles.heroText}>{heroText}</Text>
+        <LinearGradient
+          colors={[colors.surface, "#F4EEE6"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroPanel}
+        >
+          <View style={styles.heroTop}>
+            <View style={styles.heroCopy}>
+              <Pill
+                label={getSyncPillLabel(syncSource)}
+                tone={getSyncPillTone(syncSource)}
+                icon={backendConnected ? "sparkles" : "information-circle"}
+              />
+              <Text style={styles.heroTitle}>{dayHeadline}</Text>
+              <Text style={styles.heroText}>
+                {nextEvent
+                  ? `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
+                  : todayDinner
+                    ? `${todayDinner.title} is already penciled in for tonight.`
+                    : "Add the next plan, list, or chore before the household starts carrying it by memory."}
+              </Text>
+            </View>
+            <View style={styles.heroIcon}>
+              <Ionicons name="home-outline" size={24} color={colors.primary} />
+            </View>
           </View>
-          <View style={styles.heroIcon}>
-            <Ionicons name="sunny" size={26} color={colors.gold} />
-          </View>
-        </View>
 
-        {homeHighlights.length > 0 ? (
-          <View style={styles.highlightGrid}>
-            {homeHighlights.map((item) => (
-              <View key={item.key} style={styles.highlightCard}>
-                <View style={[styles.highlightIcon, highlightToneStyles[item.tone]]}>
-                  <Ionicons name={item.icon} size={18} color={highlightToneColors[item.tone]} />
+          {homeHighlights.length > 0 ? (
+            <View style={styles.highlightGrid}>
+              {homeHighlights.map((item) => (
+                <View key={item.key} style={styles.highlightCard}>
+                  <View style={[styles.highlightIcon, highlightToneStyles[item.tone]]}>
+                    <Ionicons name={item.icon} size={18} color={highlightToneColors[item.tone]} />
+                  </View>
+                  <Text style={styles.highlightLabel}>{item.label}</Text>
+                  <Text style={styles.highlightValue}>{item.value}</Text>
                 </View>
-                <Text style={styles.highlightLabel}>{item.label}</Text>
-                <Text style={styles.highlightValue}>{item.value}</Text>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <View style={styles.emptyPanel}>
-            <Text style={styles.emptyPanelTitle}>A calm start is a good sign.</Text>
-            <Text style={styles.emptyPanelText}>
-              No urgent plans, chores, or shopping items are showing yet. Add the first one before texts start flying.
-            </Text>
-          </View>
-        )}
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyPanel}>
+              <Text style={styles.emptyPanelTitle}>A quiet page is a good sign.</Text>
+              <Text style={styles.emptyPanelText}>
+                Nothing urgent is crowding the household right now. Add the first plan only when something actually matters.
+              </Text>
+            </View>
+          )}
 
-        <View style={styles.heroActions}>
-          <PrimaryButton
-            label={isHydrating ? "Refreshing..." : "Refresh"}
-            icon="sync"
-            tone="dark"
-            onPress={() => {
-              if (isHydrating) return;
-              void refreshFromBackend();
-            }}
-          />
-          <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
-          <PrimaryButton label="Digest" icon="chatbubbles" tone="dark" onPress={() => goTo("thread")} />
-        </View>
-        <Text style={styles.syncText}>
-          {isHydrating ? "Refreshing household data..." : backendConnected ? syncMessage : "Local preview — connect the backend to sync for everyone."}
-        </Text>
+          <View style={styles.heroActions}>
+            <PrimaryButton
+              label={isHydrating ? "Refreshing..." : "Refresh"}
+              icon="sync"
+              tone="ghost"
+              onPress={() => {
+                if (isHydrating) return;
+                void refreshFromBackend();
+              }}
+            />
+            <PrimaryButton label="Quick add" icon="add" onPress={() => goTo("add")} />
+            <PrimaryButton label="Family board" icon="chatbubbles" tone="soft" onPress={() => goTo("thread")} />
+          </View>
+          <Text style={styles.syncText}>
+            {isHydrating
+              ? "Refreshing the household page..."
+              : backendConnected
+                ? syncMessage
+                : "This build is running in local preview. Connect the backend when you want the whole household to share the same live state."}
+          </Text>
+        </LinearGradient>
       </Card>
 
-      <SectionTitle title="Today at a glance" />
+      <SectionTitle title="Today's picture" />
       <View style={styles.stack}>
         <Card>
           <View style={styles.snapshotRow}>
             <View style={styles.snapshotColumn}>
               <Text style={styles.snapshotLabel}>Next plan</Text>
-              <Text style={styles.snapshotValue}>{nextEvent ? nextEvent.title : "Nothing scheduled yet"}</Text>
+              <Text style={styles.snapshotValue}>{nextEvent ? nextEvent.title : "Nothing is scheduled yet"}</Text>
               <Text style={styles.snapshotMeta}>
                 {nextEvent
                   ? `${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
-                  : "Add the first event when the family day takes shape."}
+                  : "Add the first event when the day starts taking shape."}
               </Text>
             </View>
             {nextUrgency ? <Pill label={nextUrgency.label} tone={nextUrgency.tone} /> : null}
@@ -251,13 +268,13 @@ export function HomeScreen({
         <Card>
           <View style={styles.snapshotRow}>
             <View style={styles.snapshotColumn}>
-              <Text style={styles.snapshotLabel}>Dinner</Text>
-              <Text style={styles.snapshotValue}>{todayDinner ? todayDinner.title : "No dinner picked yet"}</Text>
+              <Text style={styles.snapshotLabel}>Tonight</Text>
+              <Text style={styles.snapshotValue}>{todayDinner ? todayDinner.title : "Dinner is still open"}</Text>
               <Text style={styles.snapshotMeta}>
-                {todayDinner ? "Tonight is covered." : "Use Meals or the assistant before dinner hour sneaks up."}
+                {todayDinner ? "One decision is already off the table." : "Use Meals before the evening rush sneaks up."}
               </Text>
             </View>
-            <Ionicons name="restaurant" size={22} color={colors.coral} />
+            <Ionicons name="restaurant-outline" size={22} color={colors.coral} />
           </View>
         </Card>
 
@@ -265,44 +282,50 @@ export function HomeScreen({
           <View style={styles.snapshotRow}>
             <View style={styles.snapshotColumn}>
               <Text style={styles.snapshotLabel}>Open chores</Text>
-              <Text style={styles.snapshotValue}>{openChores.length === 0 ? "All caught up" : `${openChores.length} still open`}</Text>
+              <Text style={styles.snapshotValue}>
+                {openChores.length === 0 ? "Everything is caught up" : `${openChores.length} still open`}
+              </Text>
               <Text style={styles.snapshotMeta}>
-                {nextTwoChores.length > 0
-                  ? formatChorePreview(nextTwoChores, members)
-                  : "Nothing left to hand off right now."}
+                {nextTwoChores.length > 0 ? formatChorePreview(nextTwoChores, members) : "No handoff is hanging over the household."}
               </Text>
             </View>
-            <Ionicons name="checkmark-done" size={22} color={colors.gold} />
+            <Ionicons name="checkmark-done-outline" size={22} color={colors.gold} />
           </View>
         </Card>
       </View>
 
-      <SectionTitle title="Keep moving" />
+      <SectionTitle title="Move the week forward" />
       <View style={styles.quickActionGrid}>
         {onEnterKidsMode ? (
           <Card>
-            <Text style={styles.quickTitle}>Kids mode</Text>
-            <Text style={styles.quickText}>Hand the phone over with a simplified, chore-focused view.</Text>
+            <Text style={styles.quickTitle}>Hand it to the kids</Text>
+            <Text style={styles.quickText}>
+              Open the simplified chore view when you want the phone to feel like their part of the household.
+            </Text>
             <View style={styles.quickActionFooter}>
-              <PrimaryButton label="Open kids mode" icon="happy" tone="dark" onPress={onEnterKidsMode} />
+              <PrimaryButton label="Open kids mode" icon="happy" tone="soft" onPress={onEnterKidsMode} />
             </View>
           </Card>
         ) : null}
         {onOpenFamilySettings ? (
           <Card>
-            <Text style={styles.quickTitle}>Household setup</Text>
-            <Text style={styles.quickText}>Invite another adult, add child profiles, or update family settings.</Text>
+            <Text style={styles.quickTitle}>Shape the household</Text>
+            <Text style={styles.quickText}>
+              Invite another adult, add child profiles, or tidy the home settings before more people join.
+            </Text>
             <View style={styles.quickActionFooter}>
-              <PrimaryButton label="Open family" icon="people" tone="dark" onPress={onOpenFamilySettings} />
+              <PrimaryButton label="Open household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
             </View>
           </Card>
         ) : null}
         {onOpenInsights ? (
           <Card>
-            <Text style={styles.quickTitle}>Insights</Text>
-            <Text style={styles.quickText}>Check chores momentum, busyness, and how the week is really going.</Text>
+            <Text style={styles.quickTitle}>Read the week</Text>
+            <Text style={styles.quickText}>
+              Check whether chores, busyness, and family rhythm are actually holding together this week.
+            </Text>
             <View style={styles.quickActionFooter}>
-              <PrimaryButton label="See insights" icon="analytics" tone="dark" onPress={onOpenInsights} />
+              <PrimaryButton label="See insights" icon="analytics" tone="soft" onPress={onOpenInsights} />
             </View>
           </Card>
         ) : null}
@@ -310,7 +333,7 @@ export function HomeScreen({
 
       {kidsWithOpenChores.length > 0 ? (
         <>
-          <SectionTitle title="Kids need eyes on this" action={`${kidStarTotal} stars total`} />
+          <SectionTitle title="Kids who need a nudge" action={`${kidStarTotal} stars saved`} />
           <View style={styles.stack}>
             {kidsWithOpenChores.map(({ member, openCount }) => (
               <Card key={member.id}>
@@ -319,7 +342,7 @@ export function HomeScreen({
                   <View style={styles.fill}>
                     <Text style={styles.itemTitle}>{member.name}</Text>
                     <Text style={styles.itemMeta}>
-                      {openCount} chore{openCount === 1 ? "" : "s"} open - {member.starBalance} stars saved
+                      {openCount} chore{openCount === 1 ? "" : "s"} open - {member.starBalance} stars waiting
                     </Text>
                   </View>
                   <Pill label={`${member.starBalance} stars`} tone="gold" icon="star" />
@@ -331,7 +354,7 @@ export function HomeScreen({
       ) : null}
 
       <SectionTitle
-        title="Updates"
+        title="Family board"
         action={unreadNotifications.length > 0 ? `${unreadNotifications.length} unread` : "All caught up"}
       />
       <View style={styles.stack}>
@@ -339,7 +362,12 @@ export function HomeScreen({
           recentNotifications.map((notification) => (
             <Card key={notification.id}>
               <Row align="flex-start">
-                <View style={[styles.notificationIcon, notification.readAt ? styles.notificationIconMuted : styles.notificationIconUnread]}>
+                <View
+                  style={[
+                    styles.notificationIcon,
+                    notification.readAt ? styles.notificationIconMuted : styles.notificationIconUnread
+                  ]}
+                >
                   <Ionicons
                     name={notification.readAt ? "notifications-outline" : "notifications"}
                     size={18}
@@ -359,6 +387,7 @@ export function HomeScreen({
                   <PrimaryButton
                     label="Mark read"
                     icon="checkmark"
+                    tone="ghost"
                     onPress={() => {
                       void markNotificationsRead([notification.id]);
                     }}
@@ -369,15 +398,15 @@ export function HomeScreen({
           ))
         ) : (
           <Card>
-            <Text style={styles.emptyPanelTitle}>No updates yet.</Text>
+            <Text style={styles.emptyPanelTitle}>No updates are waiting.</Text>
             <Text style={styles.emptyPanelText}>
-              In-app alerts appear here after reminders or digests are recorded. Push delivery to your phone is not guaranteed in this build.
+              In-app alerts land here after digests and reminders are recorded. Push delivery is still limited in this build.
             </Text>
           </Card>
         )}
       </View>
 
-      <SectionTitle title="Dinner this week" action={`${meals.length} meals`} />
+      <SectionTitle title="Meals taking shape" action={`${meals.length} meals planned`} />
       <View style={styles.stack}>
         {dinners.length > 0 ? (
           dinners.map((meal) => (
@@ -396,15 +425,55 @@ export function HomeScreen({
           ))
         ) : (
           <Card>
-            <Text style={styles.emptyPanelTitle}>No dinners planned yet.</Text>
+            <Text style={styles.emptyPanelTitle}>No dinners are planned yet.</Text>
             <Text style={styles.emptyPanelText}>
-              Even one or two dinners makes the week feel calmer. Start with the nights that usually get hectic.
+              Even two planned nights make the rest of the week feel lighter. Start with the ones that usually get hectic.
             </Text>
           </Card>
         )}
       </View>
     </View>
   );
+}
+
+function formatLongDate(date: Date) {
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  });
+}
+
+function buildHomeSummary(input: {
+  nextEventTitle?: string;
+  nextEventTime?: string;
+  openChoreCount: number;
+  openItemCount: number;
+  unreadCount: number;
+}) {
+  const parts: string[] = [];
+
+  if (input.nextEventTitle && input.nextEventTime) {
+    parts.push(`${input.nextEventTitle} at ${input.nextEventTime}`);
+  }
+
+  if (input.openChoreCount > 0) {
+    parts.push(`${input.openChoreCount} open chore${input.openChoreCount === 1 ? "" : "s"}`);
+  }
+
+  if (input.openItemCount > 0) {
+    parts.push(`${input.openItemCount} list item${input.openItemCount === 1 ? "" : "s"}`);
+  }
+
+  if (input.unreadCount > 0) {
+    parts.push(`${input.unreadCount} unread update${input.unreadCount === 1 ? "" : "s"}`);
+  }
+
+  if (parts.length === 0) {
+    return "Nothing urgent is pressing on the household right now.";
+  }
+
+  return parts.join(" - ");
 }
 
 function formatChorePreview(chores: Chore[], members: ReturnType<typeof useHomeThreadStore.getState>["members"]) {
@@ -434,7 +503,7 @@ const highlightToneStyles = {
 
 const styles = StyleSheet.create({
   header: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: spacing.lg
@@ -446,24 +515,31 @@ const styles = StyleSheet.create({
   kicker: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "900",
-    textTransform: "uppercase"
+    fontWeight: "700"
   },
   title: {
     color: colors.ink,
-    fontSize: 32,
-    fontWeight: "900",
-    lineHeight: 36
+    fontFamily: fonts.display,
+    fontSize: 38,
+    fontWeight: "700",
+    lineHeight: 44
   },
   subhead: {
     color: colors.muted,
-    fontSize: 14,
-    fontWeight: "800"
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 22
   },
   memberStack: {
     flexDirection: "row",
     gap: spacing.xs,
-    marginLeft: spacing.md
+    marginLeft: spacing.md,
+    paddingTop: spacing.sm
+  },
+  heroPanel: {
+    borderRadius: radii.md,
+    gap: spacing.lg,
+    padding: spacing.md
   },
   heroTop: {
     flexDirection: "row",
@@ -477,33 +553,35 @@ const styles = StyleSheet.create({
   heroIcon: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: colors.goldSoft,
+    backgroundColor: "rgba(255,255,255,0.55)",
+    borderColor: "rgba(139,107,74,0.12)",
     borderRadius: radii.lg,
-    height: 44,
+    borderWidth: 1,
+    height: 46,
     justifyContent: "center",
-    width: 44
+    width: 46
   },
   heroTitle: {
     color: colors.ink,
-    fontSize: 24,
-    fontWeight: "900",
-    lineHeight: 28
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 34
   },
   heroText: {
     color: colors.muted,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 22
   },
   highlightGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md,
-    marginTop: spacing.lg
+    gap: spacing.md
   },
   highlightCard: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: "rgba(255,252,248,0.86)",
+    borderColor: "rgba(215,205,188,0.7)",
     borderRadius: radii.md,
     borderWidth: 1,
     flexGrow: 1,
@@ -520,49 +598,48 @@ const styles = StyleSheet.create({
   },
   highlightLabel: {
     color: colors.muted,
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 11,
+    fontWeight: "700",
     marginTop: spacing.xs,
     textTransform: "uppercase"
   },
   highlightValue: {
     color: colors.ink,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     lineHeight: 20
   },
   emptyPanel: {
-    backgroundColor: colors.canvas,
+    backgroundColor: "rgba(255,252,248,0.82)",
     borderColor: colors.line,
     borderRadius: radii.md,
     borderWidth: 1,
     gap: spacing.xs,
-    marginTop: spacing.lg,
     padding: spacing.lg
   },
   emptyPanelTitle: {
     color: colors.ink,
-    fontSize: 17,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 24
   },
   emptyPanelText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
+    fontWeight: "600",
+    lineHeight: 21
   },
   heroActions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md,
-    marginTop: spacing.lg
+    gap: spacing.md
   },
   syncText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
-    lineHeight: 18,
-    marginTop: spacing.md
+    fontWeight: "600",
+    lineHeight: 18
   },
   stack: {
     gap: spacing.md
@@ -577,21 +654,22 @@ const styles = StyleSheet.create({
     gap: spacing.xs
   },
   snapshotLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "800",
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700",
     textTransform: "uppercase"
   },
   snapshotValue: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
-    lineHeight: 22
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
+    lineHeight: 28
   },
   snapshotMeta: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 19
   },
   quickActionGrid: {
@@ -599,14 +677,16 @@ const styles = StyleSheet.create({
   },
   quickTitle: {
     color: colors.ink,
-    fontSize: 17,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
+    lineHeight: 27
   },
   quickText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
+    fontWeight: "600",
+    lineHeight: 21,
     marginTop: spacing.xs
   },
   quickActionFooter: {
@@ -618,13 +698,13 @@ const styles = StyleSheet.create({
   itemTitle: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: "900",
-    lineHeight: 20
+    fontWeight: "800",
+    lineHeight: 21
   },
   itemMeta: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 19,
     marginTop: 2
   },
@@ -644,7 +724,7 @@ const styles = StyleSheet.create({
   notificationMeta: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     marginTop: spacing.sm
   },
   timeBlock: {
@@ -653,13 +733,14 @@ const styles = StyleSheet.create({
   },
   time: {
     color: colors.ink,
+    fontFamily: fonts.display,
     fontSize: 18,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   date: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "800",
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700",
     textTransform: "uppercase"
   }
 });

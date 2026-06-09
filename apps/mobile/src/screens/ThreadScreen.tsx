@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { AssistantDraft, TextUpdate } from "../types";
 import { formatThreadConversion, formatThreadDirection } from "../utils/threadLabels";
@@ -46,9 +46,9 @@ export function ThreadScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>Family thread</Text>
+      <Text style={styles.title}>Family board</Text>
       <Text style={styles.subtitle}>
-        Turn messy texts into clear household updates. SMS is optional — the thread history lives here first.
+        Turn messy texts into clear household updates. SMS is optional - the thread history lives here first.
       </Text>
 
       <SyncStatusRow
@@ -77,7 +77,7 @@ export function ThreadScreen() {
           <PrimaryButton
             label="Open SMS"
             icon="chatbubble"
-            tone="dark"
+            tone="soft"
             onPress={() => {
               if (!lastDigest) return;
               void openSms(lastDigest);
@@ -96,7 +96,7 @@ export function ThreadScreen() {
       <Card>
         <Text style={styles.label}>Paste a family text</Text>
         <Text style={styles.meta}>
-          HomeThread suggests an event, chore, or list item. Review the draft before saving — nothing sends automatically.
+          HomeThread suggests an event, chore, or list item. Review the draft before saving - nothing sends automatically.
         </Text>
         <TextInput
           accessibilityLabel="Paste a family text"
@@ -111,6 +111,7 @@ export function ThreadScreen() {
           <PrimaryButton
             label="Parse text"
             icon="sparkles"
+            tone="soft"
             onPress={() => {
               if (body.trim()) {
                 setLastDraft(importText(body.trim()));
@@ -120,7 +121,6 @@ export function ThreadScreen() {
           <PrimaryButton
             label={isSaving ? "Saving..." : "Save to app"}
             icon="checkmark"
-            tone="dark"
             onPress={() => {
               if (!lastDraft || isSaving) return;
               void commitDraft(lastDraft).then(() => {
@@ -134,7 +134,7 @@ export function ThreadScreen() {
           <View style={styles.result}>
             <Pill label={lastDraft.kind} tone="mint" />
             <Text style={styles.resultText}>{lastDraft.title}</Text>
-            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% parser confidence — review before saving</Text>
+            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% parser confidence - review before saving</Text>
           </View>
         ) : null}
       </Card>
@@ -202,25 +202,28 @@ function ThreadEntry({ update }: { update: TextUpdate }) {
 const styles = StyleSheet.create({
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    letterSpacing: 0
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22,
     marginTop: spacing.sm
   },
   label: {
     color: colors.ink,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: spacing.sm
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -238,12 +241,12 @@ const styles = StyleSheet.create({
   statusText: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.sm
   },
   preview: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     gap: spacing.sm,
@@ -266,7 +269,7 @@ const styles = StyleSheet.create({
   resultText: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   meta: {
     color: colors.muted,
@@ -276,8 +279,9 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.ink,
-    fontSize: 16,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
     marginBottom: spacing.sm
   },
   sectionLabel: {
@@ -309,12 +313,12 @@ const styles = StyleSheet.create({
     color: colors.ink,
     flex: 1,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   time: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "700"
   },
   body: {
     color: colors.ink,

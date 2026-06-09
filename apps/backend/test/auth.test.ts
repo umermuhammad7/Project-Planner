@@ -1,7 +1,11 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
+import { db } from "../src/db/client.js";
+import { authUsers, users } from "../src/db/schema.js";
 import { env } from "../src/env.js";
+import { ensureUserProfile } from "../src/lib/userProvisioning.js";
 
 describe("auth guard", () => {
   it("requires bearer tokens for family routes", async () => {
@@ -141,5 +145,27 @@ describe("auth guard", () => {
         }
       }
     });
+  });
+
+  it("creates the local auth shadow user before provisioning a profile", async () => {
+    const userId = "00000000-0000-4000-8000-0000000000a1";
+    const email = "shadow-user@homethread.local";
+
+    await db.delete(users).where(eq(users.id, userId));
+    await db.delete(authUsers).where(eq(authUsers.id, userId));
+
+    await ensureUserProfile(userId, email);
+
+    const profile = await db.query.users.findFirst({
+      where: eq(users.id, userId)
+    });
+    const shadowRows = await db.select().from(authUsers).where(eq(authUsers.id, userId));
+
+    expect(profile).toMatchObject({
+      id: userId,
+      email,
+      displayName: "shadow-user"
+    });
+    expect(shadowRows).toHaveLength(1);
   });
 });

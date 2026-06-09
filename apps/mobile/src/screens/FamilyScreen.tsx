@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import {
   getNotificationCapability,
@@ -300,7 +300,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
             <PrimaryButton
               label={isSaving ? "Working..." : "Regenerate code"}
               icon="refresh"
-              tone="dark"
+              tone="soft"
               onPress={() => {
                 if (isSaving || !backendConnected) return;
                 void handleRegenerateInvite();
@@ -493,6 +493,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <PrimaryButton
             label={isRegisteringNotifications ? "Working..." : pushToken ? "Refresh notification setup" : "Enable notifications"}
             icon="notifications"
+            tone="soft"
             onPress={() => {
               if (isRegisteringNotifications) return;
               void handleEnableNotifications();
@@ -530,7 +531,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       <Card>
         <Text style={styles.cardTitle}>Family Plus</Text>
         <Text style={styles.cardText}>
-          Subscription status is read from your profile. In-app purchase, restore, and store review are not complete — they
+          Subscription status is read from your profile. In-app purchase, restore, and store review are not complete - they
           still need RevenueCat and App Store / Play Console setup.
         </Text>
         <Text style={styles.helperText}>
@@ -551,7 +552,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
             : "Signed in with Supabase. Sign out to switch accounts or return to setup."}
         </Text>
         <View style={styles.cardActions}>
-          <PrimaryButton label="Sign out" icon="log-out" tone="dark" onPress={() => void handleSignOut()} />
+          <PrimaryButton label="Sign out" icon="log-out" tone="soft" onPress={() => void handleSignOut()} />
         </View>
       </Card>
 
@@ -564,7 +565,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <PrimaryButton
             label={isSaving ? "Working..." : "Leave household"}
             icon="exit"
-            tone="dark"
+            tone="soft"
             onPress={() => {
               if (isSaving || !backendConnected) return;
               void handleLeaveFamily();
@@ -645,18 +646,20 @@ const styles = StyleSheet.create({
   kicker: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase"
   },
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    lineHeight: 34
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22
   },
   closeButton: {
@@ -667,7 +670,7 @@ const styles = StyleSheet.create({
   closeLabel: {
     color: colors.primary,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   summaryTop: {
     flexDirection: "row",
@@ -689,20 +692,22 @@ const styles = StyleSheet.create({
   },
   summaryValue: {
     color: colors.ink,
-    fontSize: 22,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "700"
   },
   summaryLabel: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.xs,
     textTransform: "uppercase"
   },
   cardTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700"
   },
   cardText: {
     color: colors.muted,
@@ -720,7 +725,7 @@ const styles = StyleSheet.create({
   helperText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 19,
     marginTop: spacing.md
   },
@@ -766,7 +771,7 @@ const styles = StyleSheet.create({
   memberName: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   memberMeta: {
     color: colors.muted,
@@ -776,13 +781,13 @@ const styles = StyleSheet.create({
   label: {
     color: colors.ink,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: spacing.xs,
     marginTop: spacing.md
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -793,19 +798,19 @@ const styles = StyleSheet.create({
   formMessage: {
     color: colors.danger,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     lineHeight: 19
   },
   saveMessage: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     lineHeight: 19
   },
   dangerText: {
     color: colors.danger,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     lineHeight: 19,
     marginTop: spacing.lg
   }

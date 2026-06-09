@@ -10,6 +10,7 @@ import { FastifyInstance } from "fastify";
 import { db } from "../db/client.js";
 import { familyMembers, families, users } from "../db/schema.js";
 import { getAuthStatus } from "../env.js";
+import { ensureAuthShadowUser, ensureUserProfile } from "../lib/userProvisioning.js";
 import { deleteSupabaseUser, requireAuth } from "../plugins/auth.js";
 
 export async function authRoutes(app: FastifyInstance) {
@@ -25,6 +26,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/profile", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = userProfileSchema.parse(request.body);
+    await ensureAuthShadowUser(currentUser.id);
 
     const [profile] = await db
       .insert(users)
@@ -89,7 +91,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.put("/push-token", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = pushTokenSchema.parse(request.body);
-    await ensureAuthUserProfile(currentUser.id, currentUser.email);
+    await ensureUserProfile(currentUser.id, currentUser.email);
 
     const [profile] = await db
       .update(users)
@@ -106,7 +108,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.put("/notification-prefs", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = notificationPrefsSchema.parse(request.body);
-    await ensureAuthUserProfile(currentUser.id, currentUser.email);
+    await ensureUserProfile(currentUser.id, currentUser.email);
 
     const [profile] = await db
       .update(users)
@@ -125,18 +127,4 @@ export async function authRoutes(app: FastifyInstance) {
       }
     });
   });
-}
-
-async function ensureAuthUserProfile(userId: string, email: string) {
-  await db
-    .insert(users)
-    .values({
-      id: userId,
-      email,
-      displayName: email.split("@")[0],
-      updatedAt: new Date()
-    })
-    .onConflictDoNothing({
-      target: users.id
-    });
 }

@@ -1,8 +1,9 @@
+import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
 
 type Mode = "welcome" | "login" | "register" | "family-setup";
@@ -12,12 +13,12 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const {
     mode: authMode,
     authMessage,
-    backendAuthMode,
     devTokenAvailable,
     supabaseConfiguredOnClient,
     familyId,
     signInWithPassword,
     signUpWithPassword,
+    signInWithGoogle,
     signInWithDevToken,
     createFamily,
     joinFamily,
@@ -32,6 +33,10 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const configurationWarning =
+    !supabaseConfiguredOnClient && authMode !== "loading"
+      ? "This build is still missing its secure sign-in setup. Install the next build after configuration is updated."
+      : null;
 
   useEffect(() => {
     if (authMode === "supabase" && !familyId && mode === "welcome") {
@@ -84,6 +89,17 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     }
 
     onSignedIn();
+  }
+
+  async function handleGoogleSignIn() {
+    setIsSubmitting(true);
+    setFormMessage(null);
+    const result = await signInWithGoogle();
+    setIsSubmitting(false);
+
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Google sign-in could not start.");
+    }
   }
 
   async function handleCreateFamily() {
@@ -156,6 +172,11 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
     return (
       <View style={styles.screen}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => setMode("welcome")} style={styles.backButton}>
+            <Text style={styles.backLabel}>Back</Text>
+          </Pressable>
+        </View>
         <Pill label="Household setup" tone="primary" icon="people" />
         <Text style={styles.title}>Create or join a family</Text>
         <Text style={styles.subtitle}>
@@ -262,6 +283,17 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
     return (
       <View style={styles.screen}>
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={() => {
+              setFormMessage(null);
+              setMode("welcome");
+            }}
+            style={styles.backButton}
+          >
+            <Text style={styles.backLabel}>Back</Text>
+          </Pressable>
+        </View>
         <Pill label={isRegister ? "Create account" : "Welcome back"} tone="primary" icon="person-circle" />
         <Text style={styles.title}>{isRegister ? "Set up your HomeThread account" : "Sign in to your household"}</Text>
         <Text style={styles.subtitle}>
@@ -271,6 +303,20 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
         </Text>
 
         <Card>
+          {supabaseConfiguredOnClient ? (
+            <>
+              <PrimaryButton
+                label={isSubmitting ? "Working..." : "Continue with Google"}
+                icon="logo-google"
+                tone="soft"
+                onPress={() => {
+                  if (isSubmitting) return;
+                  void handleGoogleSignIn();
+                }}
+              />
+              <Text style={styles.orLabel}>Or use email</Text>
+            </>
+          ) : null}
           <Text style={styles.label}>Email</Text>
           <TextInput
             style={styles.input}
@@ -319,51 +365,77 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
   return (
     <View style={styles.screen}>
-      <Pill label="Built for real households" tone="primary" icon="home" />
-      <Text style={styles.kicker}>HomeThread</Text>
-      <Text style={styles.title}>Keep the day moving together.</Text>
-      <Text style={styles.subtitle}>
-        Plans, chores, shopping, meals, and family updates stay in one calm place instead of getting lost in texts.
-      </Text>
-
-      {backendAuthMode ? (
-        <Text style={styles.meta}>
-          Backend auth mode: {backendAuthMode}
-          {supabaseConfiguredOnClient ? " - Supabase client configured" : " - Supabase client missing"}
-        </Text>
-      ) : null}
-      {authMessage ? <Text style={styles.formMessage}>{authMessage}</Text> : null}
-      {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
+      <LinearGradient
+        colors={[colors.surface, "#F2ECE3"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroCard}
+      >
+        <View style={styles.heroRow}>
+          <View style={styles.markWrap}>
+            <Image source={require("../../assets/icon.png")} style={styles.mark} />
+          </View>
+          <View style={styles.heroCopy}>
+            <Pill label="Built for real households" tone="primary" icon="home" />
+            <Text style={styles.kicker}>HomeThread</Text>
+            <Text style={styles.title}>A calm center for the home.</Text>
+            <Text style={styles.subtitle}>
+              Plans, chores, lists, meals, and family updates stay in one warm place instead of being scattered across texts.
+            </Text>
+          </View>
+        </View>
+      </LinearGradient>
 
       <Card>
-        <Text style={styles.cardTitle}>What HomeThread is best at</Text>
+        <Text style={styles.cardTitle}>What this should feel like</Text>
         <View style={styles.bulletStack}>
-          <Text style={styles.bulletText}>Seeing what matters today without opening five other apps.</Text>
-          <Text style={styles.bulletText}>Giving kids simple chores and visible stars without turning the whole app childish.</Text>
-          <Text style={styles.bulletText}>Keeping family updates reviewable, especially when AI suggestions are involved.</Text>
+          <Text style={styles.bulletText}>A shared picture of today, next, and later without one person carrying the whole week in their head.</Text>
+          <Text style={styles.bulletText}>Meal plans, errands, and chores that flow together naturally instead of getting copied between apps.</Text>
+          <Text style={styles.bulletText}>A kid-friendly chore system that still feels grown-up when an adult is holding the phone.</Text>
         </View>
       </Card>
 
-      <SectionTitle title="Choose how to enter" />
-      <View style={styles.actions}>
-        {supabaseConfiguredOnClient && authMode !== "supabase" ? (
-          <>
-            <PrimaryButton label="Create account" icon="person-add" onPress={() => setMode("register")} />
-            <PrimaryButton label="Log in" icon="log-in" tone="dark" onPress={() => setMode("login")} />
-          </>
-        ) : null}
-        {devTokenAvailable ? (
-          <PrimaryButton
-            label={isSubmitting ? "Working..." : "Use local dev token"}
-            icon="key"
-            tone="dark"
-            onPress={() => {
-              if (isSubmitting) return;
-              void handleDevTokenSignIn();
-            }}
-          />
-        ) : null}
-      </View>
+      {configurationWarning ? (
+        <Card>
+          <Text style={styles.warningTitle}>This build still needs secure sign-in</Text>
+          <Text style={styles.configurationWarning}>{configurationWarning}</Text>
+        </Card>
+      ) : null}
+      {authMessage && !configurationWarning ? <Text style={styles.formMessage}>{authMessage}</Text> : null}
+      {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
+
+      <SectionTitle title="Enter your household" />
+      <Card>
+        <View style={styles.entryStack}>
+          {supabaseConfiguredOnClient && authMode !== "supabase" ? (
+            <>
+              <PrimaryButton
+                label={isSubmitting ? "Working..." : "Continue with Google"}
+                icon="logo-google"
+                onPress={() => {
+                  if (isSubmitting) return;
+                  void handleGoogleSignIn();
+                }}
+              />
+              <View style={styles.secondaryActions}>
+                <PrimaryButton label="Create account" icon="person-add" tone="soft" onPress={() => setMode("register")} />
+                <PrimaryButton label="Log in" icon="log-in" tone="ghost" onPress={() => setMode("login")} />
+              </View>
+            </>
+          ) : null}
+          {devTokenAvailable ? (
+            <PrimaryButton
+              label={isSubmitting ? "Working..." : "Use local dev token"}
+              icon="key"
+              tone="ghost"
+              onPress={() => {
+                if (isSubmitting) return;
+                void handleDevTokenSignIn();
+              }}
+            />
+          ) : null}
+        </View>
+      </Card>
 
       <Card>
         <Text style={styles.cardTitle}>Trust first</Text>
@@ -379,34 +451,78 @@ const styles = StyleSheet.create({
   screen: {
     gap: spacing.md
   },
+  topBar: {
+    flexDirection: "row",
+    justifyContent: "flex-start"
+  },
+  backButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: spacing.md
+  },
+  backLabel: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  heroCard: {
+    borderColor: colors.line,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    overflow: "hidden",
+    padding: spacing.md
+  },
+  heroRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  markWrap: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderRadius: radii.xl,
+    height: 96,
+    justifyContent: "center",
+    width: 96
+  },
+  mark: {
+    height: 76,
+    width: 76
+  },
+  heroCopy: {
+    flex: 1,
+    gap: spacing.xs
+  },
   kicker: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase"
   },
   title: {
     color: colors.ink,
-    fontSize: 34,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 38,
+    fontWeight: "700",
     letterSpacing: 0,
-    lineHeight: 39
+    lineHeight: 44
   },
   subtitle: {
     color: colors.muted,
     fontSize: 16,
-    lineHeight: 23
-  },
-  meta: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "800"
+    lineHeight: 24
   },
   cardTitle: {
     color: colors.ink,
-    fontSize: 20,
-    fontWeight: "900",
-    lineHeight: 25
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "700",
+    lineHeight: 30
   },
   cardText: {
     color: colors.muted,
@@ -422,6 +538,13 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 15,
     lineHeight: 22
+  },
+  warningTitle: {
+    color: colors.coral,
+    fontFamily: fonts.display,
+    fontSize: 21,
+    fontWeight: "700",
+    lineHeight: 26
   },
   inviteCode: {
     color: colors.ink,
@@ -457,6 +580,15 @@ const styles = StyleSheet.create({
   setupTabLabelActive: {
     color: colors.primary
   },
+  entryStack: {
+    gap: spacing.md,
+    marginTop: spacing.sm
+  },
+  secondaryActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md
+  },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -466,13 +598,13 @@ const styles = StyleSheet.create({
   label: {
     color: colors.ink,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: spacing.xs,
     marginTop: spacing.md
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -483,12 +615,27 @@ const styles = StyleSheet.create({
   formActions: {
     marginTop: spacing.lg
   },
+  orLabel: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: spacing.md,
+    textAlign: "center",
+    textTransform: "uppercase"
+  },
   formMessage: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     lineHeight: 19,
     marginTop: spacing.md
+  },
+  configurationWarning: {
+    color: colors.coral,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: spacing.sm
   },
   linkButton: {
     minHeight: 44,
@@ -497,7 +644,7 @@ const styles = StyleSheet.create({
   link: {
     color: colors.primary,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     textAlign: "center"
   }
 });

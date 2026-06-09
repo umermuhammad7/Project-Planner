@@ -1,11 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
-import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { IconButton } from "./src/components/Primitives";
 import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
-import { colors, spacing } from "./src/constants/theme";
+import { colors, fonts, radii, spacing } from "./src/constants/theme";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
@@ -44,6 +44,8 @@ function AppShell() {
   const [kidsMode, setKidsMode] = useState(false);
   const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const screenOpacity = useRef(new Animated.Value(1)).current;
+  const screenTranslateY = useRef(new Animated.Value(0)).current;
   const authMode = useAuthStore((state) => state.mode);
   const authFamilyId = useAuthStore((state) => state.familyId);
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
@@ -182,6 +184,34 @@ function AppShell() {
 
   const showConnecting = enteredApp && authMode !== "loading" && authMode !== "signed_out" && isHydrating;
   const showWelcome = authMode === "loading" || authMode === "signed_out" || !enteredApp;
+  const screenKey = [
+    activeTab,
+    kidsMode ? "kids" : "adult",
+    familySettingsOpen ? "family" : "family-closed",
+    insightsOpen ? "insights" : "insights-closed",
+    showWelcome ? "welcome" : "app",
+    showConnecting ? "connecting" : "ready"
+  ].join(":");
+
+  useEffect(() => {
+    screenOpacity.setValue(0.9);
+    screenTranslateY.setValue(8);
+    const canUseNativeDriver = Platform.OS !== "web";
+    Animated.parallel([
+      Animated.timing(screenOpacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: canUseNativeDriver
+      }),
+      Animated.spring(screenTranslateY, {
+        toValue: 0,
+        stiffness: 240,
+        damping: 24,
+        mass: 1,
+        useNativeDriver: canUseNativeDriver
+      })
+    ]).start();
+  }, [screenKey, screenOpacity, screenTranslateY]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -213,33 +243,40 @@ function AppShell() {
                 : undefined
             }
           />
-          {showWelcome ? (
-            authMode === "loading" ? (
+          <Animated.View
+            style={{
+              opacity: screenOpacity,
+              transform: [{ translateY: screenTranslateY }]
+            }}
+          >
+            {showWelcome ? (
+              authMode === "loading" ? (
+                <View style={styles.connecting}>
+                  <Text style={styles.connectingTitle}>Checking session...</Text>
+                  <Text style={styles.connectingSubtitle}>Restoring Supabase auth when configured.</Text>
+                </View>
+              ) : (
+                <WelcomeScreen
+                  onSignedIn={() => {
+                    setEnteredApp(true);
+                  }}
+                />
+              )
+            ) : showConnecting ? (
               <View style={styles.connecting}>
-                <Text style={styles.connectingTitle}>Checking session...</Text>
-                <Text style={styles.connectingSubtitle}>Restoring Supabase auth when configured.</Text>
+                <Text style={styles.connectingTitle}>Connecting to HomeThread...</Text>
+                <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
               </View>
+            ) : kidsMode ? (
+              <KidsModeScreen onExit={() => setKidsMode(false)} />
+            ) : insightsOpen ? (
+              <InsightsScreen onClose={() => setInsightsOpen(false)} />
+            ) : familySettingsOpen ? (
+              <FamilyScreen onClose={() => setFamilySettingsOpen(false)} />
             ) : (
-              <WelcomeScreen
-                onSignedIn={() => {
-                  setEnteredApp(true);
-                }}
-              />
-            )
-          ) : showConnecting ? (
-            <View style={styles.connecting}>
-              <Text style={styles.connectingTitle}>Connecting to HomeThread...</Text>
-              <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
-            </View>
-          ) : kidsMode ? (
-            <KidsModeScreen onExit={() => setKidsMode(false)} />
-          ) : insightsOpen ? (
-            <InsightsScreen onClose={() => setInsightsOpen(false)} />
-          ) : familySettingsOpen ? (
-            <FamilyScreen onClose={() => setFamilySettingsOpen(false)} />
-          ) : (
-            content
-          )}
+              content
+            )}
+          </Animated.View>
         </ScrollView>
         {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen && !insightsOpen ? (
           <View style={styles.tabBar}>
@@ -277,16 +314,21 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: 118
+    paddingBottom: 132
   },
   connecting: {
-    paddingTop: spacing.lg
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    padding: spacing.xl
   },
   connectingTitle: {
     color: colors.ink,
-    fontSize: 22,
-    fontWeight: "900",
-    lineHeight: 28
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 34
   },
   connectingSubtitle: {
     color: colors.muted,
@@ -295,16 +337,20 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   },
   tabBar: {
-    backgroundColor: colors.surface,
-    borderColor: colors.line,
-    borderRadius: 22,
+    backgroundColor: "rgba(255,252,248,0.96)",
+    borderColor: colors.lineStrong,
+    borderRadius: 26,
     borderWidth: 1,
     bottom: spacing.md,
     flexDirection: "row",
-    gap: 2,
+    gap: 4,
     left: spacing.md,
     padding: spacing.sm,
     position: "absolute",
-    right: spacing.md
+    right: spacing.md,
+    shadowColor: colors.ink,
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 }
   }
 });

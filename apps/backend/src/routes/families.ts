@@ -11,6 +11,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { families, familyMembers, rewards, users } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
+import { ensureUserProfile } from "../lib/userProvisioning.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyAdmin, requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -175,17 +176,4 @@ export async function familiesRoutes(app: FastifyInstance) {
 
     return { left: true };
   });
-}
-
-async function ensureUserProfile(userId: string, email: string) {
-  await db
-    .insert(users)
-    .values({
-      id: userId,
-      email,
-      displayName: email.split("@")[0]
-    })
-    .onConflictDoNothing({
-      target: users.id
-    });
 }

@@ -37,6 +37,7 @@ const authStorage = {
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const isBrowser = typeof window !== "undefined" && typeof window.location !== "undefined";
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
@@ -46,7 +47,7 @@ export const supabaseClient: SupabaseClient | null = isSupabaseConfigured
         storage: authStorage,
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false
+        detectSessionInUrl: isBrowser
       }
     })
   : null;

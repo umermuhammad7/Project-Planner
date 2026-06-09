@@ -6,9 +6,9 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "icon": "./assets/icon.png",
+    "icon": "./apps/mobile/assets/icon.png",
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./apps/mobile/assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#F7F3EE"
     },
@@ -18,12 +18,15 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.homethread.app"
+      "bundleIdentifier": "com.homethread.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.homethread.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./apps/mobile/assets/icon.png",
         "backgroundColor": "#F7F4EF"
       }
     },
@@ -32,6 +35,12 @@
     },
     "plugins": [
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
+      }
+    },
+    "owner": "umaf"
   }
 }

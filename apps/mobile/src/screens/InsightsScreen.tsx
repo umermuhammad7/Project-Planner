@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Pill, Row, SectionTitle } from "../components/Primitives";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { InsightsBusyness, InsightsChores, InsightsWeekly } from "../types";
@@ -135,7 +135,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
                   <View style={styles.fill}>
                     <Text style={styles.itemTitle}>{member.name}</Text>
                     <Text style={styles.itemMeta}>
-                      {member.completedCount} completed · {member.outstandingCount} assigned · {member.starsEarned} stars
+                      {member.completedCount} completed - {member.outstandingCount} assigned - {member.starsEarned} stars
                     </Text>
                   </View>
                   <Pill label={member.role} tone="neutral" />
@@ -228,18 +228,20 @@ const styles = StyleSheet.create({
   kicker: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase"
   },
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    lineHeight: 34
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22
   },
   closeButton: {
@@ -250,7 +252,7 @@ const styles = StyleSheet.create({
   closeLabel: {
     color: colors.primary,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   metrics: {
     flexDirection: "row",
@@ -264,8 +266,9 @@ const styles = StyleSheet.create({
   },
   metricValue: {
     color: colors.ink,
-    fontSize: 24,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 26,
+    fontWeight: "700"
   },
   metricLabel: {
     color: colors.muted,
@@ -275,8 +278,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700"
   },
   cardText: {
     color: colors.muted,
@@ -287,7 +291,7 @@ const styles = StyleSheet.create({
   helperText: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.md
   },
   stack: {
@@ -299,7 +303,7 @@ const styles = StyleSheet.create({
   itemTitle: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   itemMeta: {
     color: colors.muted,

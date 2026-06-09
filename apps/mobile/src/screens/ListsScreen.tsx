@@ -1,10 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
@@ -38,10 +38,16 @@ export function ListsScreen() {
     return groups;
   }, {});
 
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
   return (
     <View>
-      <Text style={styles.title}>Lists</Text>
-      <Text style={styles.subtitle}>Groceries and errands that survive the jump between app and family texts.</Text>
+      <Text style={styles.title}>Shared lists</Text>
+      <Text style={styles.subtitle}>Groceries and errands that survive the jump between the app, the store, and family texts.</Text>
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -52,14 +58,15 @@ export function ListsScreen() {
       />
 
       <View style={styles.actionRow}>
-        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
+        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" tone="ghost" onPress={() => void refreshFromBackend()} />
         {checkedCount > 0 ? (
           <PrimaryButton
             label={isSaving ? "Clearing..." : `Clear checked (${checkedCount})`}
             icon="trash"
-            tone="dark"
+            tone="soft"
             onPress={() => {
               if (isSaving) return;
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               void clearCheckedShoppingItems();
             }}
           />
@@ -122,6 +129,12 @@ export function ListsScreen() {
 
       {lists.length > 0 ? (
         <>
+          <Card>
+            <Text style={styles.formTitle}>{activeList ? activeList.title : "Shared list"}</Text>
+            <Text style={styles.cardHint}>
+              {shoppingItems.length} items visible, {checkedCount} checked off. Keep the quick-add box live so the list stays useful in the aisle.
+            </Text>
+          </Card>
           <Text style={styles.pickerLabel}>List</Text>
           <View style={styles.pickerRow}>
             {lists.map((list) => {
@@ -198,7 +211,10 @@ export function ListsScreen() {
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: item.checked }}
                   accessibilityLabel={`${item.checked ? "Uncheck" : "Check"} ${item.title}`}
-                  onPress={() => toggleShoppingItem(item.id)}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    toggleShoppingItem(item.id);
+                  }}
                 >
                   <Card>
                     <Row>
@@ -233,13 +249,16 @@ export function ListsScreen() {
 const styles = StyleSheet.create({
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    letterSpacing: 0
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22,
     marginTop: spacing.sm
   },
@@ -270,18 +289,19 @@ const styles = StyleSheet.create({
   statusText: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.sm
   },
   formTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
     marginBottom: spacing.md
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -293,9 +313,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg
   },
   pickerLabel: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "800",
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
     marginTop: spacing.md
   },
   pickerRow: {
@@ -309,6 +329,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginTop: spacing.sm
+  },
+  cardHint: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20
   },
   stack: {
     gap: spacing.md
@@ -332,7 +358,7 @@ const styles = StyleSheet.create({
   itemTitle: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   doneText: {
     color: colors.muted,
@@ -346,13 +372,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700"
   },
   emptyText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 20,
     marginTop: spacing.sm
   }

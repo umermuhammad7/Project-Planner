@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TravelReminderStatus } from "../types";
@@ -26,6 +26,14 @@ export function PlanScreen() {
   const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
   const travelCandidate = useMemo(
     () => sortedEvents.find((event) => event.startAt && event.location),
+    [sortedEvents]
+  );
+  const nextEvent = useMemo(
+    () => sortedEvents.find((event) => getEventUrgency(event)?.label !== "Past") ?? null,
+    [sortedEvents]
+  );
+  const upcomingCount = useMemo(
+    () => sortedEvents.filter((event) => getEventUrgency(event)?.label !== "Past").length,
     [sortedEvents]
   );
   const toggleMember = (id: string) => {
@@ -69,8 +77,8 @@ export function PlanScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>Family plan</Text>
-      <Text style={styles.subtitle}>A shared timeline that still works when the update travels by text.</Text>
+      <Text style={styles.title}>This week</Text>
+      <Text style={styles.subtitle}>A shared family plan that still holds together when details travel by text.</Text>
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -81,20 +89,39 @@ export function PlanScreen() {
       />
 
       <View style={styles.actionRow}>
-        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" onPress={() => void refreshFromBackend()} />
+        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" tone="ghost" onPress={() => void refreshFromBackend()} />
         <PrimaryButton
           label={showForm ? "Close" : "New event"}
           icon={showForm ? "close" : "add"}
-          tone="dark"
+          tone={showForm ? "soft" : "primary"}
           onPress={() => setShowForm((value) => !value)}
         />
         <PrimaryButton
           label="Calendar sync"
           icon="calendar"
+          tone="soft"
           onPress={() => setShowCalendarSync(true)}
         />
       </View>
       <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <Card>
+        <View style={styles.snapshotRow}>
+          <View style={styles.snapshotBlock}>
+            <Text style={styles.snapshotLabel}>Next up</Text>
+            <Text style={styles.snapshotValue}>{nextEvent ? nextEvent.title : "The week is still open"}</Text>
+            <Text style={styles.snapshotMeta}>
+              {nextEvent
+                ? `${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
+                : "Add the first anchor point for the household."}
+            </Text>
+          </View>
+          <View style={styles.snapshotStats}>
+            <Text style={styles.snapshotNumber}>{upcomingCount}</Text>
+            <Text style={styles.snapshotStatLabel}>upcoming plans</Text>
+          </View>
+        </View>
+      </Card>
 
       <Card>
         <Text style={styles.foundationTitle}>Smart travel reminders</Text>
@@ -173,7 +200,7 @@ export function PlanScreen() {
         </Card>
       ) : null}
 
-      <SectionTitle title="People" />
+      <SectionTitle title="Household" />
       <View style={styles.peopleRow}>
         {members.map((member) => (
           <Card key={member.id}>
@@ -188,7 +215,7 @@ export function PlanScreen() {
         ))}
       </View>
 
-      <SectionTitle title="Timeline" action="Today" />
+      <SectionTitle title="Plans ahead" action="Today" />
       <View style={styles.stack}>
         {sortedEvents.length > 0 ? (
           sortedEvents.map((event) => {
@@ -198,13 +225,15 @@ export function PlanScreen() {
               .join(", ");
             const urgency = getEventUrgency(event);
             const importedSource = describeImportedEventSource(event);
+            const eventColor =
+              members.find((member) => member.id === event.assignedTo[0])?.color ?? colors.primary;
 
             return (
               <Card key={event.id}>
                 <Row align="flex-start">
                   <View style={styles.rail}>
-                    <View style={styles.dot} />
-                    <View style={styles.line} />
+                    <View style={[styles.dot, { backgroundColor: eventColor }]} />
+                    <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
                   </View>
                   <View style={styles.fill}>
                     <Row>
@@ -240,13 +269,16 @@ export function PlanScreen() {
 const styles = StyleSheet.create({
   title: {
     color: colors.ink,
-    fontSize: 30,
-    fontWeight: "900",
-    letterSpacing: 0
+    fontFamily: fonts.display,
+    fontSize: 34,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 40
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: "600",
     lineHeight: 22,
     marginTop: spacing.sm
   },
@@ -265,8 +297,9 @@ const styles = StyleSheet.create({
   },
   foundationTitle: {
     color: colors.ink,
-    fontSize: 16,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700"
   },
   foundationText: {
     color: colors.muted,
@@ -280,6 +313,56 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: spacing.sm
+  },
+  snapshotRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  snapshotBlock: {
+    flex: 1,
+    gap: spacing.xs
+  },
+  snapshotLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  snapshotValue: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 23,
+    fontWeight: "700",
+    lineHeight: 29
+  },
+  snapshotMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
+  },
+  snapshotStats: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    minWidth: 92,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md
+  },
+  snapshotNumber: {
+    color: colors.primary,
+    fontFamily: fonts.display,
+    fontSize: 26,
+    fontWeight: "700"
+  },
+  snapshotStatLabel: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: spacing.xs,
+    textAlign: "center",
+    textTransform: "uppercase"
   },
   statusRow: {
     flexDirection: "row",
@@ -296,18 +379,19 @@ const styles = StyleSheet.create({
   statusText: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     marginTop: spacing.sm
   },
   formTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
     marginBottom: spacing.md
   },
   input: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
     borderRadius: radii.md,
     borderWidth: 1,
     color: colors.ink,
@@ -319,9 +403,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg
   },
   pickerLabel: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "800",
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
     marginTop: spacing.lg
   },
   pickerRow: {
@@ -355,7 +439,7 @@ const styles = StyleSheet.create({
   personName: {
     color: colors.ink,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "800"
   },
   stack: {
     gap: spacing.md
@@ -384,12 +468,13 @@ const styles = StyleSheet.create({
   time: {
     color: colors.primary,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   eventTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700"
   },
   meta: {
     color: colors.muted,
@@ -403,13 +488,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900"
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700"
   },
   emptyText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 20,
     marginTop: spacing.sm
   }
