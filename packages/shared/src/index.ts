@@ -57,6 +57,7 @@ export const authMeResponseSchema = z.object({
     id: uuidSchema,
     email: z.string().email().optional(),
     displayName: z.string().nullable().optional(),
+    avatarUrl: z.url().nullable().optional(),
     pushToken: z.string().nullable().optional(),
     notificationPrefs: notificationPrefsSchema.optional()
   }),

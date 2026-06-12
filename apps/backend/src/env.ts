@@ -8,7 +8,8 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
-  FRONTEND_URL: z.string().default("exp://homethread"),
+  FRONTEND_URL: z.string().default("http://localhost:8081,http://localhost:19006,exp://homethread"),
+  DEV_AUTH_ENABLED: z.coerce.boolean().default(false),
   DEV_AUTH_TOKEN: z.string().min(1).default("homethread-dev-token"),
   OPENAI_API_KEY: z.string().optional(),
   GROQ_API_KEY_1: z.string().optional(),
@@ -44,7 +45,7 @@ export function getAllowedFrontendOrigins() {
 
 export function getAuthStatus() {
   const supabaseConfigured = Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim());
-  const devTokenAllowed = env.NODE_ENV !== "production";
+  const devTokenAllowed = env.NODE_ENV === "test" || (env.NODE_ENV !== "production" && env.DEV_AUTH_ENABLED);
 
   let mode: "supabase" | "dev_token" | "unconfigured" = "unconfigured";
   if (supabaseConfigured) {

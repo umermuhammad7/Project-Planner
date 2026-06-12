@@ -219,7 +219,7 @@ describe("calendar-sync routes", () => {
       connections: [
         expect.objectContaining({
           provider: "ical",
-          icalUrl: "https://example.com/family.ics",
+          icalUrl: "https://example.com/...",
           isActive: true
         })
       ]

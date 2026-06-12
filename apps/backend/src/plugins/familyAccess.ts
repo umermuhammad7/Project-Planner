@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { FastifyReply, FastifyRequest } from "fastify";
 
 import { db } from "../db/client.js";
@@ -35,4 +35,34 @@ export async function requireFamilyAdmin(request: FastifyRequest, reply: Fastify
   }
 
   return membership;
+}
+
+export async function ensureFamilyMemberIds(
+  reply: FastifyReply,
+  familyId: string,
+  memberIds: string[],
+  options: {
+    code?: string;
+    message?: string;
+  } = {}
+) {
+  const uniqueMemberIds = [...new Set(memberIds.filter(Boolean))];
+  if (uniqueMemberIds.length === 0) {
+    return [];
+  }
+
+  const rows = await db.query.familyMembers.findMany({
+    where: and(eq(familyMembers.familyId, familyId), inArray(familyMembers.id, uniqueMemberIds))
+  });
+
+  if (rows.length !== uniqueMemberIds.length) {
+    return sendError(
+      reply,
+      400,
+      options.message ?? "One or more members do not belong to this family.",
+      options.code ?? "MEMBER_FAMILY_MISMATCH"
+    );
+  }
+
+  return rows;
 }

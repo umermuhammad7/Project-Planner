@@ -31,11 +31,11 @@ export function OfflineBanner({
         <Text style={styles.text}>
           {visible
             ? waitingCount > 0
-              ? `Not connected to the local backend - ${waitingCount} queued change${waitingCount === 1 ? "" : "s"} waiting to replay.`
-              : "Not connected to the local backend - new saves for supported actions will queue locally."
+              ? `You're offline - ${waitingCount} change${waitingCount === 1 ? "" : "s"} will sync when you're back online.`
+              : "You're offline. New changes will save on this device and sync when you're back online."
             : waitingCount > 0
-              ? `${waitingCount} queued change${waitingCount === 1 ? "" : "s"} waiting to replay when the backend is reachable.`
-              : "Queued changes will replay on the next successful backend refresh."}
+              ? `${waitingCount} change${waitingCount === 1 ? "" : "s"} waiting to sync when you're back online.`
+              : "Queued changes will sync on the next successful refresh."}
         </Text>
         {failedCount > 0 ? (
           <Text style={styles.meta}>{failedCount} queued change{failedCount === 1 ? "" : "s"} failed last replay.</Text>

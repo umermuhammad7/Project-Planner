@@ -10,7 +10,7 @@ import { FastifyInstance } from "fastify";
 import { db } from "../db/client.js";
 import { familyMembers, families, users } from "../db/schema.js";
 import { getAuthStatus } from "../env.js";
-import { ensureAuthShadowUser, ensureUserProfile } from "../lib/userProvisioning.js";
+import { ensureUserProfile } from "../lib/userProvisioning.js";
 import { deleteSupabaseUser, requireAuth } from "../plugins/auth.js";
 
 export async function authRoutes(app: FastifyInstance) {
@@ -26,12 +26,11 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/profile", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
     const body = userProfileSchema.parse(request.body);
-    await ensureAuthShadowUser(currentUser.id);
+    await ensureUserProfile(currentUser.id, currentUser.email);
 
     const [profile] = await db
-      .insert(users)
-      .values({
-        id: currentUser.id,
+      .update(users)
+      .set({
         email: currentUser.email,
         displayName: body.displayName,
         avatarUrl: body.avatarUrl,
@@ -40,17 +39,7 @@ export async function authRoutes(app: FastifyInstance) {
         locale: body.locale,
         updatedAt: new Date()
       })
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          displayName: body.displayName,
-          avatarUrl: body.avatarUrl,
-          phone: body.phone,
-          timezone: body.timezone,
-          locale: body.locale,
-          updatedAt: new Date()
-        }
-      })
+      .where(eq(users.id, currentUser.id))
       .returning();
 
     return { user: profile };
@@ -58,6 +47,8 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get("/me", { preHandler: requireAuth, config: { rateLimit: authRateLimit } }, async (request) => {
     const currentUser = request.currentUser!;
+    await ensureUserProfile(currentUser.id, currentUser.email);
+
     const profile = await db.query.users.findFirst({
       where: eq(users.id, currentUser.id)
     });

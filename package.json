@@ -13,10 +13,10 @@
     "web": "npm --workspace apps/mobile run web",
     "backend:dev": "npm --workspace apps/backend run dev",
     "backend:start": "npm --workspace apps/backend run start",
-    "eas:build:development": "eas build --platform all --profile development",
-    "eas:build:preview": "eas build --platform all --profile preview",
-    "eas:build:production": "eas build --platform all --profile production",
-    "eas:submit:production": "eas submit --platform all --profile production",
+    "eas:build:development": "cd apps/mobile && eas build --platform all --profile development",
+    "eas:build:preview": "cd apps/mobile && eas build --platform all --profile preview",
+    "eas:build:production": "cd apps/mobile && eas build --platform all --profile production",
+    "eas:submit:production": "cd apps/mobile && eas submit --platform all --profile production",
     "db:generate": "npm --workspace apps/backend run db:generate",
     "db:migrate": "npm --workspace apps/backend run db:migrate",
     "test": "npm --workspace apps/backend run test",
@@ -24,6 +24,13 @@
   },
   "overrides": {
     "fast-uri": "3.1.2",
-    "esbuild": "0.25.12"
+    "esbuild": "0.25.12",
+    "expo": "56.0.11",
+    "expo-modules-autolinking": "56.0.15",
+    "expo-modules-core": "56.0.16",
+    "expo-constants": "56.0.18",
+    "expo-notifications": "56.0.17",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   }
 }

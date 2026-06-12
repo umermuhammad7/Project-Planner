@@ -7,11 +7,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./apps/mobile/assets/icon.png",
-    "splash": {
-      "image": "./apps/mobile/assets/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F7F3EE"
-    },
     "description": "Family household planner. EAS builds are configured; store submission and push delivery require external setup.",
     "assetBundlePatterns": [
       "**/*"
@@ -34,7 +29,21 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-notifications"
+      [
+        "expo-splash-screen",
+        {
+          "image": "./apps/mobile/assets/icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#F7F3EE"
+        }
+      ],
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow HomeThread to choose a profile photo from your library."
+        }
+      ]
     ],
     "extra": {
       "eas": {

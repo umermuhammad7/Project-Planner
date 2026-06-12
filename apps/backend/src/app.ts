@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { ZodError } from "zod";
@@ -26,8 +27,26 @@ export function buildApp() {
     logger: env.NODE_ENV !== "test"
   });
 
+  const allowedOrigins = new Set(getAllowedFrontendOrigins());
+
   app.register(cors, {
-    origin: env.NODE_ENV === "production" ? getAllowedFrontendOrigins() : true
+    origin(origin, callback) {
+      if (env.NODE_ENV === "test") {
+        callback(null, true);
+        return;
+      }
+
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, allowedOrigins.has(origin));
+    }
+  });
+
+  app.register(helmet, {
+    contentSecurityPolicy: false
   });
 
   app.register(rateLimit, {

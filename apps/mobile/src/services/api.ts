@@ -36,7 +36,7 @@ export function getApiConfigurationStatus() {
     apiUrl: API_URL,
     usingDefaultLocalUrl,
     message: usingDefaultLocalUrl
-      ? "EXPO_PUBLIC_API_URL is missing, so HomeThread is using the default local API URL. This works on the same machine, but physical devices need a reachable host."
+      ? "This build is not pointing at a shared server yet. Test devices need the production API configured in the build."
       : null
   };
 }

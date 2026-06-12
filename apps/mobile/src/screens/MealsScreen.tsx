@@ -121,6 +121,7 @@ export function MealsScreen() {
   const [importPreview, setImportPreview] = useState<RecipeImportDraft | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [isParsingImport, setIsParsingImport] = useState(false);
+  const [showRecipeTools, setShowRecipeTools] = useState(false);
   const plannedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === plannedRecipeId) ?? null,
     [plannedRecipeId, recipes]
@@ -171,9 +172,7 @@ export function MealsScreen() {
 
     if (syncSource !== "api") {
       if (importSource === "url") {
-        setImportNote(
-          "URL import needs the API backend. HomeThread does not fetch recipe pages in this build - paste the recipe text instead."
-        );
+        setImportNote("Paste the recipe text instead. URL import is not available on this device yet.");
         setIsParsingImport(false);
         return;
       }
@@ -182,8 +181,8 @@ export function MealsScreen() {
       setImportPreview(localRecipe);
       setImportNote(
         localRecipe
-          ? "Local preview: simple parse only. Review before saving."
-          : "Add a title on the first line and ingredients on the following lines."
+          ? "Review this recipe draft before saving."
+          : "Add a title first, then the ingredients."
       );
       setIsParsingImport(false);
       return;
@@ -235,7 +234,7 @@ export function MealsScreen() {
   return (
     <View>
       <Text style={styles.title}>This week's meals</Text>
-      <Text style={styles.subtitle}>Keep the week visible so dinner stops turning into a five o'clock surprise.</Text>
+      <Text style={styles.subtitle}>Keep the week visible so dinner stops becoming a five o'clock problem.</Text>
 
       <SyncStatusRow syncSource={syncSource} isHydrating={isHydrating} />
       <Text style={styles.weekNote}>Meal plan week starting {mealWeekStart}</Text>
@@ -272,10 +271,149 @@ export function MealsScreen() {
       ) : null}
 
       <Card>
+        <Text style={styles.formTitle}>Plan a meal</Text>
+        {recipes.length > 0 ? (
+          <>
+            <Text style={styles.pickerLabel}>From saved recipe (optional)</Text>
+            <View style={styles.pickerRow}>
+              <Pressable accessibilityRole="button" onPress={() => setPlannedRecipeId(null)}>
+                <Pill label="Custom title" tone={plannedRecipeId === null ? "primary" : "neutral"} />
+              </Pressable>
+              {recipes.map((recipe) => {
+                const selected = plannedRecipeId === recipe.id;
+                return (
+                  <Pressable
+                    key={recipe.id}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setPlannedRecipeId(recipe.id);
+                      setTitle("");
+                    }}
+                  >
+                    <Pill label={recipe.title} tone={selected ? "mint" : "neutral"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+        {plannedRecipe ? (
+          <Text style={styles.selectedRecipeNote}>Planning: {plannedRecipe.title}</Text>
+        ) : (
+          <TextInput
+            accessibilityLabel="Meal title"
+            placeholder="e.g. Turkey tacos"
+            placeholderTextColor={colors.muted}
+            value={title}
+            onChangeText={setTitle}
+            style={styles.input}
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              if (!canSave || isSaving) return;
+              void savePlannedMeal();
+            }}
+          />
+        )}
+        <Text style={styles.pickerLabel}>Day</Text>
+        <View style={styles.pickerRow}>
+          {dayLabels.map((label, index) => {
+            const selected = index === dayOfWeek;
+            return (
+              <Pressable key={label} accessibilityRole="button" onPress={() => setDayOfWeek(index)}>
+                <Pill label={label} tone={selected ? "primary" : "neutral"} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.pickerLabel}>Meal type</Text>
+        <View style={styles.pickerRow}>
+          {mealTypes.map((type) => {
+            const selected = type === mealType;
+            return (
+              <Pressable key={type} accessibilityRole="button" onPress={() => setMealType(type)}>
+                <Pill label={type} tone={selected ? "mint" : "neutral"} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.formActions}>
+          <PrimaryButton
+            label={isSaving ? "Saving..." : "Save meal"}
+            icon="restaurant"
+            onPress={() => {
+              if (!canSave || isSaving) return;
+              void savePlannedMeal();
+            }}
+          />
+        </View>
+      </Card>
+
+      {meals.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyTitle}>No meals planned yet.</Text>
+          <Text style={styles.emptyText}>
+            Start with the busiest dinner night this week. A small plan beats waiting for the perfect one.
+          </Text>
+        </Card>
+      ) : null}
+
+      {grouped.map((group) => (
+        <View key={group.label}>
+          <SectionTitle title={group.label} action={`${group.items.length} planned`} />
+          {group.items.length === 0 ? (
+            <Card>
+              <Text style={styles.emptyText}>Nothing planned yet. Leave this day open if the family really keeps it flexible.</Text>
+            </Card>
+          ) : (
+            <View style={styles.stack}>
+              {group.items.map((item) => (
+                <Card key={item.id}>
+                  <Row align="flex-start">
+                    <View style={styles.badgeWrap}>
+                      <Pill label={item.mealType} tone="gold" />
+                    </View>
+                    <View style={styles.fill}>
+                      <Text style={styles.itemTitle}>{item.title}</Text>
+                      <Text style={styles.itemMeta}>
+                        {item.recipeId ? "Linked recipe" : item.notes ?? "Ready for the week"}
+                      </Text>
+                    </View>
+                  </Row>
+                  <View style={styles.mealActions}>
+                    <PrimaryButton
+                      label="To grocery"
+                      icon="basket"
+                      tone="soft"
+                      onPress={() => {
+                        if (isSaving) return;
+                        void addMealIngredientsToGrocery({
+                          mealPlanItemId: item.id,
+                          recipeId: item.recipeId ?? undefined
+                        });
+                      }}
+                    />
+                    <PrimaryButton
+                      label="Remove"
+                      icon="trash"
+                      tone="ghost"
+                      onPress={() => {
+                        if (isSaving) return;
+                        void removeMeal(item.id);
+                      }}
+                    />
+                  </View>
+                </Card>
+              ))}
+            </View>
+          )}
+        </View>
+      ))}
+
+      {showRecipeTools ? (
+        <>
+      <Card>
         <Text style={styles.formTitle}>Import recipe</Text>
-        <Text style={styles.helperText}>
-          Paste recipe text for AI or simple parsing. URL mode keeps things honest here - it does not fetch recipe pages in this build.
-        </Text>
+        <Text style={styles.helperText}>Paste recipe text to draft ingredients and steps.</Text>
         <View style={styles.pickerRow}>
           <Pressable accessibilityRole="button" onPress={() => setImportSource("text")}>
             <Pill label="Paste text" tone={importSource === "text" ? "primary" : "neutral"} />
@@ -418,145 +556,15 @@ export function MealsScreen() {
           </View>
         )}
       </Card>
-
-      <Card>
-        <Text style={styles.formTitle}>Add meal</Text>
-        {recipes.length > 0 ? (
-          <>
-            <Text style={styles.pickerLabel}>From saved recipe (optional)</Text>
-            <View style={styles.pickerRow}>
-              <Pressable accessibilityRole="button" onPress={() => setPlannedRecipeId(null)}>
-                <Pill label="Custom title" tone={plannedRecipeId === null ? "primary" : "neutral"} />
-              </Pressable>
-              {recipes.map((recipe) => {
-                const selected = plannedRecipeId === recipe.id;
-                return (
-                  <Pressable
-                    key={recipe.id}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setPlannedRecipeId(recipe.id);
-                      setTitle("");
-                    }}
-                  >
-                    <Pill label={recipe.title} tone={selected ? "mint" : "neutral"} />
-                  </Pressable>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
-        {plannedRecipe ? (
-          <Text style={styles.selectedRecipeNote}>Planning: {plannedRecipe.title}</Text>
-        ) : (
-          <TextInput
-            accessibilityLabel="Meal title"
-            placeholder="e.g. Turkey tacos"
-            placeholderTextColor={colors.muted}
-            value={title}
-            onChangeText={setTitle}
-            style={styles.input}
-            returnKeyType="done"
-            onSubmitEditing={() => {
-              if (!canSave || isSaving) return;
-              void savePlannedMeal();
-            }}
-          />
-        )}
-        <Text style={styles.pickerLabel}>Day</Text>
-        <View style={styles.pickerRow}>
-          {dayLabels.map((label, index) => {
-            const selected = index === dayOfWeek;
-            return (
-              <Pressable key={label} accessibilityRole="button" onPress={() => setDayOfWeek(index)}>
-                <Pill label={label} tone={selected ? "primary" : "neutral"} />
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={styles.pickerLabel}>Meal type</Text>
-        <View style={styles.pickerRow}>
-          {mealTypes.map((type) => {
-            const selected = type === mealType;
-            return (
-              <Pressable key={type} accessibilityRole="button" onPress={() => setMealType(type)}>
-                <Pill label={type} tone={selected ? "mint" : "neutral"} />
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={styles.formActions}>
-          <PrimaryButton
-            label={isSaving ? "Saving..." : "Save meal"}
-            icon="restaurant"
-            onPress={() => {
-              if (!canSave || isSaving) return;
-              void savePlannedMeal();
-            }}
-          />
-        </View>
-      </Card>
-
-      {meals.length === 0 ? (
-        <Card>
-          <Text style={styles.emptyTitle}>No meals planned yet.</Text>
-          <Text style={styles.emptyText}>
-            Start with the busiest dinner night this week. A small plan is better than waiting for the perfect one.
-          </Text>
-        </Card>
-      ) : null}
-
-      {grouped.map((group) => (
-        <View key={group.label}>
-          <SectionTitle title={group.label} action={`${group.items.length} planned`} />
-          {group.items.length === 0 ? (
-            <Card>
-              <Text style={styles.emptyText}>Nothing planned yet. Leave this day open if the family really keeps it flexible.</Text>
-            </Card>
-          ) : (
-            <View style={styles.stack}>
-              {group.items.map((item) => (
-                <Card key={item.id}>
-                  <Row align="flex-start">
-                    <View style={styles.badgeWrap}>
-                      <Pill label={item.mealType} tone="gold" />
-                    </View>
-                    <View style={styles.fill}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemMeta}>
-                        {item.recipeId ? "Linked recipe" : item.notes ?? "Ready for the week"}
-                      </Text>
-                    </View>
-                  </Row>
-                  <View style={styles.mealActions}>
-                    <PrimaryButton
-                      label="To grocery"
-                      icon="basket"
-                      tone="soft"
-                      onPress={() => {
-                        if (isSaving) return;
-                        void addMealIngredientsToGrocery({
-                          mealPlanItemId: item.id,
-                          recipeId: item.recipeId ?? undefined
-                        });
-                      }}
-                    />
-                    <PrimaryButton
-                      label="Remove"
-                      icon="trash"
-                      tone="ghost"
-                      onPress={() => {
-                        if (isSaving) return;
-                        void removeMeal(item.id);
-                      }}
-                    />
-                  </View>
-                </Card>
-              ))}
-            </View>
-          )}
-        </View>
-      ))}
+        </>
+      ) : (
+        <PrimaryButton
+          label="Import or save a recipe"
+          icon="book-outline"
+          tone="soft"
+          onPress={() => setShowRecipeTools(true)}
+        />
+      )}
     </View>
   );
 }

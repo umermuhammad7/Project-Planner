@@ -282,7 +282,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   notifications: [],
   textUpdates: initialTexts,
   syncSource: "mock",
-  syncMessage: "Using local prototype data",
+  syncMessage: "Preview household on this device.",
   isHydrating: false,
   isSaving: false,
   saveMessage: "Quick add is ready",
@@ -418,7 +418,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       notifications: notificationsResult.data.notifications,
       syncSource: "api",
-      syncMessage: `Loaded ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${recipesResult.data.recipes.length} recipes, ${choresResult.data.chores.length} chores, ${backendLists.length} lists (${totalListItems} items) from local database`,
+      syncMessage: `Updated ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${choresResult.data.chores.length} chores, and ${backendLists.length} lists.`,
       offlineQueue: getOfflineQueue(),
       isHydrating: false
     });
@@ -484,7 +484,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   regenerateInviteCode: async () => {
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      return { ok: false, message: "Connect to the local backend before regenerating invite codes." };
+      return { ok: false, message: "Sign in to sync your household before regenerating invite codes." };
     }
     if (!state.isFamilyAdmin) {
       return { ok: false, message: "Only family admins can regenerate invite codes." };
@@ -516,7 +516,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Family name is required." };
     }
     if (state.syncSource !== "api" || !state.familyId) {
-      return { ok: false, message: "Connect to the local backend before renaming the family." };
+      return { ok: false, message: "Sign in to sync your household before renaming the family." };
     }
     if (!state.isFamilyAdmin) {
       return { ok: false, message: "Only family admins can rename the household." };
@@ -545,7 +545,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   leaveFamily: async () => {
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      return { ok: false, message: "Connect to the local backend before leaving a family." };
+      return { ok: false, message: "Sign in to sync your household before leaving a family." };
     }
 
     set({ isSaving: true, saveMessage: "Leaving household..." });
@@ -608,7 +608,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Member name is required." };
     }
     if (state.syncSource !== "api" || !state.familyId) {
-      return { ok: false, message: "Connect to the local backend before adding members." };
+      return { ok: false, message: "Sign in to sync your household before adding members." };
     }
     if (!state.isFamilyAdmin) {
       return { ok: false, message: "Only family admins can add members." };
@@ -650,7 +650,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Member name is required." };
     }
     if (state.syncSource !== "api" || !state.familyId) {
-      return { ok: false, message: "Connect to the local backend before editing members." };
+      return { ok: false, message: "Sign in to sync your household before editing members." };
     }
     if (!state.isFamilyAdmin) {
       return { ok: false, message: "Only family admins can edit members." };
@@ -693,7 +693,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   removeVirtualMember: async (memberId) => {
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      return { ok: false, message: "Connect to the local backend before removing members." };
+      return { ok: false, message: "Sign in to sync your household before removing members." };
     }
     if (!state.isFamilyAdmin) {
       return { ok: false, message: "Only family admins can remove members." };
@@ -812,7 +812,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Saved event to local database"
+      saveMessage: "Event saved."
     }));
 
     return true;
@@ -902,7 +902,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Saved chore to local database"
+      saveMessage: "Chore saved."
     }));
 
     return true;
@@ -1281,7 +1281,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           ...current.textUpdates
         ],
         isSaving: false,
-        saveMessage: "Saved list item to local database"
+        saveMessage: "List item saved."
       };
     });
 
@@ -1312,7 +1312,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     if (state.syncSource !== "api" || !state.familyId) {
       set({
         meals: nextMeals,
-        saveMessage: "Saved meal locally in prototype mode"
+        saveMessage: "Meal saved on this device."
       });
       return true;
     }
@@ -1350,7 +1350,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Saved meal plan to local database"
+      saveMessage: "Meal saved."
     }));
 
     return true;
@@ -1408,7 +1408,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       };
       set({
         recipes: [...state.recipes, localRecipe],
-        saveMessage: "Saved recipe locally in prototype mode"
+        saveMessage: "Recipe saved on this device."
       });
       return true;
     }
@@ -1436,7 +1436,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Saved recipe to local database"
+      saveMessage: "Recipe saved."
     }));
 
     return true;
@@ -1707,7 +1707,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     if (state.syncSource !== "api" || !state.familyId) {
       set({
         meals: nextMeals,
-        saveMessage: "Removed meal locally in prototype mode"
+        saveMessage: "Meal removed."
       });
       return;
     }
@@ -1784,7 +1784,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       saveMessage:
         current.syncSource === "api"
           ? "Saved locally while backend sync was unavailable"
-          : "Saved locally in prototype mode"
+          : "Saved on this device."
     }));
   },
   sendDigestToThread: () => {
@@ -2139,8 +2139,8 @@ function applyPersistedDraft(
     return {
       events: [persisted.event, ...state.events],
       isSaving: false,
-      saveMessage: "Saved event to local database",
-      syncMessage: "HomeThread is synced with your local database"
+      saveMessage: "Event saved.",
+      syncMessage: "Household synced."
     };
   }
 
@@ -2148,8 +2148,8 @@ function applyPersistedDraft(
     return {
       chores: [persisted.chore, ...state.chores],
       isSaving: false,
-      saveMessage: "Saved chore to local database",
-      syncMessage: "HomeThread is synced with your local database"
+      saveMessage: "Chore saved.",
+      syncMessage: "Household synced."
     };
   }
 
@@ -2172,8 +2172,8 @@ function applyPersistedDraft(
         : state.listItemsByListId,
       shoppingItems: listId && selectedListId === listId ? nextListItems : state.shoppingItems,
       isSaving: false,
-      saveMessage: "Saved list item to local database",
-      syncMessage: "HomeThread is synced with your local database"
+      saveMessage: "List item saved.",
+      syncMessage: "Household synced."
     };
   }
 

@@ -22,7 +22,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
       setChores(null);
       setBusyness(null);
       setIsLoading(false);
-      setMessage("Insights need the local API connected so HomeThread can read your family data.");
+      setMessage("Sign in and sync your household to see insights.");
       return;
     }
 
@@ -82,7 +82,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
       {isLoading ? (
         <Card>
           <Text style={styles.cardTitle}>Loading insights...</Text>
-          <Text style={styles.cardText}>Pulling the latest family summary from the HomeThread API.</Text>
+          <Text style={styles.cardText}>Pulling the latest household summary.</Text>
         </Card>
       ) : null}
 
@@ -178,7 +178,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
           ) : null}
           <Card>
             <Text style={styles.cardText}>
-              Counts come from your connected HomeThread API. They refresh when you open this screen, not on a fixed schedule.
+              Counts refresh when you open this screen, not on a fixed schedule.
             </Text>
           </Card>
         </>

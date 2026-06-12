@@ -29,8 +29,8 @@ export async function subscriptionsRoutes(app: FastifyInstance) {
       revenueCatId: family?.revenueCatId ?? null,
       provider: family?.revenueCatId ? "revenuecat" : "none",
       message: family?.revenueCatId
-        ? "RevenueCat customer id is linked for this household."
-        : "RevenueCat is not linked for this household yet."
+        ? "A store billing profile is linked for this household."
+        : "No paid plan is linked to this household yet."
     });
   });
 }

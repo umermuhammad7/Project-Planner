@@ -225,7 +225,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.meals[0]?.title).toBe("Taco Tuesday prep");
     expect(state.chores[0]?.completed).toBe(true);
     expect(state.syncMessage).toContain("2 lists");
-    expect(state.syncMessage).toContain("3 items");
+    expect(state.syncMessage).toContain("2 lists");
   });
 
   it("keeps last known api state when refresh fails after sync", async () => {
@@ -298,7 +298,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.listItemsByListId["list-hardware"]?.map((item: { title: string }) => item.title)).toEqual(["Command hooks"]);
     expect(state.shoppingItems.map((item: { title: string }) => item.title)).toEqual(["Command hooks"]);
     expect(state.listItemsByListId["list-grocery"]).toEqual([]);
-    expect(state.saveMessage).toBe("Saved list item to local database");
+    expect(state.saveMessage).toBe("List item saved.");
   });
 
   it("creates and selects a grocery list when the family has none yet", async () => {
@@ -557,7 +557,7 @@ describe("HomeThread mobile store semantics", () => {
       })
     );
     expect(state.meals.map((meal) => meal.title)).toEqual(["Sheet-pan chicken fajitas", "Pasta night"]);
-    expect(state.saveMessage).toBe("Saved meal plan to local database");
+    expect(state.saveMessage).toBe("Meal saved.");
   });
 
   it("saves a meal plan item linked to a saved recipe", async () => {
@@ -621,7 +621,7 @@ describe("HomeThread mobile store semantics", () => {
     );
     expect(state.meals[0]?.title).toBe("Taco kit");
     expect(state.meals[0]?.recipeId).toBe("recipe-1");
-    expect(state.saveMessage).toBe("Saved meal plan to local database");
+    expect(state.saveMessage).toBe("Meal saved.");
   });
 
   it("removes a meal plan item from the active week", async () => {

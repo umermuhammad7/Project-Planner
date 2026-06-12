@@ -54,6 +54,22 @@ Database migration generation:
 npm run db:generate
 ```
 
+## TestFlight / EAS Builds
+
+Use the workspace-aware scripts from the repo root so Expo builds against `apps/mobile` instead of the monorepo shell:
+
+```bash
+npm run eas:build:preview
+```
+
+For a direct command:
+
+```bash
+npm --workspace apps/mobile exec eas -- build --platform ios --profile preview
+```
+
+This keeps the Expo project root, native modules, and app config aligned for device builds.
+
 ## Project Layout
 
 ```text

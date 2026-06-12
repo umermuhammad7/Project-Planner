@@ -120,7 +120,7 @@ export async function getNotificationCapability(): Promise<NotificationCapabilit
       permission,
       canRequestPermission: permission !== "denied",
       canRegisterPushToken: false,
-      message: "Notifications need EXPO_PUBLIC_EAS_PROJECT_ID to register an Expo push token."
+      message: "Push registration is not configured in this build yet."
     };
   }
 
@@ -198,7 +198,7 @@ export async function requestNotificationPermissionAndToken(): Promise<Notificat
         ok: false,
         permission,
         pushToken: null,
-        message: "Notification permission is granted. Add EXPO_PUBLIC_EAS_PROJECT_ID to register a push token."
+        message: "Notification permission is granted, but push registration is not configured in this build yet."
       };
     }
 

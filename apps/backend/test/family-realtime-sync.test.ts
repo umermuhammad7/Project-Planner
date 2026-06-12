@@ -79,7 +79,7 @@ describe("family realtime sync", () => {
 
     expect(onStatus).toHaveBeenCalledWith(
       "unavailable",
-      "Live updates require Supabase sign-in, a family membership, and backend sync."
+      "Live updates need a signed-in household with server sync enabled."
     );
     expect(channelFactory).not.toHaveBeenCalled();
   });
@@ -131,7 +131,10 @@ describe("family realtime sync", () => {
     );
 
     subscribeCallbacks[0]?.("CHANNEL_ERROR", new Error("publication missing"));
-    expect(onStatus).toHaveBeenCalledWith("error", "publication missing");
+    expect(onStatus).toHaveBeenCalledWith(
+      "error",
+      "Live updates could not connect. Pull to refresh for the latest household data."
+    );
   });
 
   it("cleans up the active channel on stop", () => {
@@ -154,7 +157,7 @@ describe("family realtime sync", () => {
         realtimeStatus: "inactive",
         realtimeMessage: ""
       })
-    ).toContain("Connect to the local backend");
+    ).toContain("Sign in to sync household data");
 
     expect(
       describeLiveUpdateSync({

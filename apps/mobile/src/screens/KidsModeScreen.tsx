@@ -3,15 +3,30 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, MemberAvatar, Pill, SectionTitle } from "../components/Primitives";
-import { colors, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
 const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const rewardMilestones = [5, 10, 20, 30, 50, 75, 100];
 
 function todayDayOfWeek() {
   const day = new Date().getDay();
   return day === 0 ? 6 : day - 1;
+}
+
+function nextRewardTarget(stars: number) {
+  const next = rewardMilestones.find((target) => target > stars);
+  if (next) {
+    return next;
+  }
+
+  return Math.ceil((stars + 1) / 25) * 25;
+}
+
+function previousRewardTarget(stars: number) {
+  const previous = [...rewardMilestones].reverse().find((target) => target <= stars);
+  return previous ?? 0;
 }
 
 export function KidsModeScreen({ onExit }: { onExit: () => void }) {
@@ -28,6 +43,35 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
   );
   const openKidChores = useMemo(() => kidChores.filter((chore) => !chore.completed), [kidChores]);
   const doneKidChores = useMemo(() => kidChores.filter((chore) => chore.completed), [kidChores]);
+  const openKidStars = useMemo(
+    () => openKidChores.reduce((sum, chore) => sum + chore.stars, 0),
+    [openKidChores]
+  );
+  const totalKidStars = useMemo(
+    () => kidMembers.reduce((sum, member) => sum + member.starBalance, 0),
+    [kidMembers]
+  );
+  const rewardProgress = useMemo(
+    () =>
+      kidMembers.map((member) => {
+        const nextTarget = nextRewardTarget(member.starBalance);
+        const previousTarget = previousRewardTarget(member.starBalance);
+        const distance = nextTarget - member.starBalance;
+        const span = Math.max(nextTarget - previousTarget, 1);
+        const progress = Math.max(
+          6,
+          Math.min(100, ((member.starBalance - previousTarget) / span) * 100)
+        );
+
+        return {
+          member,
+          nextTarget,
+          distance,
+          progress
+        };
+      }),
+    [kidMembers]
+  );
 
   const nextEvent = useMemo(
     () =>
@@ -49,47 +93,73 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
 
   return (
     <View style={styles.root}>
-      <View style={styles.modeBanner}>
+      <View style={styles.topRow}>
         <Pill label="Kids mode" tone="mint" icon="happy" />
-        <Text style={styles.modeTitle}>Only the kid-safe stuff shows here.</Text>
-        <Text style={styles.modeNote}>
-          Chores, stars, dinner, and the next plan stay easy to see. Family settings and grown-up controls stay out of the way.
-        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Hold to exit kids mode"
+          delayLongPress={900}
+          onLongPress={onExit}
+          onPress={() => setExitHintVisible(true)}
+          style={({ pressed }) => [styles.exitChip, pressed && styles.exitChipPressed]}
+        >
+          <Ionicons name="lock-closed" size={14} color={colors.ink} />
+          <Text style={styles.exitChipText}>Hold to exit</Text>
+        </Pressable>
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Hold to exit kids mode"
-        delayLongPress={900}
-        onLongPress={onExit}
-        onPress={() => setExitHintVisible(true)}
-        style={({ pressed }) => [styles.exitCard, pressed && styles.exitCardPressed]}
-      >
-        <View style={styles.exitCopy}>
-          <Text style={styles.exitTitle}>Grown-ups only</Text>
-          <Text style={styles.exitText}>
-            Hold here for a moment to leave kids mode. This helps avoid accidental exits when a child is using the phone.
-          </Text>
-          {exitHintVisible ? <Text style={styles.exitHint}>Keep holding to go back.</Text> : null}
+      <Card>
+        <View style={styles.heroPanel}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.greeting}>Your turn today</Text>
+            <Text style={styles.heroNote}>Chores done, stars earned.</Text>
+            {exitHintVisible ? <Text style={styles.exitHint}>Keep holding the lock to leave kids mode.</Text> : null}
+          </View>
+          <View style={styles.heroBadge}>
+            <Ionicons name="star" size={22} color={colors.gold} />
+          </View>
         </View>
-        <Ionicons name="lock-closed" size={22} color={colors.ink} />
-      </Pressable>
 
-      <Text style={styles.greeting}>You&apos;ve got this today</Text>
+        <View style={styles.summaryGrid}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Stars</Text>
+            <Text style={styles.summaryValue}>{totalKidStars}</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>To earn</Text>
+            <Text style={styles.summaryValue}>{openKidStars}</Text>
+            <Text style={styles.summaryMeta}>{openKidChores.length} open</Text>
+          </View>
+        </View>
+      </Card>
 
-      <SectionTitle title="Your stars" />
-      <View style={styles.starGrid}>
+      <SectionTitle title="Stars" action={`${totalKidStars} total`} />
+      <View style={styles.rewardStack}>
         {kidMembers.length > 0 ? (
-          kidMembers.map((member) => (
-            <View key={member.id} style={[styles.starCard, { backgroundColor: member.color }]}>
-              <MemberAvatar member={member} size={52} />
-              <Text style={styles.starName}>{member.name}</Text>
-              <View style={styles.starRow}>
-                <Ionicons name="star" size={28} color={colors.gold} />
-                <Text style={styles.starValue}>{member.starBalance}</Text>
+          rewardProgress.map(({ member, nextTarget, distance, progress }) => (
+            <Card key={member.id}>
+              <View style={styles.rewardHeader}>
+                <View style={styles.rewardLead}>
+                  <MemberAvatar member={member} size={48} />
+                  <View style={styles.rewardCopy}>
+                    <Text style={styles.rewardName}>{member.name}</Text>
+                    <Text style={styles.rewardMeta}>
+                      {distance === 0
+                        ? "Reward ready"
+                        : `${distance} more star${distance === 1 ? "" : "s"} to the next reward`}
+                    </Text>
+                  </View>
+                </View>
+                <Pill label={`${member.starBalance} stars`} tone="gold" icon="star" />
               </View>
-              <Text style={styles.starCaption}>stars saved</Text>
-            </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${progress}%` }]} />
+              </View>
+              <View style={styles.progressLabels}>
+                <Text style={styles.progressLabel}>Now</Text>
+                <Text style={styles.progressLabel}>Next reward at {nextTarget}</Text>
+              </View>
+            </Card>
           ))
         ) : (
           <Card>
@@ -115,7 +185,7 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
                     <Text style={styles.choreTitle}>{chore.title}</Text>
                     <Text style={styles.choreMeta}>{chore.dueLabel}</Text>
                   </View>
-                  <Pill label={`+${chore.stars}`} tone="gold" icon="star" />
+                  <Pill label={`+${chore.stars} stars`} tone="gold" icon="star" />
                 </View>
                 <Pressable
                   accessibilityRole="button"
@@ -133,14 +203,14 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
         ) : (
           <Card>
             <Text style={styles.emptyTitle}>All done for now</Text>
-            <Text style={styles.emptyText}>Nice work - check back if a grown-up adds more chores.</Text>
+            <Text style={styles.emptyText}>Nice work. Check back if a grown-up adds more chores.</Text>
           </Card>
         )}
       </View>
 
       {doneKidChores.length > 0 ? (
         <>
-          <SectionTitle title="Finished today" />
+          <SectionTitle title="Finished today" action={`${doneKidChores.length} done`} />
           <View style={styles.doneStack}>
             {doneKidChores.map((chore) => (
               <Card key={chore.id}>
@@ -194,54 +264,51 @@ const styles = StyleSheet.create({
   root: {
     gap: spacing.lg
   },
-  modeBanner: {
-    backgroundColor: colors.mintSoft,
-    borderColor: colors.mint,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.lg
+  topRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
   },
-  modeTitle: {
-    color: colors.ink,
-    fontSize: 20,
-    fontWeight: "900",
-    lineHeight: 24
-  },
-  modeNote: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
-  },
-  exitCard: {
+  exitChip: {
     alignItems: "center",
     backgroundColor: colors.surface,
-    borderColor: colors.line,
-    borderRadius: radii.lg,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
     borderWidth: 1,
     flexDirection: "row",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  exitChipPressed: {
+    opacity: 0.84
+  },
+  exitChipText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  heroPanel: {
+    flexDirection: "row",
     gap: spacing.md,
-    justifyContent: "space-between",
-    padding: spacing.lg
+    justifyContent: "space-between"
   },
-  exitCardPressed: {
-    opacity: 0.9
-  },
-  exitCopy: {
+  heroCopy: {
     flex: 1,
     gap: spacing.xs
   },
-  exitTitle: {
+  greeting: {
     color: colors.ink,
-    fontSize: 16,
-    fontWeight: "900"
-  },
-  exitText: {
-    color: colors.muted,
-    fontSize: 13,
+    fontFamily: fonts.display,
+    fontSize: 32,
     fontWeight: "700",
-    lineHeight: 18
+    lineHeight: 38
+  },
+  heroNote: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 21
   },
   exitHint: {
     color: colors.primary,
@@ -249,46 +316,99 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: spacing.xs
   },
-  greeting: {
-    color: colors.ink,
-    fontSize: 28,
-    fontWeight: "900",
-    lineHeight: 32
+  heroBadge: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.lg,
+    height: 46,
+    justifyContent: "center",
+    width: 46
   },
-  starGrid: {
+  summaryGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.lg
+  },
+  summaryCard: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flex: 1,
+    gap: 2,
+    padding: spacing.md
+  },
+  summaryLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  summaryValue: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 34
+  },
+  summaryMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18
+  },
+  rewardStack: {
     gap: spacing.md
   },
-  starCard: {
-    alignItems: "center",
-    borderRadius: radii.lg,
-    flexGrow: 1,
-    minWidth: "46%",
-    padding: spacing.lg
-  },
-  starName: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "900",
-    marginTop: spacing.sm
-  },
-  starRow: {
+  rewardHeader: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.xs,
+    gap: spacing.md,
+    justifyContent: "space-between"
+  },
+  rewardLead: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  rewardCopy: {
+    flex: 1,
+    gap: 2
+  },
+  rewardName: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: "800"
+  },
+  rewardMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18
+  },
+  progressTrack: {
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radii.pill,
+    height: 10,
+    marginTop: spacing.md,
+    overflow: "hidden"
+  },
+  progressFill: {
+    backgroundColor: colors.gold,
+    borderRadius: radii.pill,
+    height: "100%"
+  },
+  progressLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: spacing.sm
   },
-  starValue: {
-    color: "#FFFFFF",
-    fontSize: 34,
-    fontWeight: "900"
-  },
-  starCaption: {
-    color: "rgba(255,255,255,0.9)",
-    fontSize: 13,
-    fontWeight: "800",
-    marginTop: spacing.xs
+  progressLabel: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700"
   },
   choreStack: {
     gap: spacing.md

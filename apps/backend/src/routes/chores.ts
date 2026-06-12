@@ -10,8 +10,9 @@ import { z } from "zod";
 
 import { db } from "../db/client.js";
 import { choreCompletions, chores, rewards } from "../db/schema.js";
+import { sendError } from "../lib/http.js";
 import { requireAuth } from "../plugins/auth.js";
-import { requireFamilyMember } from "../plugins/familyAccess.js";
+import { ensureFamilyMemberIds, requireFamilyMember } from "../plugins/familyAccess.js";
 
 const familyParamsSchema = z.object({
   familyId: uuidSchema
@@ -50,6 +51,14 @@ export async function choresRoutes(app: FastifyInstance) {
     if (!membership) return;
 
     const body = createChoreSchema.parse(request.body);
+    if (body.assignedTo) {
+      const assignee = await ensureFamilyMemberIds(reply, familyId, [body.assignedTo], {
+        code: "CHORE_ASSIGNEE_INVALID",
+        message: "That assignee does not belong to this family."
+      });
+      if (!Array.isArray(assignee)) return;
+    }
+
     const [chore] = await db
       .insert(chores)
       .values({
@@ -111,6 +120,14 @@ export async function choresRoutes(app: FastifyInstance) {
     if (!membership) return;
 
     const body = updateChoreSchema.parse(request.body);
+    if (body.assignedTo) {
+      const assignee = await ensureFamilyMemberIds(reply, familyId, [body.assignedTo], {
+        code: "CHORE_ASSIGNEE_INVALID",
+        message: "That assignee does not belong to this family."
+      });
+      if (!Array.isArray(assignee)) return;
+    }
+
     const [chore] = await db
       .update(chores)
       .set({
@@ -150,6 +167,29 @@ export async function choresRoutes(app: FastifyInstance) {
 
     if (!chore) {
       return reply.status(404).send({ error: "Chore not found", code: "CHORE_NOT_FOUND" });
+    }
+
+    const completedMember = await ensureFamilyMemberIds(reply, familyId, [body.memberId], {
+      code: "CHORE_MEMBER_INVALID",
+      message: "That completion member does not belong to this family."
+    });
+    if (!Array.isArray(completedMember)) return;
+
+    const existingCompletion = await db.query.choreCompletions.findFirst({
+      where: and(
+        eq(choreCompletions.choreId, choreId),
+        eq(choreCompletions.memberId, body.memberId),
+        eq(choreCompletions.dueDate, body.dueDate)
+      )
+    });
+
+    if (existingCompletion) {
+      return sendError(
+        reply,
+        409,
+        "This chore was already completed for that family member on that date.",
+        "CHORE_ALREADY_COMPLETED"
+      );
     }
 
     const result = await db.transaction(async (tx) => {

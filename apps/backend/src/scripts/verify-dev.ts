@@ -1,8 +1,10 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
 
-import { buildApp } from "../app.js";
-import { env } from "../env.js";
+process.env.DEV_AUTH_ENABLED ??= "true";
+
+const { buildApp } = await import("../app.js");
+const { env } = await import("../env.js");
 
 const headers = {
   Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`

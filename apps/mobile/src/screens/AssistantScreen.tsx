@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
@@ -26,6 +26,15 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   body: string;
+};
+
+type AssistantStatus = {
+  configured: boolean;
+  providers: {
+    openai: boolean;
+    groqKeys: number;
+  };
+  streaming: boolean;
 };
 
 const timePattern = /\b([1-9]|1[0-2])(:[0-5][0-9])?\s?(am|pm|a\.m\.|p\.m\.)?\b/i;
@@ -151,12 +160,14 @@ export function AssistantScreen() {
     {
       id: "assistant-welcome",
       role: "assistant",
-      body: "Tell HomeThread what the family needs. I can turn text into events, chores, lists, or meal and grocery help."
+      body: "Paste family text or ask for help. I'll draft it - you save what fits."
     }
   ]);
   const [isThinking, setIsThinking] = useState(false);
   const [saved, setSaved] = useState(false);
   const [assistantNote, setAssistantNote] = useState<string | null>(null);
+  const [assistantStatus, setAssistantStatus] = useState<AssistantStatus | null>(null);
+  const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
 
   const canSend = useMemo(() => prompt.trim().length > 0 && !isThinking, [isThinking, prompt]);
   const assistantContext = useMemo<AssistantContext>(() => {
@@ -192,6 +203,46 @@ export function AssistantScreen() {
     };
   }, [chores, events, familyName, members]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (syncSource !== "api") {
+      setAssistantStatus(null);
+      setAssistantStatusMessage("Sign in to use cloud AI. Preview mode can still draft simple text on this device.");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      const result = await apiRequest<AssistantStatus>("/ai/status");
+      if (cancelled) {
+        return;
+      }
+
+      if (!result.data) {
+        setAssistantStatus(null);
+        setAssistantStatusMessage(result.error?.message ?? "Could not confirm assistant status.");
+        return;
+      }
+
+      setAssistantStatus(result.data);
+
+      if (result.data.configured) {
+        setAssistantStatusMessage("Cloud AI is available for this household.");
+        return;
+      }
+
+      setAssistantStatusMessage(
+        "This build can parse simple family text. Cloud AI is not configured on the server yet."
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [syncSource]);
+
   async function runAssistant(messageText: string, intent?: AssistantIntent) {
     const trimmed = messageText.trim();
     if (!trimmed) {
@@ -218,7 +269,7 @@ export function AssistantScreen() {
             id: `assistant-${Date.now()}`,
             role: "assistant",
             body:
-              "Meal suggestions need API sync and a configured AI provider. In local preview, add meals manually on the Meals tab."
+              "Meal suggestions need a signed-in household. For now, add meals on the Meals tab."
           }
         ]);
         setIsThinking(false);
@@ -246,8 +297,8 @@ export function AssistantScreen() {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           body: localDraft
-            ? "Assistant is in local preview. HomeThread used local parsing for this draft."
-            : "Assistant is in local preview. Add a clear event, chore, or grocery item to get a local draft."
+            ? "HomeThread drafted this from your message. Review it before saving."
+            : "Try a clearer event, chore, or grocery message and HomeThread can draft it."
         }
       ]);
       setIsThinking(false);
@@ -274,8 +325,8 @@ export function AssistantScreen() {
       setDraft(nextDraft);
       setAssistantNote(
         assistantData.provider
-          ? `Answered by ${assistantData.provider} (not streamed).`
-          : "Answered by AI (not streamed)."
+          ? `Suggestion from ${assistantData.provider}.`
+          : "Suggestion from HomeThread."
       );
       setMessages((current) => [
         ...current,
@@ -299,7 +350,7 @@ export function AssistantScreen() {
     setDraft(localDraft);
     setAssistantNote(
       localDraft
-        ? "AI was unavailable. HomeThread used local parsing for a draft you can save."
+        ? "AI was unavailable. HomeThread made a local draft you can still save."
         : summaryFallback ?? unavailableMessage
     );
     setMessages((current) => [
@@ -329,8 +380,8 @@ export function AssistantScreen() {
       setMealSuggestions(response.suggestions);
       setAssistantNote(
         response.provider
-          ? `Meal ideas from ${response.provider} (not streamed).`
-          : "Meal ideas from AI (not streamed)."
+          ? `Meal ideas from ${response.provider}.`
+          : "Meal ideas from HomeThread."
       );
       setMessages((current) => [
         ...current,
@@ -360,19 +411,43 @@ export function AssistantScreen() {
   return (
     <View>
       <Text style={styles.title}>Assistant</Text>
-      <Text style={styles.subtitle}>
-        A simple assistant for family text, meals, groceries, and chores. Responses are not streamed in this build.
-      </Text>
+      <Text style={styles.subtitle}>Draft plans, lists, chores, and meals. Nothing saves until you approve.</Text>
 
       <Card>
         <View style={styles.guardrailTop}>
-          <Pill label="Suggestions only" tone="mint" icon="shield-checkmark" />
-          <Pill label="Nothing saves automatically" tone="neutral" />
+          <Pill
+            label={
+              syncSource !== "api"
+                ? "Preview mode"
+                : assistantStatus?.configured
+                  ? "Cloud AI"
+                  : "Text parser"
+            }
+            tone={syncSource !== "api" ? "neutral" : assistantStatus?.configured ? "mint" : "gold"}
+            icon={syncSource !== "api" ? "information-circle" : "sparkles"}
+          />
+          <Pill label="You approve saves" tone="neutral" icon="shield-checkmark" />
         </View>
-        <Text style={styles.guardrailTitle}>HomeThread drafts ideas. You make the final call.</Text>
-        <Text style={styles.guardrailText}>
-          Suggestions can help with meals, chores, and family text, but nothing changes in the household until you save it.
-        </Text>
+        {assistantStatusMessage ? <Text style={styles.statusNote}>{assistantStatusMessage}</Text> : null}
+        <TextInput
+          accessibilityLabel="Assistant message"
+          multiline
+          onChangeText={setPrompt}
+          placeholder="Paste family text or ask for help"
+          placeholderTextColor={colors.muted}
+          style={styles.input}
+          value={prompt}
+        />
+        <View style={styles.sendRow}>
+          <PrimaryButton
+            label={isThinking ? "Thinking..." : "Ask assistant"}
+            icon="sparkles"
+            onPress={() => {
+              if (!canSend) return;
+              void runAssistant(prompt, "general");
+            }}
+          />
+        </View>
       </Card>
 
       <SectionTitle title="Quick prompts" />
@@ -432,7 +507,7 @@ export function AssistantScreen() {
                   </View>
                   <Text style={styles.draftTitle}>{suggestion.title}</Text>
                   {suggestion.notes ? <Text style={styles.meta}>{suggestion.notes}</Text> : null}
-                  <Text style={styles.reviewNote}>This meal is only a suggestion until you add it to the plan.</Text>
+                  <Text style={styles.reviewNote}>Review before adding to meals.</Text>
                   <View style={styles.saveRow}>
                     <PrimaryButton
                       label={added ? "Added to meals" : isSaving ? "Saving..." : "Add to meals"}
@@ -464,29 +539,6 @@ export function AssistantScreen() {
         </>
       ) : null}
 
-      <SectionTitle title="Your message" />
-      <Card>
-        <TextInput
-          accessibilityLabel="Assistant message"
-          multiline
-          onChangeText={setPrompt}
-          placeholder="Type family text or ask for help"
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-          value={prompt}
-        />
-        <View style={styles.sendRow}>
-          <PrimaryButton
-            label={isThinking ? "Thinking..." : "Ask assistant"}
-            icon="chatbubble-ellipses"
-            onPress={() => {
-              if (!canSend) return;
-              void runAssistant(prompt, "general");
-            }}
-          />
-        </View>
-      </Card>
-
       {draft ? (
         <>
           <SectionTitle title="Draft to save" />
@@ -501,7 +553,7 @@ export function AssistantScreen() {
             </View>
             <Text style={styles.draftTitle}>{draft.title}</Text>
             <Text style={styles.meta}>{draft.detail}</Text>
-            <Text style={styles.reviewNote}>Nothing changes for the family until you tap save.</Text>
+            <Text style={styles.reviewNote}>Review before saving.</Text>
             {assistantNote ? <Text style={styles.note}>{assistantNote}</Text> : null}
             <Text style={styles.saveStatus}>{isSaving ? "Saving..." : saveMessage}</Text>
             <View style={styles.saveRow}>
@@ -581,6 +633,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: spacing.sm
   },
+  statusNote: {
+    color: colors.tertiary,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginTop: spacing.md
+  },
   promptRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -623,12 +682,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.ink,
     fontSize: 16,
-    minHeight: 96,
+    marginTop: spacing.md,
+    minHeight: 88,
     padding: spacing.md,
     textAlignVertical: "top"
   },
   sendRow: {
-    marginTop: spacing.lg
+    marginTop: spacing.md
   },
   draftTop: {
     alignItems: "center",

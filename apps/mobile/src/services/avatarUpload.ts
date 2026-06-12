@@ -1,0 +1,87 @@
+import { decode } from "base64-arraybuffer";
+
+import { supabaseClient } from "./supabase";
+
+declare const process: {
+  env: {
+    EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET?: string;
+  };
+};
+
+const avatarBucket = process.env.EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET?.trim() || "avatars";
+
+async function loadImagePicker() {
+  return import("expo-image-picker");
+}
+
+function extensionFromMimeType(mimeType: string | null | undefined) {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
+}
+
+export async function pickAndUploadAvatar(userId: string) {
+  if (!supabaseClient) {
+    return {
+      ok: false as const,
+      message: "Profile photo upload is not set up in this app build."
+    };
+  }
+
+  const ImagePicker = await loadImagePicker();
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permission.granted) {
+    return {
+      ok: false as const,
+      message: "Allow photo library access before choosing a profile photo."
+    };
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.78,
+    base64: true
+  });
+
+  if (result.canceled || !result.assets?.[0]) {
+    return {
+      ok: false as const,
+      cancelled: true as const,
+      message: "Photo selection was cancelled."
+    };
+  }
+
+  const asset = result.assets[0];
+  if (!asset.base64) {
+    return {
+      ok: false as const,
+      message: "HomeThread could not read that photo for upload."
+    };
+  }
+
+  const extension = extensionFromMimeType(asset.mimeType);
+  const path = `${userId}/avatar-${Date.now()}.${extension}`;
+
+  const { error: uploadError } = await supabaseClient.storage
+    .from(avatarBucket)
+    .upload(path, decode(asset.base64), {
+      contentType: asset.mimeType ?? "image/jpeg",
+      upsert: true
+    });
+
+  if (uploadError) {
+    return {
+      ok: false as const,
+      message: uploadError.message || "Could not upload that profile photo."
+    };
+  }
+
+  const { data } = supabaseClient.storage.from(avatarBucket).getPublicUrl(path);
+
+  return {
+    ok: true as const,
+    avatarUrl: data.publicUrl
+  };
+}

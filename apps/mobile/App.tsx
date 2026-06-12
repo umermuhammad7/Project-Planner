@@ -16,6 +16,7 @@ import { KidsModeScreen } from "./src/screens/KidsModeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
 import { MealsScreen } from "./src/screens/MealsScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
+import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
 import { getApiConfigurationStatus } from "./src/services/api";
@@ -35,7 +36,7 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "lists", label: "Lists", icon: "bag" },
   { key: "meals", label: "Meals", icon: "restaurant" },
   { key: "thread", label: "Texts", icon: "chatbubbles" },
-  { key: "add", label: "Add", icon: "add-circle" }
+  { key: "add", label: "Assistant", icon: "sparkles" }
 ];
 
 function AppShell() {
@@ -44,6 +45,7 @@ function AppShell() {
   const [kidsMode, setKidsMode] = useState(false);
   const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenTranslateY = useRef(new Animated.Value(0)).current;
   const authMode = useAuthStore((state) => state.mode);
@@ -112,6 +114,7 @@ function AppShell() {
       setKidsMode(false);
       setFamilySettingsOpen(false);
       setInsightsOpen(false);
+      setSettingsOpen(false);
       resetHomeThreadStoreForSignedOut();
     }
   }, [authFamilyId, authMode]);
@@ -178,6 +181,7 @@ function AppShell() {
         onEnterKidsMode={() => setKidsMode(true)}
         onOpenFamilySettings={() => setFamilySettingsOpen(true)}
         onOpenInsights={() => setInsightsOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
     );
   }, [activeTab]);
@@ -189,9 +193,14 @@ function AppShell() {
     kidsMode ? "kids" : "adult",
     familySettingsOpen ? "family" : "family-closed",
     insightsOpen ? "insights" : "insights-closed",
+    settingsOpen ? "settings" : "settings-closed",
     showWelcome ? "welcome" : "app",
     showConnecting ? "connecting" : "ready"
   ].join(":");
+
+  useEffect(() => {
+    useHomeThreadStore.setState({ saveMessage: "" });
+  }, [activeTab]);
 
   useEffect(() => {
     screenOpacity.setValue(0.9);
@@ -253,7 +262,7 @@ function AppShell() {
               authMode === "loading" ? (
                 <View style={styles.connecting}>
                   <Text style={styles.connectingTitle}>Checking session...</Text>
-                  <Text style={styles.connectingSubtitle}>Restoring Supabase auth when configured.</Text>
+                  <Text style={styles.connectingSubtitle}>Checking whether you are already signed in.</Text>
                 </View>
               ) : (
                 <WelcomeScreen
@@ -271,6 +280,14 @@ function AppShell() {
               <KidsModeScreen onExit={() => setKidsMode(false)} />
             ) : insightsOpen ? (
               <InsightsScreen onClose={() => setInsightsOpen(false)} />
+            ) : settingsOpen ? (
+              <SettingsScreen
+                onClose={() => setSettingsOpen(false)}
+                onOpenFamilySettings={() => {
+                  setSettingsOpen(false);
+                  setFamilySettingsOpen(true);
+                }}
+              />
             ) : familySettingsOpen ? (
               <FamilyScreen onClose={() => setFamilySettingsOpen(false)} />
             ) : (
@@ -278,7 +295,7 @@ function AppShell() {
             )}
           </Animated.View>
         </ScrollView>
-        {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen && !insightsOpen ? (
+        {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen && !insightsOpen && !settingsOpen ? (
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
               <IconButton
@@ -314,7 +331,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.lg,
-    paddingBottom: 132
+    paddingBottom: 168
   },
   connecting: {
     backgroundColor: colors.surface,

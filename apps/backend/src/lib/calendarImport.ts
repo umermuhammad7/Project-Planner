@@ -1,5 +1,7 @@
 import ICAL from "ical.js";
 import { and, eq } from "drizzle-orm";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 
 import { db } from "../db/client.js";
 import { calendarConnections, events } from "../db/schema.js";
@@ -68,24 +70,37 @@ export function parseIcalFeed(icsText: string, now = new Date()): ImportedCalend
   return imported;
 }
 
-export async function fetchIcalFeed(url: string) {
-  if (!url.startsWith("https://")) {
-    throw new Error("iCal feeds must use HTTPS.");
-  }
+export async function validateIcalUrlSafety(url: string) {
+  return assertSafeExternalIcalUrl(url);
+}
 
-  const response = await fetch(url, {
+export async function fetchIcalFeed(url: string) {
+  const parsedUrl = await validateIcalUrlSafety(url);
+
+  const response = await fetch(parsedUrl, {
     headers: {
       Accept: "text/calendar,text/plain,*/*"
-    }
+    },
+    redirect: "error",
+    signal: AbortSignal.timeout(10_000)
   });
 
   if (!response.ok) {
     throw new Error(`Could not fetch iCal feed (${response.status}).`);
   }
 
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_ICAL_BYTES) {
+    throw new Error("iCal feed is too large to import safely.");
+  }
+
   const text = await response.text();
   if (!text.trim()) {
     throw new Error("iCal feed returned an empty response.");
+  }
+
+  if (Buffer.byteLength(text, "utf8") > MAX_ICAL_BYTES) {
+    throw new Error("iCal feed is too large to import safely.");
   }
 
   return text;
@@ -338,4 +353,78 @@ export async function syncIcalConnection(input: {
     message:
       "Imported future iCal events. Duplicate UIDs were skipped; recurring series are not expanded and edits/deletions are not reconciled yet."
   };
+}
+
+const MAX_ICAL_BYTES = 2 * 1024 * 1024;
+
+async function assertSafeExternalIcalUrl(url: string) {
+  const parsedUrl = new URL(url);
+  if (parsedUrl.protocol !== "https:") {
+    throw new Error("iCal feeds must use HTTPS.");
+  }
+
+  if (parsedUrl.username || parsedUrl.password) {
+    throw new Error("iCal feeds cannot include embedded credentials.");
+  }
+
+  if (isLocalHostname(parsedUrl.hostname)) {
+    throw new Error("iCal feeds must use a public hostname.");
+  }
+
+  const resolvedAddresses = await resolveHostAddresses(parsedUrl.hostname);
+  if (resolvedAddresses.some((address) => isPrivateOrLocalIp(address))) {
+    throw new Error("iCal feeds must resolve to a public internet address.");
+  }
+
+  return parsedUrl.toString();
+}
+
+async function resolveHostAddresses(hostname: string) {
+  if (isIP(hostname)) {
+    return [hostname];
+  }
+
+  try {
+    const resolved = await lookup(hostname, { all: true, verbatim: true });
+    return resolved.map((entry) => entry.address);
+  } catch {
+    throw new Error("HomeThread could not verify that iCal host.");
+  }
+}
+
+function isLocalHostname(hostname: string) {
+  const lower = hostname.toLowerCase();
+  return (
+    lower === "localhost" ||
+    lower.endsWith(".localhost") ||
+    lower.endsWith(".local") ||
+    lower.endsWith(".internal")
+  );
+}
+
+function isPrivateOrLocalIp(address: string) {
+  const version = isIP(address);
+  if (version === 4) {
+    const [a = 0, b = 0] = address.split(".").map((part) => Number(part));
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168)
+    );
+  }
+
+  if (version === 6) {
+    const normalized = address.toLowerCase();
+    return (
+      normalized === "::1" ||
+      normalized.startsWith("fc") ||
+      normalized.startsWith("fd") ||
+      normalized.startsWith("fe80:")
+    );
+  }
+
+  return true;
 }

@@ -13,7 +13,7 @@ import { db } from "../db/client.js";
 import { eventMembers, events } from "../db/schema.js";
 import { getTravelReminderRecommendation } from "../lib/travelReminder.js";
 import { requireAuth } from "../plugins/auth.js";
-import { requireFamilyMember } from "../plugins/familyAccess.js";
+import { ensureFamilyMemberIds, requireFamilyMember } from "../plugins/familyAccess.js";
 
 const familyParamsSchema = z.object({
   familyId: uuidSchema
@@ -80,6 +80,14 @@ export async function eventsRoutes(app: FastifyInstance) {
     if (!membership) return;
 
     const body = createEventSchema.parse(request.body);
+    if (body.memberIds.length > 0) {
+      const familyMembers = await ensureFamilyMemberIds(reply, familyId, body.memberIds, {
+        code: "EVENT_MEMBER_INVALID",
+        message: "One or more assigned members do not belong to this family."
+      });
+      if (!Array.isArray(familyMembers)) return;
+    }
+
     const result = await db.transaction(async (tx) => {
       const [event] = await tx
         .insert(events)
@@ -204,6 +212,14 @@ export async function eventsRoutes(app: FastifyInstance) {
     }
 
     const body = updateEventSchema.parse(request.body);
+    if (body.memberIds && body.memberIds.length > 0) {
+      const familyMembers = await ensureFamilyMemberIds(reply, familyId, body.memberIds, {
+        code: "EVENT_MEMBER_INVALID",
+        message: "One or more assigned members do not belong to this family."
+      });
+      if (!Array.isArray(familyMembers)) return;
+    }
+
     const [event] = await db
       .update(events)
       .set({

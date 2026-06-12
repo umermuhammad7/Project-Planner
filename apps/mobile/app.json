@@ -7,18 +7,16 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F7F3EE"
-    },
     "description": "Family household planner. EAS builds are configured; store submission and push delivery require external setup.",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.homethread.app"
+      "bundleIdentifier": "com.homethread.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.homethread.app",
@@ -31,7 +29,27 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-notifications"
-    ]
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#F7F3EE"
+        }
+      ],
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow HomeThread to choose a profile photo from your library."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
+      }
+    },
+    "owner": "umaf"
   }
 }

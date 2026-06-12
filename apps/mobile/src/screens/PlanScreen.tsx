@@ -44,7 +44,7 @@ export function PlanScreen() {
     async function loadTravelStatus() {
       if (syncSource !== "api") {
         setTravelStatus(null);
-        setTravelMessage("Travel reminders need the local API connected.");
+        setTravelMessage("Travel reminders need a signed-in household.");
         return;
       }
 
@@ -78,7 +78,7 @@ export function PlanScreen() {
   return (
     <View>
       <Text style={styles.title}>This week</Text>
-      <Text style={styles.subtitle}>A shared family plan that still holds together when details travel by text.</Text>
+      <Text style={styles.subtitle}>A shared family plan that still holds together when details arrive by text.</Text>
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -113,7 +113,7 @@ export function PlanScreen() {
             <Text style={styles.snapshotMeta}>
               {nextEvent
                 ? `${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
-                : "Add the first anchor point for the household."}
+                : "Add the first anchor point for the week."}
             </Text>
           </View>
           <View style={styles.snapshotStats}>
@@ -257,7 +257,7 @@ export function PlanScreen() {
           <Card>
             <Text style={styles.emptyTitle}>Nothing is on the family calendar yet.</Text>
             <Text style={styles.emptyText}>
-              Add the first event or import a calendar so HomeThread becomes the place everyone checks each morning.
+              Add the first event or import a calendar so this becomes the place everyone checks each morning.
             </Text>
           </Card>
         )}

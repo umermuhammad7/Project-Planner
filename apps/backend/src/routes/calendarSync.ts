@@ -12,7 +12,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { calendarConnections } from "../db/schema.js";
 import { getCalendarSyncStatus, getGoogleOAuthConfig } from "../env.js";
-import { syncGoogleConnection, syncIcalConnection } from "../lib/calendarImport.js";
+import { syncGoogleConnection, syncIcalConnection, validateIcalUrlSafety } from "../lib/calendarImport.js";
 import { encryptCalendarToken } from "../lib/calendarTokenCrypto.js";
 import { sendError } from "../lib/http.js";
 import { requireAuth } from "../plugins/auth.js";
@@ -68,7 +68,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
         id: row.id,
         provider: row.provider as "google" | "apple" | "outlook" | "ical",
         externalCalendarId: row.externalCalendarId,
-        icalUrl: row.icalUrl,
+        icalUrl: row.icalUrl ? maskIcalUrl(row.icalUrl) : null,
         isActive: row.isActive,
         lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null
       }))
@@ -202,6 +202,17 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     const body = icalBodySchema.parse(request.body);
     const membership = await requireFamilyMember(request, reply, body.familyId);
     if (!membership) return;
+
+    try {
+      await validateIcalUrlSafety(body.icalUrl);
+    } catch (error) {
+      return sendError(
+        reply,
+        400,
+        error instanceof Error ? error.message : "This iCal feed is not allowed.",
+        "ICAL_URL_NOT_ALLOWED"
+      );
+    }
 
     await upsertIcalConnection({
       familyId: body.familyId,
@@ -530,4 +541,13 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function maskIcalUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.hostname}/...`;
+  } catch {
+    return "Configured iCal feed";
+  }
 }

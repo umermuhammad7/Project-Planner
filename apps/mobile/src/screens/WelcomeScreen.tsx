@@ -2,7 +2,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { Card, Pill, PrimaryButton } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
 
@@ -33,10 +33,55 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showWelcomeDetails, setShowWelcomeDetails] = useState(false);
+  const howItWorks = [
+    {
+      step: "1",
+      title: "Start the household",
+      text: "One adult creates the home and becomes the first admin."
+    },
+    {
+      step: "2",
+      title: "Choose the family tier",
+      text: "One adult manages billing, and the rest of the household joins the same home."
+    },
+    {
+      step: "3",
+      title: "Invite everyone else",
+      text: "The second parent joins by code, and child profiles stay inside the same household."
+    }
+  ];
+  const planRows = [
+    {
+      name: "Parents",
+      price: "$5/mo",
+      detail: "2 adults in one home",
+      note: "Best for a couple or co-parents getting started."
+    },
+    {
+      name: "Parents + 2 kids",
+      price: "$10/mo",
+      detail: "2 adults and up to 2 child profiles",
+      note: "A clean fit for the most common family shape."
+    },
+    {
+      name: "Parents + 4 kids",
+      price: "$15/mo",
+      detail: "2 adults and up to 4 child profiles",
+      note: "A bigger household without turning pricing into custom math."
+    },
+    {
+      name: "Unlimited + AI",
+      price: "$50/mo",
+      detail: "Unlimited child profiles with AI planning",
+      note: "For large homes that want the full assistant experience."
+    }
+  ];
   const configurationWarning =
     !supabaseConfiguredOnClient && authMode !== "loading"
-      ? "This build is still missing its secure sign-in setup. Install the next build after configuration is updated."
+      ? "Account sign-in is not configured in this build yet."
       : null;
+  const welcomeMessage = formMessage ?? (configurationWarning ? null : authMessage);
 
   useEffect(() => {
     if (authMode === "supabase" && !familyId && mode === "welcome") {
@@ -143,24 +188,12 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <View style={styles.screen}>
           <Pill label="Household created" tone="primary" icon="home" />
           <Text style={styles.title}>Your family is ready.</Text>
-          <Text style={styles.subtitle}>
-            HomeThread can start with just you, then grow when another adult joins with this code.
-          </Text>
+          <Text style={styles.subtitle}>Share this code when the second parent is ready to join.</Text>
 
           <Card>
             <Text style={styles.cardTitle}>Invite code</Text>
             <Text style={styles.inviteCode}>{createdInviteCode}</Text>
-            <Text style={styles.cardText}>
-              You are the first admin. Share this code later from Household whenever another adult needs access.
-            </Text>
-          </Card>
-
-          <Card>
-            <Text style={styles.cardTitle}>What happens next</Text>
-            <View style={styles.bulletStack}>
-              <Text style={styles.bulletText}>Start with one event, one list, or one chore so the home screen feels useful right away.</Text>
-              <Text style={styles.bulletText}>Add child profiles later from Household when you want stars and kids mode to feel personal.</Text>
-            </View>
+            <Text style={styles.cardText}>You manage billing. Other adults join with this code.</Text>
           </Card>
 
           <View style={styles.actions}>
@@ -177,11 +210,8 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             <Text style={styles.backLabel}>Back</Text>
           </Pressable>
         </View>
-        <Pill label="Household setup" tone="primary" icon="people" />
-        <Text style={styles.title}>Create or join a family</Text>
-        <Text style={styles.subtitle}>
-          Your account is ready. The last step is linking it to a real household so HomeThread can load the right family data.
-        </Text>
+        <Text style={styles.title}>Set up your household</Text>
+        <Text style={styles.subtitle}>Create a new home or join with an invite code.</Text>
 
         <Card>
           <View style={styles.setupTabs}>
@@ -219,7 +249,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                 value={familyName}
                 onChangeText={setFamilyName}
               />
-              <Text style={styles.cardText}>You will become the first admin member and get a shareable invite code.</Text>
+              <Text style={styles.helperTextCompact}>You become the admin and get an invite code for the second parent.</Text>
             </>
           ) : (
             <>
@@ -232,9 +262,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                 value={inviteCode}
                 onChangeText={setInviteCode}
               />
-              <Text style={styles.cardText}>
-                Ask a family admin for their code. Joining links this account to the same plans, chores, and lists.
-              </Text>
+              <Text style={styles.helperTextCompact}>Ask the household admin for their code.</Text>
             </>
           )}
 
@@ -248,14 +276,6 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                 void (setupTab === "create" ? handleCreateFamily() : handleJoinFamily());
               }}
             />
-          </View>
-        </Card>
-
-        <Card>
-          <Text style={styles.cardTitle}>Before you continue</Text>
-          <View style={styles.bulletStack}>
-            <Text style={styles.bulletText}>HomeThread will not show seeded or fake household data for signed-in accounts.</Text>
-            <Text style={styles.bulletText}>You can always sign out and come back with another account later.</Text>
           </View>
         </Card>
 
@@ -294,13 +314,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             <Text style={styles.backLabel}>Back</Text>
           </Pressable>
         </View>
-        <Pill label={isRegister ? "Create account" : "Welcome back"} tone="primary" icon="person-circle" />
-        <Text style={styles.title}>{isRegister ? "Set up your HomeThread account" : "Sign in to your household"}</Text>
-        <Text style={styles.subtitle}>
-          {supabaseConfiguredOnClient
-            ? "Use your real email and password. HomeThread will restore this session on the next app open."
-            : "Supabase is not configured in this build, so real account sign-in is unavailable here."}
-        </Text>
+        <Text style={styles.title}>{isRegister ? "Create your account" : "Welcome back"}</Text>
 
         <Card>
           {supabaseConfiguredOnClient ? (
@@ -308,7 +322,6 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
               <PrimaryButton
                 label={isSubmitting ? "Working..." : "Continue with Google"}
                 icon="logo-google"
-                tone="soft"
                 onPress={() => {
                   if (isSubmitting) return;
                   void handleGoogleSignIn();
@@ -349,13 +362,6 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
           </View>
         </Card>
 
-        <Card>
-          <Text style={styles.cardTitle}>What happens after sign-in</Text>
-          <Text style={styles.cardText}>
-            If your account is already linked to a family, HomeThread opens it right away. If not, you will create or join one next.
-          </Text>
-        </Card>
-
         <Pressable onPress={() => setMode(isRegister ? "login" : "register")} style={styles.linkButton}>
           <Text style={styles.link}>{isRegister ? "Already have an account?" : "Need an account?"}</Text>
         </Pressable>
@@ -376,36 +382,23 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             <Image source={require("../../assets/icon.png")} style={styles.mark} />
           </View>
           <View style={styles.heroCopy}>
-            <Pill label="Built for real households" tone="primary" icon="home" />
             <Text style={styles.kicker}>HomeThread</Text>
-            <Text style={styles.title}>A calm center for the home.</Text>
-            <Text style={styles.subtitle}>
-              Plans, chores, lists, meals, and family updates stay in one warm place instead of being scattered across texts.
-            </Text>
+            <Text style={styles.welcomeTitle}>Keep the day moving together.</Text>
+            <Text style={styles.welcomeSubtitle}>Plans, chores, meals, and AI in one calm home.</Text>
           </View>
         </View>
       </LinearGradient>
 
-      <Card>
-        <Text style={styles.cardTitle}>What this should feel like</Text>
-        <View style={styles.bulletStack}>
-          <Text style={styles.bulletText}>A shared picture of today, next, and later without one person carrying the whole week in their head.</Text>
-          <Text style={styles.bulletText}>Meal plans, errands, and chores that flow together naturally instead of getting copied between apps.</Text>
-          <Text style={styles.bulletText}>A kid-friendly chore system that still feels grown-up when an adult is holding the phone.</Text>
-        </View>
-      </Card>
-
       {configurationWarning ? (
         <Card>
-          <Text style={styles.warningTitle}>This build still needs secure sign-in</Text>
+          <Text style={styles.warningTitle}>Sign-in is not ready yet</Text>
           <Text style={styles.configurationWarning}>{configurationWarning}</Text>
         </Card>
       ) : null}
-      {authMessage && !configurationWarning ? <Text style={styles.formMessage}>{authMessage}</Text> : null}
-      {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
+      {welcomeMessage ? <Text style={styles.formMessage}>{welcomeMessage}</Text> : null}
 
-      <SectionTitle title="Enter your household" />
       <Card>
+        <Text style={styles.cardTitle}>Get started</Text>
         <View style={styles.entryStack}>
           {supabaseConfiguredOnClient && authMode !== "supabase" ? (
             <>
@@ -417,32 +410,80 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                   void handleGoogleSignIn();
                 }}
               />
-              <View style={styles.secondaryActions}>
-                <PrimaryButton label="Create account" icon="person-add" tone="soft" onPress={() => setMode("register")} />
-                <PrimaryButton label="Log in" icon="log-in" tone="ghost" onPress={() => setMode("login")} />
-              </View>
+              <PrimaryButton label="Create account" icon="mail" tone="soft" onPress={() => setMode("register")} />
+              <Pressable onPress={() => setMode("login")} style={styles.loginLinkButton}>
+                <Text style={styles.loginLead}>Already have an account?</Text>
+                <Text style={styles.loginLink}>Log in</Text>
+              </Pressable>
             </>
           ) : null}
           {devTokenAvailable ? (
-            <PrimaryButton
-              label={isSubmitting ? "Working..." : "Use local dev token"}
-              icon="key"
-              tone="ghost"
-              onPress={() => {
-                if (isSubmitting) return;
-                void handleDevTokenSignIn();
-              }}
-            />
+            <View style={styles.devSection}>
+              <Text style={styles.devLabel}>Developer access</Text>
+              <PrimaryButton
+                label={isSubmitting ? "Working..." : "Use dev token"}
+                icon="key"
+                tone="ghost"
+                onPress={() => {
+                  if (isSubmitting) return;
+                  void handleDevTokenSignIn();
+                }}
+              />
+            </View>
           ) : null}
         </View>
+        <Text style={styles.trustNote}>Your household stays private until you sign in.</Text>
       </Card>
 
-      <Card>
-        <Text style={styles.cardTitle}>Trust first</Text>
-        <Text style={styles.cardText}>
-          HomeThread only enters the main app after a real session or an explicit local dev-token sign-in. It does not pretend you are logged in.
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setShowWelcomeDetails((value) => !value)}
+        style={styles.detailsToggle}
+      >
+        <Text style={styles.detailsToggleLabel}>
+          {showWelcomeDetails ? "Hide details" : "How it works and pricing"}
         </Text>
-      </Card>
+      </Pressable>
+
+      {showWelcomeDetails ? (
+        <>
+          <Card>
+            <Text style={styles.cardTitle}>How it works</Text>
+            <View style={styles.stepStack}>
+              {howItWorks.map((item) => (
+                <View key={item.step} style={styles.stepRow}>
+                  <View style={styles.stepBadge}>
+                    <Text style={styles.stepBadgeText}>{item.step}</Text>
+                  </View>
+                  <View style={styles.stepCopy}>
+                    <Text style={styles.stepTitle}>{item.title}</Text>
+                    <Text style={styles.stepText}>{item.text}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Card>
+
+          <Card>
+            <View style={styles.pricingHeader}>
+              <Text style={styles.cardTitle}>Household pricing</Text>
+              <Pill label="Draft" tone="gold" icon="card" />
+            </View>
+            <View style={styles.planStack}>
+              {planRows.map((plan) => (
+                <View key={plan.name} style={styles.planRow}>
+                  <View style={styles.planMeta}>
+                    <Text style={styles.planName}>{plan.name}</Text>
+                    <Text style={styles.planDetail}>{plan.detail}</Text>
+                  </View>
+                  <Text style={styles.planPrice}>{plan.price}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.helperFootnote}>One adult manages billing. Purchases are not live yet.</Text>
+          </Card>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -482,17 +523,45 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md
   },
+  heroFeatureRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.lg
+  },
+  heroFeature: {
+    backgroundColor: "rgba(255,255,255,0.55)",
+    borderColor: "rgba(139,107,74,0.12)",
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    flexGrow: 1,
+    minWidth: 96,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  heroFeatureValue: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  heroFeatureLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: 2
+  },
   markWrap: {
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.7)",
     borderRadius: radii.xl,
-    height: 96,
+    height: 80,
     justifyContent: "center",
-    width: 96
+    width: 80
   },
   mark: {
-    height: 76,
-    width: 76
+    height: 64,
+    width: 64
   },
   heroCopy: {
     flex: 1,
@@ -517,6 +586,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24
   },
+  welcomeTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 32,
+    fontWeight: "700",
+    letterSpacing: 0,
+    lineHeight: 38
+  },
+  welcomeSubtitle: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22
+  },
+  trustNote: {
+    color: colors.tertiary,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginTop: spacing.md
+  },
+  detailsToggle: {
+    minHeight: 44,
+    justifyContent: "center"
+  },
+  detailsToggleLabel: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  devSection: {
+    borderColor: colors.line,
+    borderTopWidth: 1,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingTop: spacing.md
+  },
+  devLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
+  },
   cardTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
@@ -538,6 +651,13 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 15,
     lineHeight: 22
+  },
+  helperTextCompact: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.sm
   },
   warningTitle: {
     color: colors.coral,
@@ -589,6 +709,22 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.md
   },
+  loginLinkButton: {
+    alignItems: "center",
+    gap: 4,
+    minHeight: 44,
+    justifyContent: "center"
+  },
+  loginLead: {
+    color: colors.tertiary,
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  loginLink: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: "800"
+  },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -636,6 +772,95 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
     marginTop: spacing.sm
+  },
+  pricingHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between"
+  },
+  pricingCopy: {
+    flex: 1
+  },
+  planStack: {
+    gap: spacing.sm,
+    marginTop: spacing.md
+  },
+  stepStack: {
+    gap: spacing.md,
+    marginTop: spacing.md
+  },
+  stepRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  stepBadge: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    height: 30,
+    justifyContent: "center",
+    width: 30
+  },
+  stepBadgeText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  stepCopy: {
+    flex: 1,
+    gap: 2
+  },
+  stepTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  stepText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
+  },
+  planRow: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  planMeta: {
+    flex: 1,
+    gap: 2
+  },
+  planName: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  planDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18
+  },
+  planPrice: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  helperFootnote: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.md
   },
   linkButton: {
     minHeight: 44,

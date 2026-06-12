@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import type { PurchasesPackage } from "react-native-purchases";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import {
-  getNotificationCapability,
-  requestNotificationPermissionAndToken
-} from "../services/notifications";
-import { useAuthStore } from "../store/useAuthStore";
+  type BillingPackageSummary,
+  getBillingCustomerInfo,
+  getBillingPackages,
+  getBillingStatus,
+  purchaseBillingPackage,
+  restoreBillingPurchases
+} from "../services/billing";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { MobileSubscriptionStatus } from "../types";
 
@@ -19,19 +23,8 @@ function roleLabel(role: string) {
 }
 
 export function FamilyScreen({ onClose }: { onClose: () => void }) {
-  const authMode = useAuthStore((state) => state.mode);
-  const email = useAuthStore((state) => state.email);
-  const displayName = useAuthStore((state) => state.displayName);
-  const pushToken = useAuthStore((state) => state.pushToken);
-  const notificationPrefs = useAuthStore((state) => state.notificationPrefs);
-  const notificationPermission = useAuthStore((state) => state.notificationPermission);
-  const updateProfile = useAuthStore((state) => state.updateProfile);
-  const savePushToken = useAuthStore((state) => state.savePushToken);
-  const updateNotificationPrefs = useAuthStore((state) => state.updateNotificationPrefs);
-  const setNotificationPermission = useAuthStore((state) => state.setNotificationPermission);
-  const deleteAccount = useAuthStore((state) => state.deleteAccount);
-  const signOut = useAuthStore((state) => state.signOut);
   const {
+    familyId,
     familyName,
     inviteCode,
     isFamilyAdmin,
@@ -48,18 +41,48 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   } = useHomeThreadStore();
   const [childName, setChildName] = useState("");
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
-  const [editedDisplayName, setEditedDisplayName] = useState(displayName ?? "");
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
-  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
-  const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
-  const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
-  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<MobileSubscriptionStatus | null>(null);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const [billingPackages, setBillingPackages] = useState<PurchasesPackage[]>([]);
+  const [billingSummaries, setBillingSummaries] = useState<BillingPackageSummary[]>([]);
+  const [billingManagementUrl, setBillingManagementUrl] = useState<string | null>(null);
+  const [isLoadingBilling, setIsLoadingBilling] = useState(false);
+  const [isRestoringPurchases, setIsRestoringPurchases] = useState(false);
+  const [activePurchaseId, setActivePurchaseId] = useState<string | null>(null);
+  const [showBillingPlans, setShowBillingPlans] = useState(false);
+  const planRows = [
+    {
+      name: "Parents",
+      price: "$5/mo",
+      detail: "2 adults in one home",
+      note: "Start with the parents and add structure before the house gets noisy."
+    },
+    {
+      name: "Parents + 2 kids",
+      price: "$10/mo",
+      detail: "2 adults and up to 2 child profiles",
+      note: "The strongest default for a typical household."
+    },
+    {
+      name: "Parents + 4 kids",
+      price: "$15/mo",
+      detail: "2 adults and up to 4 child profiles",
+      note: "More room for larger families without custom pricing math."
+    },
+    {
+      name: "Unlimited + AI",
+      price: "$50/mo",
+      detail: "Unlimited child profiles with AI planning",
+      note: "For large homes that want the assistant fully switched on."
+    }
+  ];
 
   const backendConnected = syncSource === "api";
+  const billingStatus = getBillingStatus();
   const childProfiles = members.filter((member) => member.role === "kid");
 
   async function handleSaveFamilyName() {
@@ -133,72 +156,13 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     }
   }
 
-  async function handleSignOut() {
-    await signOut();
-    onClose();
-  }
-
-  async function handleSaveProfile() {
-    setFormMessage(null);
-    const result = await updateProfile({ displayName: editedDisplayName });
-    if (!result.ok) {
-      setFormMessage(result.message ?? "Could not update your profile.");
-      return;
-    }
-    setEditedDisplayName(useAuthStore.getState().displayName ?? editedDisplayName.trim());
-  }
-
-  async function handleDeleteAccount() {
-    setFormMessage(null);
-    setIsDeletingAccount(true);
-    try {
-      const result = await deleteAccount();
-      if (!result.ok) {
-        setFormMessage(result.message ?? "Could not delete this account.");
-        return;
-      }
-      onClose();
-    } finally {
-      setIsDeletingAccount(false);
-    }
-  }
-
-  async function loadNotificationCapability() {
-    const capability = await getNotificationCapability();
-    setNotificationPermission(capability.permission);
-    setNotificationCapabilityMessage(capability.message);
-  }
-
-  async function handleEnableNotifications() {
-    setNotificationMessage(null);
-    setIsRegisteringNotifications(true);
-
-    try {
-      const result = await requestNotificationPermissionAndToken();
-      setNotificationPermission(result.permission);
-      setNotificationMessage(result.message);
-
-      if (result.ok && result.pushToken) {
-        const saved = await savePushToken(result.pushToken);
-        if (!saved.ok) {
-          setNotificationMessage(saved.message ?? "Push token could not be saved to your profile.");
-        } else {
-          setNotificationMessage("Push permission granted and token saved to your HomeThread profile.");
-        }
-      }
-    } finally {
-      setIsRegisteringNotifications(false);
-    }
-  }
-
   async function loadSubscriptionStatus() {
     if (!backendConnected) {
       setSubscriptionStatus(null);
-      setSubscriptionMessage("Subscription status needs the local API connected.");
+      setSubscriptionMessage("Sign in to check subscription status.");
       return;
     }
 
-    const familyId = useHomeThreadStore.getState().familyId;
     if (!familyId) {
       setSubscriptionStatus(null);
       setSubscriptionMessage("Join or create a household before checking plan status.");
@@ -216,22 +180,97 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     setSubscriptionMessage(result.data.message);
   }
 
-  async function handleToggleNotificationPref(
-    key: keyof typeof notificationPrefs,
-    value: boolean
-  ) {
-    setNotificationMessage(null);
-    const result = await updateNotificationPrefs({
-      ...notificationPrefs,
-      [key]: value
-    });
-
-    if (!result.ok) {
-      setNotificationMessage(result.message ?? "Could not update notification settings.");
+  async function loadBillingOptions() {
+    if (!familyId) {
+      setBillingPackages([]);
+      setBillingSummaries([]);
+      setBillingManagementUrl(null);
+      setBillingMessage("Create or join a household before loading store plans.");
       return;
     }
 
-    setNotificationMessage("Notification settings updated.");
+    if (!isFamilyAdmin) {
+      setBillingPackages([]);
+      setBillingSummaries([]);
+      setBillingManagementUrl(null);
+      setBillingMessage("Only the household admin manages billing. Everyone else joins by invite code.");
+      return;
+    }
+
+    setIsLoadingBilling(true);
+    try {
+      const packagesResult = await getBillingPackages(familyId);
+      if (!packagesResult.ok) {
+        setBillingPackages([]);
+        setBillingSummaries([]);
+        setBillingManagementUrl(null);
+        setBillingMessage(packagesResult.message);
+        return;
+      }
+
+      setBillingPackages(packagesResult.packages);
+      setBillingSummaries(packagesResult.summaries);
+      setBillingMessage(
+        packagesResult.summaries.length > 0
+          ? "Store plans are loaded for this household."
+          : billingStatus.keyPresent
+            ? "Billing is connected, but no store packages are available in the current offering yet."
+            : billingStatus.message
+      );
+
+      const customerInfo = await getBillingCustomerInfo(familyId);
+      if (customerInfo.ok) {
+        setBillingManagementUrl(customerInfo.customerInfo.managementURL);
+      }
+    } finally {
+      setIsLoadingBilling(false);
+    }
+  }
+
+  async function handlePurchasePlan(aPackage: PurchasesPackage) {
+    if (!familyId) {
+      setBillingMessage("Create or join a household before starting checkout.");
+      return;
+    }
+
+    setActivePurchaseId(aPackage.identifier);
+    setBillingMessage(null);
+
+    try {
+      const result = await purchaseBillingPackage(familyId, aPackage);
+      setBillingMessage(
+        result.ok
+          ? "Purchase completed. Household status may take a moment to refresh after the store confirms it."
+          : result.message ?? "Purchase could not be completed."
+      );
+      if (result.ok) {
+        await loadSubscriptionStatus();
+        await loadBillingOptions();
+      }
+    } finally {
+      setActivePurchaseId(null);
+    }
+  }
+
+  async function handleRestorePurchases() {
+    if (!familyId) {
+      setBillingMessage("Create or join a household before restoring purchases.");
+      return;
+    }
+
+    setIsRestoringPurchases(true);
+    setBillingMessage(null);
+
+    try {
+      const result = await restoreBillingPurchases(familyId);
+      setBillingMessage(result.message ?? (result.ok ? "Restore finished." : "Could not restore purchases."));
+      if (result.ok) {
+        await loadSubscriptionStatus();
+        await loadBillingOptions();
+      }
+    } finally {
+      setIsRestoringPurchases(false);
+    }
   }
 
   useEffect(() => {
@@ -239,16 +278,20 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   }, [familyName]);
 
   useEffect(() => {
-    setEditedDisplayName(displayName ?? "");
-  }, [displayName]);
-
-  useEffect(() => {
-    void loadNotificationCapability();
-  }, []);
-
-  useEffect(() => {
     void loadSubscriptionStatus();
-  }, [backendConnected, familyName]);
+  }, [backendConnected, familyId]);
+
+  useEffect(() => {
+    if (!backendConnected) {
+      setBillingPackages([]);
+      setBillingSummaries([]);
+      setBillingManagementUrl(null);
+      setBillingMessage("Sign in to load store billing.");
+      return;
+    }
+
+    void loadBillingOptions();
+  }, [backendConnected, familyId, isFamilyAdmin]);
 
   return (
     <View style={styles.screen}>
@@ -257,9 +300,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <Text style={styles.kicker}>Household</Text>
           <Text style={styles.title}>{familyName}</Text>
           <Text style={styles.subtitle}>
-            {backendConnected
-              ? "Invite people, add child profiles, and keep family settings tidy in one place."
-              : "Household settings need the local backend connected."}
+            {backendConnected ? "Invites and child profiles." : "Sign in to manage your household."}
           </Text>
         </View>
         <Pressable onPress={onClose} style={styles.closeButton}>
@@ -291,9 +332,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       <SectionTitle title="Family access" />
       <Card>
         <Text style={styles.cardTitle}>Invite code</Text>
-        <Text style={styles.cardText}>
-          Share this code with another adult when they should see the same household. Email invites are not wired in this build.
-        </Text>
+        <Text style={styles.cardText}>Give this to the second parent so they can join the same home.</Text>
         <Text style={styles.inviteCode}>{inviteCode ?? "Unavailable"}</Text>
         {isFamilyAdmin ? (
           <View style={styles.cardActions}>
@@ -315,7 +354,6 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       {isFamilyAdmin ? (
         <Card>
           <Text style={styles.cardTitle}>Household name</Text>
-          <Text style={styles.cardText}>Use the name everyone in the family will recognize immediately.</Text>
           <Text style={styles.label}>Family name</Text>
           <TextInput
             style={styles.input}
@@ -414,9 +452,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         <>
           <SectionTitle title="Add child profile" />
           <Card>
-            <Text style={styles.cardText}>
-              Child profiles are for chores, stars, and kids mode. They do not get their own login in this build.
-            </Text>
+            <Text style={styles.helperTextCompact}>No login - for chores, stars, and kids mode.</Text>
             <Text style={styles.label}>Name</Text>
             <TextInput
               style={styles.input}
@@ -442,98 +478,8 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
       {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
 
-      <SectionTitle title="Your account" />
       <Card>
-        <Text style={styles.cardTitle}>Profile</Text>
-        <Text style={styles.cardText}>
-          Keep your display name current so family activity, invites, and notifications stay understandable.
-        </Text>
-        <Text style={styles.label}>Display name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Your name"
-          placeholderTextColor={colors.muted}
-          value={editedDisplayName}
-          onChangeText={setEditedDisplayName}
-        />
-        <Text style={styles.helperText}>{email ?? "No email on file for this session."}</Text>
-        <View style={styles.cardActions}>
-          <PrimaryButton
-            label={isSaving ? "Working..." : "Save profile"}
-            icon="person-circle"
-            onPress={() => {
-              if (isSaving || !backendConnected) return;
-              void handleSaveProfile();
-            }}
-          />
-        </View>
-      </Card>
-
-      <Card>
-        <Text style={styles.cardTitle}>Home screen widgets</Text>
-        <Text style={styles.cardText}>
-          No iOS or Android widget extension ships in this repo yet. After sync, HomeThread only caches a small JSON snapshot
-          on web for possible future widget work.
-        </Text>
-      </Card>
-
-      <Card>
-        <Text style={styles.cardTitle}>Notifications</Text>
-        <Text style={styles.cardText}>
-          Permission, device token registration, and reminder preferences are wired. Delivering pushes to every device still
-          needs EAS credentials, APNs/FCM setup, and server-side send jobs outside this repo.
-        </Text>
-        <Text style={styles.helperText}>
-          Permission: {notificationPermission}
-          {pushToken ? " - push token saved" : " - no push token saved"}
-        </Text>
-        {notificationCapabilityMessage ? <Text style={styles.helperText}>{notificationCapabilityMessage}</Text> : null}
-        {notificationMessage ? <Text style={styles.saveMessage}>{notificationMessage}</Text> : null}
-        <View style={styles.cardActions}>
-          <PrimaryButton
-            label={isRegisteringNotifications ? "Working..." : pushToken ? "Refresh notification setup" : "Enable notifications"}
-            icon="notifications"
-            tone="soft"
-            onPress={() => {
-              if (isRegisteringNotifications) return;
-              void handleEnableNotifications();
-            }}
-          />
-        </View>
-        <View style={styles.preferenceStack}>
-          <NotificationPrefRow
-            label="Event reminders"
-            value={notificationPrefs.event_reminders}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("event_reminders", value)}
-          />
-          <NotificationPrefRow
-            label="Chore reminders"
-            value={notificationPrefs.chore_reminders}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("chore_reminders", value)}
-          />
-          <NotificationPrefRow
-            label="Family activity"
-            value={notificationPrefs.family_activity}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("family_activity", value)}
-          />
-          <NotificationPrefRow
-            label="Daily digest"
-            value={notificationPrefs.daily_digest}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("daily_digest", value)}
-          />
-        </View>
-      </Card>
-
-      <Card>
-        <Text style={styles.cardTitle}>Family Plus</Text>
-        <Text style={styles.cardText}>
-          Subscription status is read from your profile. In-app purchase, restore, and store review are not complete - they
-          still need RevenueCat and App Store / Play Console setup.
-        </Text>
+        <Text style={styles.cardTitle}>Household plan</Text>
         <Text style={styles.helperText}>
           Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
           {subscriptionStatus?.subscriptionExpiresAt
@@ -541,25 +487,109 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
             : ""}
         </Text>
         {subscriptionMessage ? <Text style={styles.helperText}>{subscriptionMessage}</Text> : null}
-      </Card>
-
-      <SectionTitle title="Leave or sign out" />
-      <Card>
-        <Text style={styles.cardTitle}>Session</Text>
-        <Text style={styles.cardText}>
-          {authMode === "dev_token"
-            ? "Signed in with the local dev token for seeded Parker Home data."
-            : "Signed in with Supabase. Sign out to switch accounts or return to setup."}
-        </Text>
+        {!billingStatus.keyPresent ? <Text style={styles.helperText}>{billingStatus.message}</Text> : null}
         <View style={styles.cardActions}>
-          <PrimaryButton label="Sign out" icon="log-out" tone="soft" onPress={() => void handleSignOut()} />
+          <PrimaryButton
+            label={showBillingPlans ? "Hide plans" : "View plans and billing"}
+            icon="card"
+            tone="soft"
+            onPress={() => setShowBillingPlans((value) => !value)}
+          />
         </View>
+        {showBillingPlans ? (
+          <>
+        <View style={styles.planToolbar}>
+          <PrimaryButton
+            label={isLoadingBilling ? "Refreshing..." : "Refresh plans"}
+            icon="refresh"
+            tone="ghost"
+            onPress={() => {
+              if (isLoadingBilling) return;
+              void loadBillingOptions();
+            }}
+          />
+          {isFamilyAdmin ? (
+            <PrimaryButton
+              label={isRestoringPurchases ? "Restoring..." : "Restore purchases"}
+              icon="download"
+              tone="soft"
+              onPress={() => {
+                if (isRestoringPurchases) return;
+                void handleRestorePurchases();
+              }}
+            />
+          ) : null}
+        </View>
+        <View style={styles.planStack}>
+          {planRows.map((plan) => (
+            <View key={plan.name} style={styles.planRow}>
+              <View style={styles.planCopy}>
+                <Text style={styles.planName}>{plan.name}</Text>
+                <Text style={styles.planDetail}>{plan.detail}</Text>
+                <Text style={styles.planNote}>{plan.note}</Text>
+              </View>
+              <Text style={styles.planPrice}>{plan.price}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.inlineSectionHeader}>
+          <Text style={styles.inlineSectionTitle}>Store checkout</Text>
+          <Text style={styles.inlineSectionMeta}>{billingStatus.platform}</Text>
+        </View>
+        {!billingStatus.keyPresent ? (
+          <Text style={styles.helperText}>{billingStatus.message}</Text>
+        ) : billingMessage ? (
+          <Text style={styles.helperText}>{billingMessage}</Text>
+        ) : null}
+
+        {billingSummaries.length > 0 ? (
+          <View style={styles.storePlanStack}>
+            {billingSummaries.map((summary, index) => (
+              <View key={summary.id} style={styles.storePlanRow}>
+                <View style={styles.planCopy}>
+                  <Text style={styles.planName}>{summary.title}</Text>
+                  <Text style={styles.planDetail}>{summary.description || "Household subscription"}</Text>
+                  {summary.periodLabel ? <Text style={styles.planNote}>Billed {summary.periodLabel}</Text> : null}
+                </View>
+                <View style={styles.storePlanAside}>
+                  <Text style={styles.planPrice}>{summary.priceLabel}</Text>
+                  {isFamilyAdmin ? (
+                    <PrimaryButton
+                      label={activePurchaseId === summary.id ? "Starting..." : "Choose"}
+                      icon="card"
+                      onPress={() => {
+                        if (activePurchaseId) return;
+                        void handlePurchasePlan(billingPackages[index]!);
+                      }}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {billingManagementUrl ? (
+          <View style={styles.cardActions}>
+            <PrimaryButton
+              label="Manage in store"
+              icon="open-outline"
+              tone="ghost"
+              onPress={() => {
+                void Linking.openURL(billingManagementUrl);
+              }}
+            />
+          </View>
+        ) : null}
+          </>
+        ) : null}
       </Card>
 
+      <SectionTitle title="Leave household" />
       <Card>
         <Text style={styles.cardTitle}>Leave household</Text>
         <Text style={styles.cardText}>
-          Leaving removes your membership from this family on the server. You can always rejoin with an invite code later.
+          Leaving removes your membership from this household. You can rejoin later with an invite code.
         </Text>
         <View style={styles.cardActions}>
           <PrimaryButton
@@ -573,58 +603,6 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           />
         </View>
       </Card>
-
-      <Card>
-        <Text style={styles.cardTitle}>Delete account</Text>
-        {authMode === "supabase" ? (
-          <>
-            <Text style={styles.cardText}>
-              This removes the signed-in profile from HomeThread. It is a destructive action and should only be used when the account is no longer needed.
-            </Text>
-            <Text style={styles.dangerText}>
-              Account deletion does not preserve family membership or settings in this build.
-            </Text>
-            <View style={styles.cardActions}>
-              <PrimaryButton
-                label={isDeletingAccount ? "Deleting..." : "Delete account"}
-                icon="trash"
-                tone="dark"
-                onPress={() => {
-                  if (isDeletingAccount || isSaving || !backendConnected) return;
-                  void handleDeleteAccount();
-                }}
-              />
-            </View>
-          </>
-        ) : (
-          <Text style={styles.helperText}>The dev-token session is seeded locally, so account deletion is disabled.</Text>
-        )}
-      </Card>
-    </View>
-  );
-}
-
-function NotificationPrefRow({
-  label,
-  value,
-  disabled = false,
-  onValueChange
-}: {
-  label: string;
-  value: boolean;
-  disabled?: boolean;
-  onValueChange: (value: boolean) => void;
-}) {
-  return (
-    <View style={styles.preferenceRow}>
-      <Text style={[styles.preferenceLabel, disabled ? styles.preferenceLabelDisabled : null]}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        disabled={disabled}
-        trackColor={{ false: colors.line, true: colors.primarySoft }}
-        thumbColor={value ? colors.primary : "#FFFFFF"}
-      />
     </View>
   );
 }
@@ -729,6 +707,94 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: spacing.md
   },
+  helperTextCompact: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.sm
+  },
+  inlineSectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.xl
+  },
+  inlineSectionTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700"
+  },
+  inlineSectionMeta: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  planToolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+    marginTop: spacing.md
+  },
+  planStack: {
+    gap: spacing.sm,
+    marginTop: spacing.md
+  },
+  planRow: {
+    alignItems: "flex-start",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  planCopy: {
+    flex: 1,
+    gap: 2
+  },
+  planName: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  planDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  planNote: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
+  },
+  planPrice: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  storePlanStack: {
+    gap: spacing.sm,
+    marginTop: spacing.md
+  },
+  storePlanRow: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md
+  },
+  storePlanAside: {
+    alignItems: "flex-start",
+    gap: spacing.sm
+  },
   cardActions: {
     marginTop: spacing.lg
   },
@@ -743,26 +809,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.md
-  },
-  preferenceStack: {
-    gap: spacing.md,
-    marginTop: spacing.lg
-  },
-  preferenceRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  preferenceLabel: {
-    color: colors.ink,
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "800",
-    lineHeight: 20,
-    paddingRight: spacing.md
-  },
-  preferenceLabelDisabled: {
-    color: colors.muted
   },
   memberCopy: {
     flex: 1,
@@ -806,12 +852,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19
-  },
-  dangerText: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: spacing.lg
   }
 });

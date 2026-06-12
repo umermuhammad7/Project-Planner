@@ -23,6 +23,11 @@ const familyQuerySchema = z.object({
 });
 
 export async function notificationsRoutes(app: FastifyInstance) {
+  const notificationActionRateLimit = {
+    max: 3,
+    timeWindow: "1 minute"
+  } as const;
+
   app.addHook("preHandler", requireAuth);
 
   app.get("/", async (request) => {
@@ -60,7 +65,7 @@ export async function notificationsRoutes(app: FastifyInstance) {
     return getJobWorkerStatus();
   });
 
-  app.post("/daily-digest/queue", async (request, reply) => {
+  app.post("/daily-digest/queue", { config: { rateLimit: notificationActionRateLimit } }, async (request, reply) => {
     const { familyId } = familyQuerySchema.parse(request.query);
     const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership || reply.sent) return;
@@ -80,7 +85,7 @@ export async function notificationsRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/daily-digest/send-now", async (request, reply) => {
+  app.post("/daily-digest/send-now", { config: { rateLimit: notificationActionRateLimit } }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const { familyId } = familyQuerySchema.parse(request.query);
     const membership = await requireFamilyMember(request, reply, familyId);

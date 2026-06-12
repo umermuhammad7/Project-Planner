@@ -1,8 +1,7 @@
 import type { RealtimeSyncStatus, SyncSource } from "../types";
-import { describeLiveUpdateSync } from "../services/familyRealtimeSync";
 
 export function getSyncPillLabel(syncSource: SyncSource): string {
-  return syncSource === "api" ? "Household synced" : "Local preview";
+  return syncSource === "api" ? "Household synced" : "On this device";
 }
 
 export function getSyncPillTone(syncSource: SyncSource): "primary" | "neutral" {
@@ -21,11 +20,11 @@ export function getSyncStatusLine(input: {
   }
 
   if (input.syncSource !== "api") {
-    return "Preview data only. Connect the backend to save for the whole family.";
+    return "Preview data on this device. Sign in to share with your household.";
   }
 
   if (input.realtimeStatus === "connected") {
-    return "Live updates on. Other devices refresh through the server.";
+    return "Live updates on. Changes from other devices appear automatically.";
   }
 
   if (input.realtimeStatus === "connecting") {
@@ -36,7 +35,7 @@ export function getSyncStatusLine(input: {
     return input.realtimeMessage;
   }
 
-  return "Refresh anytime. Live updates need Supabase Realtime on core tables.";
+  return "Pull to refresh anytime for the latest household data.";
 }
 
 export function getLiveUpdateNote(input: {
@@ -44,5 +43,20 @@ export function getLiveUpdateNote(input: {
   realtimeStatus: RealtimeSyncStatus;
   realtimeMessage: string;
 }): string {
-  return describeLiveUpdateSync(input);
+  if (input.syncSource !== "api") {
+    return "Sign in to sync household data across devices.";
+  }
+
+  if (input.realtimeStatus === "connected") {
+    return "Live updates are on. When another device changes events, chores, or lists, this app refreshes from the server automatically.";
+  }
+
+  if (input.realtimeStatus === "connecting") {
+    return input.realtimeMessage || "Connecting live updates...";
+  }
+
+  return (
+    input.realtimeMessage ||
+    "Live updates unavailable. Pull to refresh for the latest household data."
+  );
 }

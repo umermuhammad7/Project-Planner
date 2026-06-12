@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
 import { db } from "../src/db/client.js";
-import { authUsers, users } from "../src/db/schema.js";
+import { authUsers, families, familyMembers, notifications, users } from "../src/db/schema.js";
 import { env } from "../src/env.js";
 import { ensureUserProfile } from "../src/lib/userProvisioning.js";
 
@@ -167,5 +167,79 @@ describe("auth guard", () => {
       displayName: "shadow-user"
     });
     expect(shadowRows).toHaveLength(1);
+  });
+
+  it("reconciles an existing email onto the active auth user id", async () => {
+    const oldUserId = "00000000-0000-4000-8000-0000000000b1";
+    const newUserId = "00000000-0000-4000-8000-0000000000b2";
+    const familyId = "00000000-0000-4000-8000-0000000000b3";
+    const memberId = "00000000-0000-4000-8000-0000000000b4";
+    const notificationId = "00000000-0000-4000-8000-0000000000b5";
+    const email = "repair-user@homethread.local";
+
+    await db.delete(notifications).where(eq(notifications.id, notificationId));
+    await db.delete(familyMembers).where(eq(familyMembers.id, memberId));
+    await db.delete(families).where(eq(families.id, familyId));
+    await db.delete(users).where(eq(users.id, newUserId));
+    await db.delete(users).where(eq(users.id, oldUserId));
+    await db.delete(authUsers).where(eq(authUsers.id, newUserId));
+    await db.delete(authUsers).where(eq(authUsers.id, oldUserId));
+
+    await db.insert(authUsers).values({ id: oldUserId });
+    await db.insert(users).values({
+      id: oldUserId,
+      email,
+      displayName: "Repair User"
+    });
+    await db.insert(families).values({
+      id: familyId,
+      name: "Repair Family",
+      createdBy: oldUserId
+    });
+    await db.insert(familyMembers).values({
+      id: memberId,
+      familyId,
+      userId: oldUserId,
+      displayName: "Repair User",
+      color: "#3157D5",
+      role: "admin",
+      isVirtual: false
+    });
+    await db.insert(notifications).values({
+      id: notificationId,
+      userId: oldUserId,
+      familyId,
+      type: "family_activity",
+      title: "Repair ping",
+      body: "Testing user id reconciliation"
+    });
+
+    await ensureUserProfile(newUserId, email);
+
+    const movedProfile = await db.query.users.findFirst({
+      where: eq(users.id, newUserId)
+    });
+    const staleProfile = await db.query.users.findFirst({
+      where: eq(users.id, oldUserId)
+    });
+    const family = await db.query.families.findFirst({
+      where: eq(families.id, familyId)
+    });
+    const familyMember = await db.query.familyMembers.findFirst({
+      where: eq(familyMembers.id, memberId)
+    });
+    const notification = await db.query.notifications.findFirst({
+      where: eq(notifications.id, notificationId)
+    });
+
+    expect(movedProfile).toMatchObject({
+      id: newUserId,
+      email,
+      displayName: "Repair User"
+    });
+    expect(staleProfile).toBeUndefined();
+    expect(family?.createdBy).toBe(newUserId);
+    expect(familyMember?.userId).toBe(newUserId);
+    expect(notification?.userId).toBe(newUserId);
   });
 });
