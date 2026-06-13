@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, Image } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
@@ -35,6 +35,8 @@ export function HomeScreen({
 }) {
   const displayName = useAuthStore((state) => state.displayName);
   const email = useAuthStore((state) => state.email);
+  const avatarUrl = useAuthStore((state) => state.avatarUrl);
+  const authMode = useAuthStore((state) => state.mode);
   const {
     familyName,
     members,
@@ -50,8 +52,9 @@ export function HomeScreen({
   } = useHomeThreadStore();
   const listItemsByListId = useHomeThreadStore((state) => state.listItemsByListId);
 
-  const todayLabel = useMemo(() => formatLongDate(new Date()), []);
+  const todayDateParts = useMemo(() => formatDateParts(new Date()), []);
   const backendConnected = syncSource === "api";
+  const isSignedIn = authMode === "supabase" || authMode === "dev_token";
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
   const openItems = useMemo(
     () => Object.values(listItemsByListId).flat().filter((item) => !item.checked),
@@ -191,10 +194,16 @@ export function HomeScreen({
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.kicker}>{familyName}</Text>
-          <Text style={styles.title}>{todayLabel}</Text>
+          <View style={styles.dateBadge}>
+            <Text style={styles.dateBadgeText}>Today - {todayDateParts.compact}</Text>
+          </View>
+          <Text style={styles.dayTitle}>{todayDateParts.weekday}</Text>
+          <Text style={styles.dateTitle}>{todayDateParts.monthDay}</Text>
+          <View style={styles.headerMeta}>
+            <Pill label={householdSummaryLabel} tone="neutral" icon="people" />
+          </View>
         </View>
         <View style={styles.headerRail}>
-          <Pill label={householdSummaryLabel} tone="neutral" icon="people" />
           {onOpenSettings ? (
             <Pressable
               accessibilityRole="button"
@@ -202,7 +211,11 @@ export function HomeScreen({
               onPress={onOpenSettings}
               style={styles.profileButton}
             >
-              <Text style={styles.profileInitials}>{profileInitials}</Text>
+              {avatarUrl ? (
+                <Image accessibilityLabel={`${profileLabel} profile photo`} source={{ uri: avatarUrl }} style={styles.profileImage} />
+              ) : (
+                <Text style={styles.profileInitials}>{profileInitials}</Text>
+              )}
             </Pressable>
           ) : null}
         </View>
@@ -256,7 +269,7 @@ export function HomeScreen({
 
           <View style={styles.heroActions}>
             <PrimaryButton label="Ask assistant" icon="sparkles" onPress={() => goTo("add")} />
-            <PrimaryButton label="Family board" icon="chatbubbles" tone="soft" onPress={() => goTo("thread")} />
+            <PrimaryButton label="Board" icon="chatbubbles" tone="soft" onPress={() => goTo("thread")} />
             {onEnterKidsMode && kidMembers.length > 0 ? (
               <PrimaryButton label="Kids mode" icon="happy" tone="ghost" onPress={onEnterKidsMode} />
             ) : null}
@@ -267,7 +280,9 @@ export function HomeScreen({
                 ? "Refreshing the household page..."
                 : backendConnected
                   ? syncMessage
-                  : "You're viewing preview data on this device. Sign in to share with your household."}
+                  : isSignedIn && syncMessage?.trim()
+                    ? syncMessage
+                    : "You're viewing preview data on this device. Sign in to share with your household."}
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -375,12 +390,21 @@ export function HomeScreen({
   );
 }
 
-function formatLongDate(date: Date) {
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric"
-  });
+function formatDateParts(date: Date) {
+  return {
+    weekday: date.toLocaleDateString(undefined, {
+      weekday: "long"
+    }),
+    monthDay: date.toLocaleDateString(undefined, {
+      month: "long",
+      day: "numeric"
+    }),
+    compact: date.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric"
+    })
+  };
 }
 
 const highlightToneColors = {
@@ -415,12 +439,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700"
   },
-  title: {
+  dateBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs
+  },
+  dateBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  dayTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 38,
+    fontSize: 32,
     fontWeight: "700",
-    lineHeight: 44
+    lineHeight: 38
+  },
+  dateTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "700",
+    lineHeight: 30
   },
   subhead: {
     color: colors.muted,
@@ -429,10 +473,12 @@ const styles = StyleSheet.create({
     lineHeight: 22
   },
   headerRail: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginLeft: spacing.md
+    alignItems: "flex-start",
+    marginLeft: spacing.md,
+    paddingTop: spacing.xs
+  },
+  headerMeta: {
+    marginTop: spacing.sm
   },
   memberStack: {
     flexDirection: "row",
@@ -447,6 +493,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 42,
     justifyContent: "center",
+    overflow: "hidden",
+    width: 42
+  },
+  profileImage: {
+    height: 42,
     width: 42
   },
   profileInitials: {

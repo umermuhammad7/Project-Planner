@@ -60,6 +60,7 @@ export function SettingsScreen({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [cloudAiReady, setCloudAiReady] = useState<boolean | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const backendConnected = syncSource === "api";
   const initials = useMemo(() => buildInitials(displayName, email), [displayName, email]);
@@ -275,8 +276,13 @@ export function SettingsScreen({
           <PrimaryButton
             label={isSaving ? "Working..." : "Save profile"}
             icon="person-circle"
+            disabled={isSaving || !backendConnected}
             onPress={() => {
-              if (isSaving || !backendConnected) return;
+              if (isSaving) return;
+              if (!backendConnected) {
+                setFormMessage("Profile changes need a connected household. Refresh and try again.");
+                return;
+              }
               void handleSaveProfile();
             }}
           />
@@ -315,8 +321,12 @@ export function SettingsScreen({
               <PrimaryButton
                 label="Update password"
                 icon="lock-closed"
+                disabled={!backendConnected}
                 onPress={() => {
-                  if (!backendConnected) return;
+                  if (!backendConnected) {
+                    setFormMessage("Password changes need a connected session. Refresh and try again.");
+                    return;
+                  }
                   void handleChangePassword();
                 }}
               />
@@ -324,8 +334,12 @@ export function SettingsScreen({
                 label="Send reset email"
                 icon="mail"
                 tone="ghost"
+                disabled={!backendConnected}
                 onPress={() => {
-                  if (!backendConnected) return;
+                  if (!backendConnected) {
+                    setFormMessage("Password reset needs a connected session. Refresh and try again.");
+                    return;
+                  }
                   void handlePasswordReset();
                 }}
               />
@@ -390,38 +404,48 @@ export function SettingsScreen({
 
       {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
 
-      <SectionTitle title="Test build status" />
+      <SectionTitle title="Build diagnostics" />
       <Card>
-        <Text style={styles.cardText}>What this install can actually do during TestFlight QA.</Text>
-        <View style={styles.readinessStack}>
-          {buildReadiness.map((item) => (
-            <View key={item.key} style={styles.readinessRow}>
-              <View style={styles.readinessCopy}>
-                <Text style={styles.readinessLabel}>{item.label}</Text>
-                <Text style={styles.readinessDetail}>{item.detail}</Text>
-              </View>
-              <Pill label={item.ready ? "Ready" : "Not ready"} tone={item.ready ? "mint" : "neutral"} />
-            </View>
-          ))}
-          {backendConnected ? (
-            <View style={styles.readinessRow}>
-              <View style={styles.readinessCopy}>
-                <Text style={styles.readinessLabel}>Cloud AI on server</Text>
-                <Text style={styles.readinessDetail}>
-                  {cloudAiReady === null
-                    ? "Checking server AI configuration..."
-                    : cloudAiReady
-                      ? "Cloud AI is available for signed-in households."
-                      : "Server AI is not configured yet. Text parsing still works."}
-                </Text>
-              </View>
-              <Pill
-                label={cloudAiReady ? "Ready" : cloudAiReady === null ? "Checking" : "Not ready"}
-                tone={cloudAiReady ? "mint" : "neutral"}
-              />
-            </View>
-          ) : null}
+        <Text style={styles.cardText}>Keep the testing details tucked away unless you are actively checking this build.</Text>
+        <View style={styles.cardActions}>
+          <PrimaryButton
+            label={showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
+            icon={showDiagnostics ? "chevron-up" : "chevron-down"}
+            tone="ghost"
+            onPress={() => setShowDiagnostics((value) => !value)}
+          />
         </View>
+        {showDiagnostics ? (
+          <View style={styles.readinessStack}>
+            {buildReadiness.map((item) => (
+              <View key={item.key} style={styles.readinessRow}>
+                <View style={styles.readinessCopy}>
+                  <Text style={styles.readinessLabel}>{item.label}</Text>
+                  <Text style={styles.readinessDetail}>{item.detail}</Text>
+                </View>
+                <Pill label={item.ready ? "Ready" : "Not ready"} tone={item.ready ? "mint" : "neutral"} />
+              </View>
+            ))}
+            {backendConnected ? (
+              <View style={styles.readinessRow}>
+                <View style={styles.readinessCopy}>
+                  <Text style={styles.readinessLabel}>Cloud AI on server</Text>
+                  <Text style={styles.readinessDetail}>
+                    {cloudAiReady === null
+                      ? "Checking server AI configuration..."
+                      : cloudAiReady
+                        ? "Cloud AI is available for signed-in households."
+                        : "Server AI is not configured yet. Text parsing still works."}
+                  </Text>
+                </View>
+                <Pill
+                  label={cloudAiReady ? "Ready" : cloudAiReady === null ? "Checking" : "Not ready"}
+                  tone={cloudAiReady ? "mint" : "neutral"}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </Card>
 
       <Card>

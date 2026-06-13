@@ -12,6 +12,7 @@ export function getSyncPillTone(syncSource: SyncSource): "primary" | "neutral" {
 export function getSyncStatusLine(input: {
   syncSource: SyncSource;
   isHydrating: boolean;
+  syncMessage?: string;
   realtimeStatus?: RealtimeSyncStatus;
   realtimeMessage?: string;
 }): string {
@@ -20,6 +21,11 @@ export function getSyncStatusLine(input: {
   }
 
   if (input.syncSource !== "api") {
+    const message = input.syncMessage?.trim();
+    if (message && !/preview household on this device|preview data on this device/i.test(message)) {
+      return message;
+    }
+
     return "Preview data on this device. Sign in to share with your household.";
   }
 

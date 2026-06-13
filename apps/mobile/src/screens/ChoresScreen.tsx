@@ -2,25 +2,106 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useState } from "react";
 import { LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
+import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
+import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, spacing } from "../constants/theme";
+import { useScrollAssist } from "../context/ScrollAssistContext";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ChoresScreen() {
-  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, realtimeStatus, realtimeMessage } =
+  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
+  const { scrollToOffset } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [completionMessage, setCompletionMessage] = useState<string | null>(null);
+  const [completionTone, setCompletionTone] = useState<"success" | "error" | "info">("success");
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
+  const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
+  const completedChores = useMemo(() => chores.filter((chore) => chore.completed), [chores]);
 
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!successMessage && !infoMessage && !completionMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setSuccessMessage(null);
+      setInfoMessage(null);
+      setCompletionMessage(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [successMessage, infoMessage, completionMessage]);
+
+  function toggleForm() {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const next = !showForm;
+    setShowForm(next);
+    setErrorMessage(null);
+
+    if (next) {
+      setTimeout(() => scrollToOffset(120), 80);
+    }
+  }
+
+  async function handleCreateChore() {
+    if (!canSubmit || isSaving) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setInfoMessage(null);
+
+    const outcome = await createChore({ title, dueTime, assignedTo });
+    if (outcome.kind === "saved") {
+      const savedTitle = title.trim();
+      setTitle("");
+      setDueTime("");
+      setAssignedTo(null);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setShowForm(false);
+      setSuccessMessage(`"${savedTitle}" was added to today's chores.`);
+      return;
+    }
+
+    if (outcome.kind === "queued") {
+      setInfoMessage(outcome.message);
+      return;
+    }
+
+    setErrorMessage(outcome.message || "Could not create that chore.");
+  }
+
+  async function handleCompleteChore(choreId: string) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const outcome = await completeChore(choreId);
+    if (!outcome) {
+      return;
+    }
+
+    if (outcome.kind === "failed") {
+      setCompletionTone("error");
+      setCompletionMessage(outcome.message);
+      return;
+    }
+
+    setCompletionTone(outcome.kind === "local" ? "info" : "success");
+    setCompletionMessage(outcome.message);
+  }
 
   return (
     <View>
@@ -29,22 +110,37 @@ export function ChoresScreen() {
 
       <SyncStatusRow
         syncSource={syncSource}
+        syncMessage={syncMessage}
         isHydrating={isHydrating}
         realtimeStatus={realtimeStatus}
         realtimeMessage={realtimeMessage}
         showLiveNote
       />
 
-      <View style={styles.actionRow}>
-        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" tone="ghost" onPress={() => void refreshFromBackend()} />
+      <View style={styles.primaryActionWrap}>
         <PrimaryButton
-          label={showForm ? "Close" : "New chore"}
+          label={showForm ? "Close chore form" : "Add chore"}
           icon={showForm ? "close" : "add"}
           tone={showForm ? "soft" : "primary"}
-          onPress={() => setShowForm((value) => !value)}
+          onPress={toggleForm}
         />
       </View>
-      <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <View style={styles.utilityRow}>
+        <PrimaryButton
+          label={isHydrating ? "Refreshing..." : "Refresh"}
+          icon="sync"
+          tone="ghost"
+          loading={isHydrating}
+          disabled={isHydrating}
+          onPress={() => void refreshFromBackend()}
+        />
+      </View>
+
+      <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
+      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+      <ActionFeedback message={completionMessage ?? ""} tone={completionTone} visible={Boolean(completionMessage)} />
+      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
       {showForm ? (
         <Card>
@@ -57,14 +153,7 @@ export function ChoresScreen() {
             onChangeText={setTitle}
             style={styles.input}
           />
-          <TextInput
-            accessibilityLabel="Chore due time"
-            placeholder='Due time (optional, "18:00")'
-            placeholderTextColor={colors.muted}
-            value={dueTime}
-            onChangeText={setDueTime}
-            style={styles.input}
-          />
+          <TimeField label="Due time (optional)" value={dueTime} onChange={setDueTime} placeholder="Tap to choose a time" />
           <Text style={styles.pickerLabel}>Assign to</Text>
           <View style={styles.pickerRow}>
             <Pressable
@@ -90,17 +179,12 @@ export function ChoresScreen() {
           </View>
           <View style={styles.formActions}>
             <PrimaryButton
-              label={isSaving ? "Creating..." : "Create"}
+              label={isSaving ? "Creating..." : "Create chore"}
               icon="checkmark"
+              loading={isSaving}
+              disabled={!canSubmit || isSaving}
               onPress={() => {
-                if (!canSubmit || isSaving) return;
-                void createChore({ title, dueTime, assignedTo }).then((ok) => {
-                  if (!ok) return;
-                  setTitle("");
-                  setDueTime("");
-                  setAssignedTo(null);
-                  setShowForm(false);
-                });
+                void handleCreateChore();
               }}
             />
           </View>
@@ -109,32 +193,25 @@ export function ChoresScreen() {
 
       <SectionTitle title="Due today" />
       <View style={styles.stack}>
-        {chores.length > 0 ? (
-          chores.map((chore) => {
+        {openChores.length > 0 ? (
+          openChores.map((chore) => {
             const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
             return (
               <Pressable
                 key={chore.id}
                 accessibilityRole="button"
-                accessibilityLabel={`${chore.completed ? "Completed" : "Complete"} ${chore.title}${
-                  chore.completed ? ". Reopen is not available yet." : ""
-                }`}
+                accessibilityLabel={`Complete ${chore.title}`}
                 onPress={() => {
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                  void completeChore(chore.id);
+                  void handleCompleteChore(chore.id);
                 }}
               >
                 <Card>
                   <Row>
-                    <View style={[styles.check, chore.completed && styles.checkDone]}>
-                      <Ionicons
-                        name={chore.completed ? "checkmark" : "ellipse-outline"}
-                        size={20}
-                        color={chore.completed ? "#FFFFFF" : colors.muted}
-                      />
+                    <View style={styles.check}>
+                      <Ionicons name="ellipse-outline" size={20} color={colors.muted} />
                     </View>
                     <View style={styles.fill}>
-                      <Text style={[styles.choreTitle, chore.completed && styles.doneText]}>{chore.title}</Text>
+                      <Text style={styles.choreTitle}>{chore.title}</Text>
                       <Text style={styles.meta}>{chore.dueLabel}</Text>
                     </View>
                     <MemberAvatar member={member} size={34} />
@@ -146,13 +223,39 @@ export function ChoresScreen() {
           })
         ) : (
           <Card>
-            <Text style={styles.emptyTitle}>No chores yet.</Text>
+            <Text style={styles.emptyTitle}>Nothing still needs doing.</Text>
             <Text style={styles.emptyText}>
-              Add the first recurring chore so kids and adults both know what done for today looks like.
+              Fresh chores will land here, while finished ones stay tucked below.
             </Text>
           </Card>
         )}
       </View>
+
+      {completedChores.length > 0 ? (
+        <>
+          <SectionTitle title="Finished" action={`${completedChores.length} done`} />
+          <View style={styles.stack}>
+            {completedChores.map((chore) => {
+              const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
+              return (
+                <Card key={chore.id}>
+                  <Row>
+                    <View style={[styles.check, styles.checkDone]}>
+                      <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+                    </View>
+                    <View style={styles.fill}>
+                      <Text style={[styles.choreTitle, styles.doneText]}>{chore.title}</Text>
+                      <Text style={styles.meta}>{chore.dueLabel}</Text>
+                    </View>
+                    <MemberAvatar member={member} size={34} />
+                    <Pill label="Done" tone="mint" icon="checkmark" />
+                  </Row>
+                </Card>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
 
       <SectionTitle title="Star balances" />
       <View style={styles.rewardGrid}>
@@ -199,34 +302,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
-  liveUpdateNote: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: spacing.md
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: spacing.md,
+  primaryActionWrap: {
     marginTop: spacing.lg
   },
-  statusRow: {
+  utilityRow: {
     flexDirection: "row",
-    alignItems: "center",
     gap: spacing.md,
-    marginTop: spacing.md
-  },
-  syncNote: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  statusText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
     marginTop: spacing.sm
   },
   formTitle: {

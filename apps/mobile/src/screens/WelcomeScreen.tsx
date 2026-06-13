@@ -315,6 +315,11 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
           </Pressable>
         </View>
         <Text style={styles.title}>{isRegister ? "Create your account" : "Welcome back"}</Text>
+        <Text style={styles.subtitle}>
+          {isRegister
+            ? "Start with your own sign-in, then create or join the household."
+            : "Sign in and pick up where the household left off."}
+        </Text>
 
         <Card>
           {supabaseConfiguredOnClient ? (
@@ -398,7 +403,8 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       {welcomeMessage ? <Text style={styles.formMessage}>{welcomeMessage}</Text> : null}
 
       <Card>
-        <Text style={styles.cardTitle}>Get started</Text>
+          <Text style={styles.cardTitle}>Get started</Text>
+          <Text style={styles.cardText}>Choose the fastest way in. You can set up the household right after.</Text>
         <View style={styles.entryStack}>
           {supabaseConfiguredOnClient && authMode !== "supabase" ? (
             <>
@@ -435,15 +441,20 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <Text style={styles.trustNote}>Your household stays private until you sign in.</Text>
       </Card>
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => setShowWelcomeDetails((value) => !value)}
-        style={styles.detailsToggle}
-      >
-        <Text style={styles.detailsToggleLabel}>
-          {showWelcomeDetails ? "Hide details" : "How it works and pricing"}
-        </Text>
-      </Pressable>
+      <Card>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setShowWelcomeDetails((value) => !value)}
+          style={styles.detailsToggle}
+        >
+          <Text style={styles.detailsToggleLabel}>
+            {showWelcomeDetails ? "Hide details" : "How it works and pricing"}
+          </Text>
+          <Text style={styles.detailsToggleMeta}>
+            Family flow, invite model, and pricing draft
+          </Text>
+        </Pressable>
+      </Card>
 
       {showWelcomeDetails ? (
         <>
@@ -490,7 +501,9 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
 const styles = StyleSheet.create({
   screen: {
-    gap: spacing.md
+    gap: spacing.md,
+    minWidth: 0,
+    width: "100%"
   },
   topBar: {
     flexDirection: "row",
@@ -515,13 +528,13 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.xl,
     borderWidth: 1,
+    maxWidth: "100%",
     overflow: "hidden",
     padding: spacing.md
   },
   heroRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md
+    alignItems: "flex-start",
+    gap: spacing.sm
   },
   heroFeatureRow: {
     flexDirection: "row",
@@ -554,18 +567,19 @@ const styles = StyleSheet.create({
   markWrap: {
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.7)",
-    borderRadius: radii.xl,
-    height: 80,
-    justifyContent: "center",
-    width: 80
-  },
-  mark: {
+    borderRadius: radii.lg,
     height: 64,
+    justifyContent: "center",
     width: 64
   },
+  mark: {
+    height: 52,
+    width: 52
+  },
   heroCopy: {
-    flex: 1,
-    gap: spacing.xs
+    flexShrink: 1,
+    gap: spacing.xs,
+    minWidth: 0
   },
   kicker: {
     color: colors.primary,
@@ -589,10 +603,10 @@ const styles = StyleSheet.create({
   welcomeTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "700",
     letterSpacing: 0,
-    lineHeight: 38
+    lineHeight: 34
   },
   welcomeSubtitle: {
     color: colors.muted,
@@ -607,14 +621,20 @@ const styles = StyleSheet.create({
     marginTop: spacing.md
   },
   detailsToggle: {
+    gap: spacing.xs,
     minHeight: 44,
     justifyContent: "center"
   },
   detailsToggleLabel: {
     color: colors.primary,
     fontSize: 14,
-    fontWeight: "700",
-    textAlign: "center"
+    fontWeight: "700"
+  },
+  detailsToggleMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18
   },
   devSection: {
     borderColor: colors.line,

@@ -43,7 +43,8 @@
         {
           "photosPermission": "Allow HomeThread to choose a profile photo from your library."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {

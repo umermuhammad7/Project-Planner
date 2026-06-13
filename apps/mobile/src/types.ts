@@ -267,6 +267,14 @@ export type TabKey = "home" | "plan" | "chores" | "lists" | "meals" | "thread" |
 
 export type SyncSource = "mock" | "api";
 
+export type SaveOutcomeKind = "saved" | "queued" | "local" | "failed";
+
+export type SaveOutcome = {
+  ok: boolean;
+  kind: SaveOutcomeKind;
+  message: string;
+};
+
 export type RealtimeSyncStatus = "inactive" | "connecting" | "connected" | "unavailable" | "error";
 
 export type NotificationPrefs = {

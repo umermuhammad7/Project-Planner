@@ -1,11 +1,23 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View
+} from "react-native";
 
 import { IconButton } from "./src/components/Primitives";
 import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
 import { colors, fonts, radii, spacing } from "./src/constants/theme";
+import { ScrollAssistContext } from "./src/context/ScrollAssistContext";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
@@ -35,7 +47,7 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "chores", label: "Chores", icon: "star" },
   { key: "lists", label: "Lists", icon: "bag" },
   { key: "meals", label: "Meals", icon: "restaurant" },
-  { key: "thread", label: "Texts", icon: "chatbubbles" },
+  { key: "thread", label: "Board", icon: "chatbubbles" },
   { key: "add", label: "Assistant", icon: "sparkles" }
 ];
 
@@ -46,8 +58,18 @@ function AppShell() {
   const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { width: viewportWidth } = useWindowDimensions();
+  const screenWidth = Math.max(288, Math.min(viewportWidth - spacing.lg * 2, 520));
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenTranslateY = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollAssist = useMemo(
+    () => ({
+      scrollToTop: () => scrollRef.current?.scrollTo({ y: 0, animated: true }),
+      scrollToOffset: (offset: number) => scrollRef.current?.scrollTo({ y: offset, animated: true })
+    }),
+    []
+  );
   const authMode = useAuthStore((state) => state.mode);
   const authFamilyId = useAuthStore((state) => state.familyId);
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
@@ -92,7 +114,7 @@ function AppShell() {
 
     const subscription = supabaseClient.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        void useAuthStore.getState().signOut();
+        void useAuthStore.getState().handleExternalSignedOut();
         return;
       }
 
@@ -199,8 +221,8 @@ function AppShell() {
   ].join(":");
 
   useEffect(() => {
-    useHomeThreadStore.setState({ saveMessage: "" });
-  }, [activeTab]);
+    scrollAssist.scrollToTop();
+  }, [activeTab, familySettingsOpen, insightsOpen, settingsOpen, kidsMode, scrollAssist]);
 
   useEffect(() => {
     screenOpacity.setValue(0.9);
@@ -230,16 +252,13 @@ function AppShell() {
         style={styles.keyboardView}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <ScrollAssistContext.Provider value={scrollAssist}>
           <OfflineBanner
-            visible={
-              enteredApp &&
-              !isHydrating &&
-              (syncSource !== "api" || pendingOfflineCount > 0 || failedOfflineCount > 0)
-            }
             pendingCount={enteredApp ? pendingOfflineCount : 0}
             failedCount={enteredApp ? failedOfflineCount : 0}
             replayMessage={enteredApp ? offlineReplayMessage : null}
@@ -253,16 +272,26 @@ function AppShell() {
             }
           />
           <Animated.View
-            style={{
-              opacity: screenOpacity,
-              transform: [{ translateY: screenTranslateY }]
-            }}
+            style={[
+              styles.screenContainer,
+              {
+                width: screenWidth,
+                opacity: screenOpacity,
+                transform: [{ translateY: screenTranslateY }]
+              }
+            ]}
           >
             {showWelcome ? (
               authMode === "loading" ? (
-                <View style={styles.connecting}>
-                  <Text style={styles.connectingTitle}>Checking session...</Text>
-                  <Text style={styles.connectingSubtitle}>Checking whether you are already signed in.</Text>
+                <View style={styles.connectingWrap}>
+                  <View style={styles.connectingMarkWrap}>
+                    <Image source={require("./assets/icon.png")} style={styles.connectingMark} />
+                  </View>
+                  <View style={styles.connecting}>
+                    <Text style={styles.connectingEyebrow}>HomeThread</Text>
+                    <Text style={styles.connectingTitle}>Checking your session</Text>
+                    <Text style={styles.connectingSubtitle}>Making sure we open the right household and not the wrong screen.</Text>
+                  </View>
                 </View>
               ) : (
                 <WelcomeScreen
@@ -272,9 +301,15 @@ function AppShell() {
                 />
               )
             ) : showConnecting ? (
-              <View style={styles.connecting}>
-                <Text style={styles.connectingTitle}>Connecting to HomeThread...</Text>
-                <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
+              <View style={styles.connectingWrap}>
+                <View style={styles.connectingMarkWrap}>
+                  <Image source={require("./assets/icon.png")} style={styles.connectingMark} />
+                </View>
+                <View style={styles.connecting}>
+                  <Text style={styles.connectingEyebrow}>Household sync</Text>
+                  <Text style={styles.connectingTitle}>Connecting to HomeThread</Text>
+                  <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
+                </View>
               </View>
             ) : kidsMode ? (
               <KidsModeScreen onExit={() => setKidsMode(false)} />
@@ -294,6 +329,7 @@ function AppShell() {
               content
             )}
           </Animated.View>
+          </ScrollAssistContext.Provider>
         </ScrollView>
         {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen && !insightsOpen && !settingsOpen ? (
           <View style={styles.tabBar}>
@@ -302,7 +338,9 @@ function AppShell() {
                 key={tab.key}
                 icon={tab.icon}
                 label={tab.label}
-                onPress={() => setActiveTab(tab.key)}
+                onPress={() => {
+                  setActiveTab(tab.key);
+                }}
                 selected={activeTab === tab.key}
               />
             ))}
@@ -330,15 +368,52 @@ const styles = StyleSheet.create({
     flex: 1
   },
   content: {
-    padding: spacing.lg,
+    alignItems: "stretch",
+    flexGrow: 1,
+    paddingVertical: spacing.lg,
     paddingBottom: 168
+  },
+  screenContainer: {
+    alignSelf: "center",
+    maxWidth: 520,
+    minWidth: 0
+  },
+  connectingWrap: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 520
+  },
+  connectingMarkWrap: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderColor: colors.line,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    height: 82,
+    justifyContent: "center",
+    marginBottom: spacing.lg,
+    width: 82
+  },
+  connectingMark: {
+    height: 64,
+    width: 64
   },
   connecting: {
     backgroundColor: colors.surface,
     borderColor: colors.line,
     borderRadius: radii.xl,
     borderWidth: 1,
-    padding: spacing.xl
+    maxWidth: 420,
+    padding: spacing.xl,
+    width: "100%"
+  },
+  connectingEyebrow: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: spacing.xs,
+    textTransform: "uppercase"
   },
   connectingTitle: {
     color: colors.ink,
@@ -356,18 +431,19 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: "rgba(255,252,248,0.96)",
     borderColor: colors.lineStrong,
-    borderRadius: 26,
+    borderRadius: 22,
     borderWidth: 1,
     bottom: spacing.md,
     flexDirection: "row",
-    gap: 4,
+    gap: 0,
     left: spacing.md,
-    padding: spacing.sm,
+    paddingHorizontal: 4,
+    paddingVertical: 5,
     position: "absolute",
     right: spacing.md,
     shadowColor: colors.ink,
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 }
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 }
   }
 });

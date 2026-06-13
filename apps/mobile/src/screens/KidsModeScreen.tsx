@@ -1,10 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, MemberAvatar, Pill, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { feedbackToneForOutcome } from "../utils/saveOutcome";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
 const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -30,9 +32,11 @@ function previousRewardTarget(stars: number) {
 }
 
 export function KidsModeScreen({ onExit }: { onExit: () => void }) {
-  const { chores, members, events, meals, completeChore, refreshFromBackend, isSaving, saveMessage } =
+  const { chores, members, events, meals, completeChore, refreshFromBackend, isSaving } =
     useHomeThreadStore();
   const [exitHintVisible, setExitHintVisible] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<"success" | "error" | "info">("success");
 
   const kidMembers = useMemo(() => members.filter((member) => member.role === "kid"), [members]);
   const kidIds = useMemo(() => new Set(kidMembers.map((member) => member.id)), [kidMembers]);
@@ -86,9 +90,26 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
     return meals.find((meal) => meal.dayOfWeek === today && meal.mealType === "dinner");
   }, [meals]);
 
+  useEffect(() => {
+    if (!statusMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => setStatusMessage(null), statusTone === "error" ? 5000 : 4000);
+    return () => clearTimeout(timer);
+  }, [statusMessage, statusTone]);
+
   async function markDone(choreId: string) {
-    await completeChore(choreId);
-    void refreshFromBackend();
+    const outcome = await completeChore(choreId);
+    if (!outcome) {
+      return;
+    }
+
+    setStatusTone(feedbackToneForOutcome(outcome.kind));
+    setStatusMessage(outcome.message);
+    if (outcome.kind !== "failed") {
+      void refreshFromBackend();
+    }
   }
 
   return (
@@ -132,6 +153,8 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
           </View>
         </View>
       </Card>
+
+      <ActionFeedback message={statusMessage ?? ""} tone={statusTone} visible={Boolean(statusMessage)} />
 
       <SectionTitle title="Stars" action={`${totalKidStars} total`} />
       <View style={styles.rewardStack}>
@@ -254,8 +277,6 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
           </View>
         </>
       ) : null}
-
-      {saveMessage ? <Text style={styles.status}>{saveMessage}</Text> : null}
     </View>
   );
 }

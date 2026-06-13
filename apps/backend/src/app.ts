@@ -30,6 +30,7 @@ export function buildApp() {
   const allowedOrigins = new Set(getAllowedFrontendOrigins());
 
   app.register(cors, {
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     origin(origin, callback) {
       if (env.NODE_ENV === "test") {
         callback(null, true);

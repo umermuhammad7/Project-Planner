@@ -35,9 +35,11 @@ import {
   ShoppingItem,
   RealtimeSyncStatus,
   SyncSource,
-  TextUpdate
+  TextUpdate,
+  SaveOutcome
 } from "../types";
 import { createDigest, parseFamilyText } from "../utils/textParser";
+import { makeSaveOutcome } from "../utils/saveOutcome";
 
 const defaultFamilyId = "00000000-0000-4000-8000-000000000201";
 const mockGroceryListId = "mock-grocery-list";
@@ -112,6 +114,64 @@ function buildSignedOutHomeState(): Pick<
     offlineReplayMessage: null,
     realtimeStatus: "inactive",
     realtimeMessage: ""
+  };
+}
+
+function buildAuthenticatedHydrateFailureShell(
+  familyId: string | null,
+  failureMessage: string
+): Pick<
+  HomeThreadState,
+  | "familyId"
+  | "currentMemberId"
+  | "groceryListId"
+  | "lists"
+  | "selectedListId"
+  | "listItemsByListId"
+  | "familyName"
+  | "inviteCode"
+  | "isFamilyAdmin"
+  | "members"
+  | "events"
+  | "mealWeekStart"
+  | "meals"
+  | "recipes"
+  | "chores"
+  | "completedChoreIds"
+  | "shoppingItems"
+  | "notifications"
+  | "textUpdates"
+  | "syncSource"
+  | "syncMessage"
+  | "saveMessage"
+  | "offlineQueue"
+> {
+  const empty = buildSignedOutHomeState();
+
+  return {
+    familyId,
+    currentMemberId: null,
+    groceryListId: null,
+    lists: [],
+    selectedListId: null,
+    listItemsByListId: {},
+    familyName: "HomeThread",
+    inviteCode: null,
+    isFamilyAdmin: false,
+    members: [],
+    events: [],
+    mealWeekStart: empty.mealWeekStart,
+    meals: [],
+    recipes: [],
+    chores: [],
+    completedChoreIds: {},
+    shoppingItems: [],
+    notifications: [],
+    textUpdates: [],
+    syncSource: "mock",
+    syncMessage: failureMessage,
+    saveMessage: "Try refresh when you're ready to load household data.",
+    offlineQueue: getOfflineQueue()
   };
 }
 
@@ -227,22 +287,28 @@ type HomeThreadState = {
     displayName: string;
   }) => Promise<{ ok: boolean; message?: string }>;
   removeVirtualMember: (memberId: string) => Promise<{ ok: boolean; message?: string }>;
-  createEvent: (input: { title: string; location?: string; startTime?: string; memberIds?: string[] }) => Promise<boolean>;
-  createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<boolean>;
-  completeChore: (id: string) => Promise<void>;
+  createEvent: (input: {
+    title: string;
+    location?: string;
+    startDate?: string;
+    startTime?: string;
+    memberIds?: string[];
+  }) => Promise<SaveOutcome>;
+  createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<SaveOutcome>;
+  completeChore: (id: string) => Promise<SaveOutcome | null>;
   toggleChore: (id: string) => void;
-  toggleShoppingItem: (id: string) => Promise<void>;
-  clearCheckedShoppingItems: () => Promise<void>;
+  toggleShoppingItem: (id: string) => Promise<SaveOutcome | null>;
+  clearCheckedShoppingItems: () => Promise<SaveOutcome | null>;
   selectList: (listId: string) => void;
-  createList: (input: { title: string; type: FamilyList["type"] }) => Promise<boolean>;
-  createShoppingItem: (input: { title: string; category?: string | null }) => Promise<boolean>;
+  createList: (input: { title: string; type: FamilyList["type"] }) => Promise<SaveOutcome>;
+  createShoppingItem: (input: { title: string; category?: string | null }) => Promise<SaveOutcome>;
   createMeal: (input: {
     dayOfWeek: number;
     mealType: MealPlanItem["mealType"];
     title: string;
     notes?: string;
     recipeId?: string | null;
-  }) => Promise<boolean>;
+  }) => Promise<SaveOutcome>;
   createRecipe: (input: {
     title: string;
     ingredientNames?: string[];
@@ -252,12 +318,12 @@ type HomeThreadState = {
     prepTimeMinutes?: number | null;
     cookTimeMinutes?: number | null;
     servings?: number | null;
-  }) => Promise<boolean>;
-  addMealIngredientsToGrocery: (input: { mealPlanItemId?: string; recipeId?: string }) => Promise<boolean>;
-  addWeekMealsToGrocery: () => Promise<boolean>;
-  removeMeal: (id: string) => Promise<void>;
+  }) => Promise<SaveOutcome>;
+  addMealIngredientsToGrocery: (input: { mealPlanItemId?: string; recipeId?: string }) => Promise<SaveOutcome>;
+  addWeekMealsToGrocery: () => Promise<SaveOutcome>;
+  removeMeal: (id: string) => Promise<SaveOutcome | null>;
   importText: (body: string) => AssistantDraft;
-  commitDraft: (draft: AssistantDraft) => Promise<void>;
+  commitDraft: (draft: AssistantDraft) => Promise<SaveOutcome>;
   sendDigestToThread: () => string;
 };
 
@@ -331,7 +397,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set({
       isHydrating: true,
-      syncMessage: "Checking local HomeThread backend..."
+      syncMessage: "Checking for the latest household updates..."
     });
 
     const [familyResult, eventsResult, choresResult, listsResult, mealsResult, recipesResult, notificationsResult] = await Promise.all([
@@ -364,13 +430,31 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         notificationsResult.error?.message ??
         "Refresh failed";
 
+      if (previous.syncSource === "api") {
+        set({
+          isHydrating: false,
+          syncSource: "api",
+          syncMessage: `Refresh failed - showing last synced data (${failureMessage})`
+        });
+        return;
+      }
+
+      const isSignedIn = authState.mode === "supabase" || authState.mode === "dev_token";
+      if (isSignedIn && authState.familyId) {
+        set({
+          ...buildAuthenticatedHydrateFailureShell(
+            authState.familyId,
+            failureMessage || "Could not load household data yet. Pull to refresh when you're ready."
+          ),
+          isHydrating: false
+        });
+        return;
+      }
+
       set({
         isHydrating: false,
-        syncSource: previous.syncSource === "api" ? "api" : "mock",
-        syncMessage:
-          previous.syncSource === "api"
-            ? `Refresh failed - showing last synced data (${failureMessage})`
-            : failureMessage || "Falling back to mock data"
+        syncSource: "mock",
+        syncMessage: failureMessage || "Falling back to mock data"
       });
       return;
     }
@@ -727,29 +811,32 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     set({ saveMessage: `${member.name} removed from your household.` });
     return { ok: true };
   },
-  createEvent: async ({ title, location, startTime, memberIds: rawMemberIds }) => {
+  createEvent: async ({ title, location, startDate, startTime, memberIds: rawMemberIds }) => {
     const state = get();
     const normalizedTitle = title.trim();
     if (!normalizedTitle) {
-      set({ saveMessage: "Event title is required" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Event title is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
+    const trimmedDate = startDate?.trim() ?? "";
     const trimmedTime = startTime?.trim() ?? "";
-    const startAt = trimmedTime ? inferStartDateTime(trimmedTime) : defaultEventStartAt();
-    if (trimmedTime && !startAt) {
-      set({ saveMessage: 'Start time must be blank or like "18:00" (24h)' });
-      return false;
+    const startAt = resolveEventStartAt({ startDate: trimmedDate, startTime: trimmedTime });
+    if (!startAt) {
+      const outcome = makeSaveOutcome("failed", 'Choose a real day and use a time like "5:30 PM".');
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const memberIds = dedupeMemberIds(rawMemberIds);
-    const endAt = new Date(startAt!.getTime() + 60 * 60 * 1000);
+    const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
     const queueFamilyId = resolveQueueFamilyId(state);
     const eventPayload = {
       title: normalizedTitle,
       description: null,
       location: location?.trim() ? location.trim() : null,
-      startAt: startAt!.toISOString(),
+      startAt: startAt.toISOString(),
       endAt: endAt.toISOString(),
       allDay: false,
       memberIds
@@ -757,8 +844,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (state.syncSource !== "api" || !state.familyId) {
       if (!queueFamilyId) {
-        set({ saveMessage: "Backend sync is unavailable - event was not queued" });
-        return false;
+        const outcome = makeSaveOutcome("failed", "Backend sync is unavailable - event was not queued");
+        set({ saveMessage: outcome.message });
+        return outcome;
       }
 
       enqueueOfflineItem({
@@ -767,11 +855,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         summary: `Create event: ${normalizedTitle}`,
         payload: eventPayload
       });
+      const outcome = makeSaveOutcome(
+        "queued",
+        "Backend unavailable - event queued for replay when the server is reachable"
+      );
       set({
         offlineQueue: getOfflineQueue(),
-        saveMessage: "Backend unavailable - event queued for replay when the server is reachable"
+        saveMessage: outcome.message
       });
-      return false;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Creating event..." });
@@ -789,16 +881,18 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           summary: `Create event: ${normalizedTitle}`,
           payload: eventPayload
         });
+        const outcome = makeSaveOutcome("queued", "Network error - event queued for replay");
         set({
           isSaving: false,
           offlineQueue: getOfflineQueue(),
-          saveMessage: "Network error - event queued for replay"
+          saveMessage: outcome.message
         });
-        return false;
+        return outcome;
       }
 
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create event" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to create event");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     set((current) => ({
@@ -815,20 +909,22 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       saveMessage: "Event saved."
     }));
 
-    return true;
+    return makeSaveOutcome("saved", "Event saved.");
   },
   createChore: async ({ title, dueTime, assignedTo, starsValue }) => {
     const state = get();
     const normalizedTitle = title.trim();
     if (!normalizedTitle) {
-      set({ saveMessage: "Chore title is required" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Chore title is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const normalizedDueTime = normalizeDueTime(dueTime);
     if (dueTime?.trim() && normalizedDueTime === null) {
-      set({ saveMessage: 'Due time must be like "18:00" (24h)' });
-      return false;
+      const outcome = makeSaveOutcome("failed", 'Use a time like "5:30 PM".');
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const fallbackAssignee =
@@ -847,8 +943,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (state.syncSource !== "api" || !state.familyId) {
       if (!queueFamilyId) {
-        set({ saveMessage: "Backend sync is unavailable - chore was not queued" });
-        return false;
+        const outcome = makeSaveOutcome("failed", "Backend sync is unavailable - chore was not queued");
+        set({ saveMessage: outcome.message });
+        return outcome;
       }
 
       enqueueOfflineItem({
@@ -857,11 +954,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         summary: `Create chore: ${normalizedTitle}`,
         payload: chorePayload
       });
+      const outcome = makeSaveOutcome(
+        "queued",
+        "Backend unavailable - chore queued for replay when the server is reachable"
+      );
       set({
         offlineQueue: getOfflineQueue(),
-        saveMessage: "Backend unavailable - chore queued for replay when the server is reachable"
+        saveMessage: outcome.message
       });
-      return false;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Creating chore..." });
@@ -879,16 +980,18 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           summary: `Create chore: ${normalizedTitle}`,
           payload: chorePayload
         });
+        const outcome = makeSaveOutcome("queued", "Network error - chore queued for replay");
         set({
           isSaving: false,
           offlineQueue: getOfflineQueue(),
-          saveMessage: "Network error - chore queued for replay"
+          saveMessage: outcome.message
         });
-        return false;
+        return outcome;
       }
 
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create chore" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to create chore");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     set((current) => ({
@@ -905,39 +1008,56 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       saveMessage: "Chore saved."
     }));
 
-    return true;
+    return makeSaveOutcome("saved", "Chore saved.");
   },
   completeChore: async (id) => {
     const current = get();
     const target = current.chores.find((chore) => chore.id === id);
-    if (!target) return;
-
-    // If already completed (or we're reopening), we have no backend "uncomplete" route yet.
-    if (target.completed) {
-      set({ saveMessage: "Reopen is not available yet" });
-      return;
+    if (!target) {
+      return null;
     }
 
-    // Optimistic UI completion.
+    if (target.completed) {
+      const outcome = makeSaveOutcome("failed", "Reopen is not available yet");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
     set((state) => ({
       chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: true } : chore)),
       completedChoreIds: { ...state.completedChoreIds, [id]: true }
     }));
 
+    const memberId =
+      (target.assignedTo && target.assignedTo !== "unassigned" ? target.assignedTo : null) ??
+      current.currentMemberId ??
+      current.members[0]?.id ??
+      null;
+    const actorName = memberId ? resolveMemberName(current.members, memberId) ?? "HomeThread" : "HomeThread";
+
     if (current.syncSource !== "api" || !current.familyId) {
-      set({ saveMessage: "Backend sync is unavailable - chore marked complete locally only" });
-      return;
+      const outcome = makeSaveOutcome(
+        "local",
+        `${actorName} earned ${target.stars} star${target.stars === 1 ? "" : "s"} on this device. Sign in to keep stars in sync for the family.`
+      );
+      set((state) => ({
+        members: memberId
+          ? state.members.map((member) =>
+              member.id === memberId ? { ...member, starBalance: member.starBalance + target.stars } : member
+            )
+          : state.members,
+        saveMessage: outcome.message
+      }));
+      return outcome;
     }
 
-    const memberId = current.currentMemberId ?? current.members[0]?.id ?? null;
     if (!memberId) {
-      // Revert: we can't claim a completion without an actor id.
       set((state) => ({
         chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: false } : chore)),
         completedChoreIds: Object.fromEntries(Object.entries(state.completedChoreIds).filter(([key]) => key !== id)),
-        saveMessage: "Missing family member id - completion not recorded"
+        saveMessage: "Choose a family member before completing this chore."
       }));
-      return;
+      return makeSaveOutcome("failed", "Choose a family member before completing this chore.");
     }
 
     set({ isSaving: true, saveMessage: `Completing ${target.title}...` });
@@ -956,32 +1076,36 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     );
 
     if (!result.data) {
-      // Revert optimistic completion on failure.
       set((state) => ({
         chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: false } : chore)),
         completedChoreIds: Object.fromEntries(Object.entries(state.completedChoreIds).filter(([key]) => key !== id)),
         isSaving: false,
-        saveMessage: result.error?.message ?? "Failed to record completion"
+        saveMessage: result.error?.message ?? "Could not record that chore yet."
       }));
-      return;
+      return makeSaveOutcome("failed", result.error?.message ?? "Could not record that chore yet.");
     }
 
-    // Success: keep the local completed state. Do not fake reward balance updates here.
-    const actorName = resolveMemberName(current.members, memberId) ?? "HomeThread";
-    set({
-      isSaving: false,
-      saveMessage: `${target.title} completed`
-    });
-
+    const outcome = makeSaveOutcome(
+      "saved",
+      `${actorName} earned ${target.stars} star${target.stars === 1 ? "" : "s"} for ${target.title}.`
+    );
     set((state) => ({
+      members: state.members.map((member) =>
+        member.id === memberId
+          ? { ...member, starBalance: member.starBalance + target.stars }
+          : member
+      ),
       textUpdates: [
         makeActivityUpdate({
           author: actorName,
           body: `Completed chore: ${target.title}`
         }),
         ...state.textUpdates
-      ]
+      ],
+      isSaving: false,
+      saveMessage: outcome.message
     }));
+    return outcome;
   },
   toggleChore: (id) => {
     set((state) => ({
@@ -1000,14 +1124,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   createList: async ({ title, type }) => {
     const trimmed = title.trim();
     if (!trimmed) {
-      set({ saveMessage: "List name is required" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "List name is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const state = get();
     if (state.syncSource !== "api" || !state.familyId) {
-      set({ saveMessage: "Backend sync is unavailable - list was not created" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Sign in and refresh to create a shared list.");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Creating list..." });
@@ -1023,11 +1149,13 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     });
 
     if (!result.data?.list) {
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to create list" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to create list");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     const createdList = mapList(result.data.list);
+    const outcome = makeSaveOutcome("saved", `Created ${trimmed}`);
     set((current) => ({
       lists: [...current.lists, createdList],
       selectedListId: createdList.id,
@@ -1042,15 +1170,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: `Created ${trimmed}`
+      saveMessage: outcome.message
     }));
 
-    return true;
+    return outcome;
   },
   toggleShoppingItem: async (id) => {
     const target = get().shoppingItems.find((item) => item.id === id);
     if (!target) {
-      return;
+      return null;
     }
 
     const nextChecked = !target.checked;
@@ -1070,7 +1198,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const state = get();
     if (state.syncSource !== "api" || !state.familyId || !target.backendListId) {
-      return;
+      return null;
     }
 
     set({
@@ -1089,6 +1217,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     );
 
     if (!result.data) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Could not sync that list change.");
       set((current) => {
         const revertedItems = current.shoppingItems.map((item) =>
           item.id === id ? { ...item, checked: target.checked } : item
@@ -1099,10 +1228,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
             ? replaceListItems(current.listItemsByListId, listId, revertedItems)
             : current.listItemsByListId,
           isSaving: false,
-          saveMessage: "List sync fell back to local mode for this change"
+          saveMessage: outcome.message
         };
       });
-      return;
+      return outcome;
     }
 
     const updatedItem = result.data.item;
@@ -1125,13 +1254,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         saveMessage: `${target.title} updated`
       };
     });
+
+    return null;
   },
   clearCheckedShoppingItems: async () => {
     const state = get();
     const listId = state.selectedListId ?? null;
     const checkedItems = state.shoppingItems.filter((item) => item.checked);
     if (!listId || checkedItems.length === 0) {
-      return;
+      return null;
     }
 
     const nextShoppingItems = state.shoppingItems.filter((item) => !item.checked);
@@ -1141,8 +1272,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
 
     if (state.syncSource !== "api" || !state.familyId) {
-      set({ saveMessage: "Cleared checked items locally" });
-      return;
+      const outcome = makeSaveOutcome(
+        "local",
+        `Cleared ${checkedItems.length} checked item${checkedItems.length === 1 ? "" : "s"} on this device.`
+      );
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Clearing checked items..." });
@@ -1156,15 +1291,20 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     );
 
     if (!result.data) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to clear checked items");
       set((current) => ({
         shoppingItems: state.shoppingItems,
         listItemsByListId: replaceListItems(current.listItemsByListId, listId, state.shoppingItems),
         isSaving: false,
-        saveMessage: result.error?.message ?? "Failed to clear checked items"
+        saveMessage: outcome.message
       }));
-      return;
+      return outcome;
     }
 
+    const outcome = makeSaveOutcome(
+      "saved",
+      `Cleared ${checkedItems.length} checked item${checkedItems.length === 1 ? "" : "s"} from your household list.`
+    );
     set((current) => ({
       textUpdates: [
         makeActivityUpdate({
@@ -1174,14 +1314,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: `Cleared ${checkedItems.length} checked item${checkedItems.length === 1 ? "" : "s"}`
+      saveMessage: outcome.message
     }));
+    return outcome;
   },
   createShoppingItem: async ({ title, category }) => {
     const trimmed = title.trim();
     if (!trimmed) {
-      set({ saveMessage: "Item name is required" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Item name is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const state = get();
@@ -1197,8 +1339,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (state.syncSource !== "api" || !state.familyId) {
       if (!queueFamilyId) {
-        set({ saveMessage: "Backend sync is unavailable - item was not queued" });
-        return false;
+        const outcome = makeSaveOutcome("failed", "Backend sync is unavailable - item was not queued");
+        set({ saveMessage: outcome.message });
+        return outcome;
       }
 
       enqueueOfflineItem({
@@ -1207,11 +1350,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         summary: `Add list item: ${trimmed}`,
         payload: listItemPayload
       });
+      const outcome = makeSaveOutcome(
+        "queued",
+        "Backend unavailable - list item queued for replay when the server is reachable"
+      );
       set({
         offlineQueue: getOfflineQueue(),
-        saveMessage: "Backend unavailable - list item queued for replay when the server is reachable"
+        saveMessage: outcome.message
       });
-      return false;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Adding item..." });
@@ -1219,8 +1366,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const ensuredList = await ensureActiveListId(state);
     const listId = ensuredList?.id ?? null;
     if (!listId) {
-      set({ isSaving: false, saveMessage: "Unable to resolve list - item was not added" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Unable to resolve list - item was not added");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     const result = await apiRequest<{ item: BackendListItemRecord }>(
@@ -1245,16 +1393,18 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
             listId
           }
         });
+        const outcome = makeSaveOutcome("queued", "Network error - list item queued for replay");
         set({
           isSaving: false,
           offlineQueue: getOfflineQueue(),
-          saveMessage: "Network error - list item queued for replay"
+          saveMessage: outcome.message
         });
-        return false;
+        return outcome;
       }
 
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add item" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to add item");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     const fallbackMemberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
@@ -1285,7 +1435,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       };
     });
 
-    return true;
+    return makeSaveOutcome("saved", "List item saved.");
   },
   createMeal: async ({ dayOfWeek, mealType, title, notes, recipeId }) => {
     const state = get();
@@ -1293,8 +1443,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const linkedRecipe = recipeId ? state.recipes.find((recipe) => recipe.id === recipeId) : undefined;
     const resolvedTitle = trimmed || linkedRecipe?.title || "";
     if (!resolvedTitle) {
-      set({ saveMessage: "Meal title is required" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Meal title is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const nextMeals = [
@@ -1310,11 +1461,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     ];
 
     if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", "Meal saved on this device.");
       set({
         meals: nextMeals,
-        saveMessage: "Meal saved on this device."
+        saveMessage: outcome.message
       });
-      return true;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Saving meal..." });
@@ -1334,10 +1486,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     });
 
     if (!result.data) {
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to save meal" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to save meal");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
+    const outcome = makeSaveOutcome("saved", "Meal saved.");
     set((current) => ({
       mealWeekStart: result.data!.weekStart,
       meals: result.data!.items.map(mapMeal),
@@ -1350,10 +1504,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Meal saved."
+      saveMessage: outcome.message
     }));
 
-    return true;
+    return outcome;
   },
   createRecipe: async ({
     title,
@@ -1376,13 +1530,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
             .map((name) => ({ name }));
 
     if (!trimmedTitle) {
-      set({ saveMessage: "Recipe title is required" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Recipe title is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     if (ingredients.length === 0) {
-      set({ saveMessage: "Add at least one ingredient" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Add at least one ingredient");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const requestBody = buildCreateRecipeRequestBody({
@@ -1406,11 +1562,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         cookTimeMinutes: requestBody.cookTimeMinutes ?? null,
         servings: requestBody.servings ?? null
       };
+      const outcome = makeSaveOutcome("local", "Recipe saved on this device.");
       set({
         recipes: [...state.recipes, localRecipe],
-        saveMessage: "Recipe saved on this device."
+        saveMessage: outcome.message
       });
-      return true;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Saving recipe..." });
@@ -1421,10 +1578,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     });
 
     if (!result.data) {
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to save recipe" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to save recipe");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
+    const outcome = makeSaveOutcome("saved", "Recipe saved.");
     set((current) => ({
       recipes: [...current.recipes.filter((recipe) => recipe.id !== result.data!.recipe.id), mapRecipe(result.data!.recipe)],
       textUpdates: [
@@ -1436,22 +1595,24 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Recipe saved."
+      saveMessage: outcome.message
     }));
 
-    return true;
+    return outcome;
   },
   addMealIngredientsToGrocery: async ({ mealPlanItemId, recipeId }) => {
     const state = get();
     if (!mealPlanItemId && !recipeId) {
-      set({ saveMessage: "Choose a meal or recipe first" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Choose a meal or recipe first");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     const localIngredients = resolveLocalGroceryIngredients(state, { mealPlanItemId, recipeId });
     if (!localIngredients) {
-      set({ saveMessage: "No ingredients found for that meal or recipe" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "No ingredients found for that meal or recipe");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     if (state.syncSource !== "api" || !state.familyId) {
@@ -1479,23 +1640,27 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }));
 
       const nextListItems = [...added, ...existing];
+      const outcome = makeSaveOutcome(
+        added.length > 0 ? "local" : "failed",
+        added.length > 0
+          ? `Added ${added.length} ingredient${added.length === 1 ? "" : "s"} to grocery list on this device.`
+          : "Those ingredients are already on the grocery list"
+      );
       set((current) => ({
         listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
         shoppingItems: (current.selectedListId ?? listId) === listId ? nextListItems : current.shoppingItems,
-        saveMessage:
-          added.length > 0
-            ? `Added ${added.length} ingredient${added.length === 1 ? "" : "s"} to grocery list locally`
-            : "Those ingredients are already on the grocery list"
+        saveMessage: outcome.message
       }));
-      return added.length > 0;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Adding ingredients to grocery list..." });
 
     const ensuredList = await ensureGroceryListId(get());
     if (!ensuredList) {
-      set({ isSaving: false, saveMessage: "Unable to resolve grocery list" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Unable to resolve grocery list");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     if (ensuredList.createdList) {
@@ -1516,8 +1681,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     });
 
     if (!result.data) {
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add ingredients to grocery list" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to add ingredients to grocery list");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     const listId = result.data.listId;
@@ -1537,6 +1703,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       )
     );
 
+    const outcome = makeSaveOutcome(
+      result.data!.added.length > 0 ? "saved" : "failed",
+      result.data!.added.length > 0
+        ? `Added ${result.data!.added.length} ingredient${result.data!.added.length === 1 ? "" : "s"} to grocery list`
+        : "Those ingredients are already on the grocery list"
+    );
     set((current) => {
       const nextListItems = [...mappedItems, ...(current.listItemsByListId[listId] ?? [])];
       const nextSelectedListId = current.selectedListId ?? listId;
@@ -1554,20 +1726,18 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           ...current.textUpdates
         ],
         isSaving: false,
-        saveMessage:
-          result.data!.added.length > 0
-            ? `Added ${result.data!.added.length} ingredient${result.data!.added.length === 1 ? "" : "s"} to grocery list`
-            : "Those ingredients are already on the grocery list"
+        saveMessage: outcome.message
       };
     });
 
-    return result.data.added.length > 0;
+    return outcome;
   },
   addWeekMealsToGrocery: async () => {
     const state = get();
     if (state.meals.length === 0) {
-      set({ saveMessage: "No planned meals for this week" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "No planned meals for this week");
+      set({ saveMessage: outcome.message });
+      return outcome;
     }
 
     if (state.syncSource !== "api" || !state.familyId) {
@@ -1612,25 +1782,29 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       }
 
       if (seenInBatch.size === 0) {
-        set({ saveMessage: "No ingredients found for this week's meals" });
-        return false;
+        const outcome = makeSaveOutcome("failed", "No ingredients found for this week's meals");
+        set({ saveMessage: outcome.message });
+        return outcome;
       }
 
       const nextListItems = [...addedItems, ...existing];
+      const message = formatGroceryBridgeMessage(addedItems.length, skipped, "week");
+      const outcome = makeSaveOutcome(addedItems.length > 0 ? "local" : "failed", message);
       set((current) => ({
         listItemsByListId: replaceListItems(current.listItemsByListId, listId, nextListItems),
         shoppingItems: (current.selectedListId ?? listId) === listId ? nextListItems : current.shoppingItems,
-        saveMessage: formatGroceryBridgeMessage(addedItems.length, skipped, "week")
+        saveMessage: outcome.message
       }));
-      return addedItems.length > 0 || skipped > 0;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Adding this week's ingredients..." });
 
     const ensuredList = await ensureGroceryListId(get());
     if (!ensuredList) {
-      set({ isSaving: false, saveMessage: "Unable to resolve grocery list" });
-      return false;
+      const outcome = makeSaveOutcome("failed", "Unable to resolve grocery list");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     if (ensuredList.createdList) {
@@ -1653,8 +1827,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     );
 
     if (!result.data) {
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to add this week's ingredients" });
-      return false;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to add this week's ingredients");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
     const listId = result.data.listId;
@@ -1674,6 +1849,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       )
     );
 
+    const outcome = makeSaveOutcome(
+      result.data!.added.length > 0 || result.data!.skipped.length > 0 ? "saved" : "failed",
+      formatGroceryBridgeMessage(result.data!.added.length, result.data!.skipped.length, "week")
+    );
     set((current) => {
       const nextListItems = [...mappedItems, ...(current.listItemsByListId[listId] ?? [])];
       const nextSelectedListId = current.selectedListId ?? listId;
@@ -1691,25 +1870,26 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           ...current.textUpdates
         ],
         isSaving: false,
-        saveMessage: formatGroceryBridgeMessage(result.data!.added.length, result.data!.skipped.length, "week")
+        saveMessage: outcome.message
       };
     });
 
-    return result.data.added.length > 0 || result.data.skipped.length > 0;
+    return outcome;
   },
   removeMeal: async (id) => {
     const state = get();
     const nextMeals = state.meals.filter((meal) => meal.id !== id);
     if (nextMeals.length === state.meals.length) {
-      return;
+      return null;
     }
 
     if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", "Meal removed on this device.");
       set({
         meals: nextMeals,
-        saveMessage: "Meal removed."
+        saveMessage: outcome.message
       });
-      return;
+      return outcome;
     }
 
     set({ isSaving: true, saveMessage: "Removing meal..." });
@@ -1729,10 +1909,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     });
 
     if (!result.data) {
-      set({ isSaving: false, saveMessage: result.error?.message ?? "Failed to remove meal" });
-      return;
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove meal");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
     }
 
+    const outcome = makeSaveOutcome("saved", "Updated meal plan");
     set((current) => ({
       meals: result.data!.items.map(mapMeal),
       textUpdates: [
@@ -1744,8 +1926,9 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ...current.textUpdates
       ],
       isSaving: false,
-      saveMessage: "Updated meal plan"
+      saveMessage: outcome.message
     }));
+    return outcome;
   },
   importText: (body) => {
     const draft = parseFamilyText(body);
@@ -1774,18 +1957,22 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const persisted = state.syncSource === "api" && state.familyId ? await persistDraftToApi(draft, state) : null;
 
     if (persisted) {
-      set((current) => applyPersistedDraft(current, persisted, draft.kind));
-      return;
+      const applied = applyPersistedDraft(state, persisted, draft.kind);
+      set((current) => ({ ...current, ...applied }));
+      return makeSaveOutcome("saved", applied.saveMessage ?? "Saved to household.");
     }
+
+    const localMessage =
+      state.syncSource === "api"
+        ? "Saved on this device. Pull to refresh once the connection is steady."
+        : "Saved on this device.";
 
     set((current) => ({
       ...applyLocalDraft(current, draft),
       isSaving: false,
-      saveMessage:
-        current.syncSource === "api"
-          ? "Saved locally while backend sync was unavailable"
-          : "Saved on this device."
+      saveMessage: localMessage
     }));
+    return makeSaveOutcome("local", localMessage);
   },
   sendDigestToThread: () => {
     const state = get();
@@ -2283,7 +2470,7 @@ function mapChore(chore: BackendChoreRecord): Chore {
   return {
     id: chore.id,
     title: chore.title,
-    dueLabel: chore.dueTime ? `Due ${chore.dueTime}` : "Anytime today",
+    dueLabel: chore.dueTime ? `Due ${formatStoredTimeValue(chore.dueTime)}` : "Anytime today",
     assignedTo: chore.assignedTo ?? "unassigned",
     stars: chore.starsValue,
     completed: false
@@ -2510,28 +2697,82 @@ function defaultEventStartAt() {
   return date;
 }
 
-function inferStartDateTime(value: string) {
-  const parsed = parseTimeHHMM(value);
-  if (!parsed) return null;
+function resolveEventStartAt(input: { startDate?: string; startTime?: string }) {
+  const trimmedDate = input.startDate?.trim() ?? "";
+  const trimmedTime = input.startTime?.trim() ?? "";
 
-  const now = new Date();
-  const date = new Date(now);
-  date.setHours(parsed.hours, parsed.minutes, 0, 0);
-  return date;
+  if (!trimmedDate && !trimmedTime) {
+    return defaultEventStartAt();
+  }
+
+  const baseDate = trimmedDate ? parseDateInput(trimmedDate) : new Date();
+  if (!baseDate) {
+    return null;
+  }
+
+  const parsedTime = trimmedTime ? parseFlexibleTime(trimmedTime) : null;
+  if (trimmedTime && !parsedTime) {
+    return null;
+  }
+
+  if (parsedTime) {
+    baseDate.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
+    return baseDate;
+  }
+
+  const fallback = defaultEventStartAt();
+  baseDate.setHours(fallback.getHours(), fallback.getMinutes(), 0, 0);
+  return baseDate;
 }
 
 function normalizeDueTime(value?: string) {
   const trimmed = value?.trim();
   if (!trimmed) return null;
-  if (/^([01]\d|2[0-3]):[0-5]\d$/u.test(trimmed)) return `${trimmed}:00`;
-  if (/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/u.test(trimmed)) return trimmed;
-  return null;
+  const parsed = parseFlexibleTime(trimmed);
+  if (!parsed) return null;
+  return `${String(parsed.hours).padStart(2, "0")}:${String(parsed.minutes).padStart(2, "0")}:00`;
 }
 
-function parseTimeHHMM(value: string) {
-  const match = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/u);
+function parseFlexibleTime(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  const twelveHourMatch = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/u);
+  if (twelveHourMatch) {
+    let hours = Number(twelveHourMatch[1]);
+    const minutes = Number(twelveHourMatch[2] ?? 0);
+    const meridiem = twelveHourMatch[3];
+    if (hours < 1 || hours > 12 || minutes > 59) {
+      return null;
+    }
+    if (meridiem === "pm" && hours < 12) {
+      hours += 12;
+    }
+    if (meridiem === "am" && hours === 12) {
+      hours = 0;
+    }
+    return { hours, minutes };
+  }
+
+  const twentyFourHourMatch = trimmed.match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/u);
+  if (!twentyFourHourMatch) {
+    return null;
+  }
+
+  return {
+    hours: Number(twentyFourHourMatch[1]),
+    minutes: Number(twentyFourHourMatch[2])
+  };
+}
+
+function parseDateInput(value: string) {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/u);
   if (!match) return null;
-  return { hours: Number(match[1]), minutes: Number(match[2]) };
+
+  const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function formatISODate(value: Date) {
@@ -2572,3 +2813,16 @@ function resolveMemberName(members: FamilyMember[], memberId: string | null) {
   return members.find((member) => member.id === memberId)?.name ?? null;
 }
 
+function formatStoredTimeValue(value: string) {
+  const parsed = parseFlexibleTime(value);
+  if (!parsed) {
+    return value;
+  }
+
+  const date = new Date();
+  date.setHours(parsed.hours, parsed.minutes, 0, 0);
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}

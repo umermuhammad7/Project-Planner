@@ -37,8 +37,8 @@ export const spacing = {
 export const radii = {
   sm: 6,
   md: 12,
-  lg: 16,
-  xl: 24,
+  lg: 14,
+  xl: 18,
   pill: 999
 };
 
@@ -60,17 +60,17 @@ export const shadow = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: colors.ink,
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 6 }
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 5 }
       },
       android: {
         elevation: 2
       },
       default: {
-        shadowColor: "rgba(44,36,22,0.10)",
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 6 }
+        shadowColor: "rgba(44,36,22,0.08)",
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 5 }
       }
     })
   }

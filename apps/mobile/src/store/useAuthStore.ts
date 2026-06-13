@@ -58,6 +58,7 @@ type AuthState = {
   ) => Promise<{ ok: boolean; message?: string }>;
   setNotificationPermission: (permission: NotificationPermissionState) => void;
   deleteAccount: () => Promise<{ ok: boolean; message?: string }>;
+  handleExternalSignedOut: (message?: string | null) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -115,6 +116,10 @@ async function loadAuthModules() {
 function friendlyAuthError(message: string | undefined, fallback: string) {
   if (!message) {
     return fallback;
+  }
+
+  if (/failed to fetch|network request failed/i.test(message)) {
+    return "HomeThread could not reach sign-in right now. Check the connection and try again.";
   }
 
   if (/invalid bearer token/i.test(message)) {
@@ -274,7 +279,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
 
         if (supabaseClient) {
-          await supabaseClient.auth.signOut();
+          await supabaseClient.auth.signOut({ scope: "local" });
         }
 
         await resetBillingSession();
@@ -724,17 +729,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     if (supabaseClient) {
-      await supabaseClient.auth.signOut();
+      try {
+        await supabaseClient.auth.signOut();
+      } catch {
+        // Account deletion already succeeded server-side. Local sign-out should still complete.
+      }
     }
 
-    await resetBillingSession();
-
-    set({
-      ...signedOutState,
-      authMessage: "Account deleted."
-    });
+    await get().handleExternalSignedOut("Account deleted.");
 
     return { ok: true };
+  },
+  handleExternalSignedOut: async (message = null) => {
+    await resetBillingSession();
+    set({
+      ...signedOutState,
+      authMessage: message
+    });
   },
   signOut: async () => {
     if (get().mode === "signed_out") {
@@ -742,14 +753,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     if (supabaseClient) {
-      await supabaseClient.auth.signOut();
+      try {
+        await supabaseClient.auth.signOut();
+      } catch {
+        // Keep sign-out resilient even if the auth provider request fails on web reloads.
+      }
     }
 
-    await resetBillingSession();
-
-    set({
-      ...signedOutState,
-      authMessage: null
-    });
+    await get().handleExternalSignedOut();
   }
 }));

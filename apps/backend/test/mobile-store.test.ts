@@ -224,6 +224,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.members.find((member) => member.id === "member-kid")?.starBalance).toBe(11);
     expect(state.meals[0]?.title).toBe("Taco Tuesday prep");
     expect(state.chores[0]?.completed).toBe(true);
+    expect(state.chores[0]?.dueLabel).toBe("Due 6:00 PM");
     expect(state.syncMessage).toContain("2 lists");
     expect(state.syncMessage).toContain("2 lists");
   });
@@ -348,7 +349,7 @@ describe("HomeThread mobile store semantics", () => {
     const created = await useHomeThreadStore.getState().createShoppingItem({ title: "Bread" });
 
     const state = useHomeThreadStore.getState();
-    expect(created).toBe(true);
+    expect(created).toEqual({ ok: true, kind: "saved", message: "List item saved." });
     expect(state.groceryListId).toBe("list-created");
     expect(state.selectedListId).toBe("list-created");
     expect(state.lists).toEqual([{ id: "list-created", title: "Groceries", type: "grocery", icon: "basket" }]);
@@ -402,7 +403,7 @@ describe("HomeThread mobile store semantics", () => {
     const created = await useHomeThreadStore.getState().createList({ title: "Camping weekend", type: "packing" });
 
     const state = useHomeThreadStore.getState();
-    expect(created).toBe(true);
+    expect(created).toEqual({ ok: true, kind: "saved", message: "Created Camping weekend" });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/lists",
       expect.objectContaining({
@@ -482,7 +483,28 @@ describe("HomeThread mobile store semantics", () => {
     );
     expect(state.shoppingItems.map((item) => item.title)).toEqual(["Milk"]);
     expect(state.listItemsByListId["list-grocery"]?.map((item) => item.title)).toEqual(["Milk"]);
-    expect(state.saveMessage).toBe("Cleared 1 checked item");
+    expect(state.saveMessage).toBe("Cleared 1 checked item from your household list.");
+  });
+
+  it("queues create_list_item when backend sync is unavailable", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "mock",
+      familyId: "00000000-0000-4000-8000-000000000201",
+      selectedListId: "list-grocery",
+      lists: [{ id: "list-grocery", title: "Groceries", type: "grocery", icon: "basket" }],
+      listItemsByListId: { "list-grocery": [] },
+      shoppingItems: []
+    });
+
+    const outcome = await useHomeThreadStore.getState().createShoppingItem({ title: "Bananas" });
+
+    expect(outcome).toEqual({
+      ok: true,
+      kind: "queued",
+      message: expect.stringContaining("queued")
+    });
+    expect(useHomeThreadStore.getState().offlineQueue).toHaveLength(1);
+    expect(useHomeThreadStore.getState().offlineQueue[0]?.type).toBe("create_list_item");
   });
 
   it("saves a new meal plan item for the active week", async () => {
@@ -530,7 +552,7 @@ describe("HomeThread mobile store semantics", () => {
     });
 
     const state = useHomeThreadStore.getState();
-    expect(saved).toBe(true);
+    expect(saved).toEqual({ ok: true, kind: "saved", message: "Meal saved." });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/meals",
       expect.objectContaining({
@@ -600,7 +622,7 @@ describe("HomeThread mobile store semantics", () => {
     });
 
     const state = useHomeThreadStore.getState();
-    expect(saved).toBe(true);
+    expect(saved).toEqual({ ok: true, kind: "saved", message: "Meal saved." });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/meals",
       expect.objectContaining({
@@ -661,9 +683,10 @@ describe("HomeThread mobile store semantics", () => {
       }
     });
 
-    await useHomeThreadStore.getState().removeMeal("meal-1");
+    const outcome = await useHomeThreadStore.getState().removeMeal("meal-1");
 
     const state = useHomeThreadStore.getState();
+    expect(outcome).toEqual({ ok: true, kind: "saved", message: "Updated meal plan" });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/meals",
       expect.objectContaining({
@@ -737,7 +760,7 @@ describe("HomeThread mobile store semantics", () => {
     const added = await useHomeThreadStore.getState().addMealIngredientsToGrocery({ recipeId: "recipe-1" });
     const state = useHomeThreadStore.getState();
 
-    expect(added).toBe(true);
+    expect(added).toEqual({ ok: true, kind: "saved", message: "Added 2 ingredients to grocery list" });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/meals/to-grocery",
       expect.objectContaining({
@@ -804,7 +827,7 @@ describe("HomeThread mobile store semantics", () => {
     const added = await useHomeThreadStore.getState().addWeekMealsToGrocery();
     const state = useHomeThreadStore.getState();
 
-    expect(added).toBe(true);
+    expect(added).toEqual({ ok: true, kind: "saved", message: "Added 3 ingredients for this week" });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/meals/week-to-grocery",
       expect.objectContaining({
@@ -870,7 +893,7 @@ describe("HomeThread mobile store semantics", () => {
     const added = await useHomeThreadStore.getState().addMealIngredientsToGrocery({ recipeId: "recipe-1" });
     const state = useHomeThreadStore.getState();
 
-    expect(added).toBe(true);
+    expect(added).toEqual({ ok: true, kind: "saved", message: "Added 2 ingredients to grocery list" });
     expect(apiRequestMock).toHaveBeenCalledWith(
       "/families/family-1/lists",
       expect.objectContaining({
@@ -916,7 +939,11 @@ describe("HomeThread mobile store semantics", () => {
       location: "Field 3"
     });
 
-    expect(saved).toBe(false);
+    expect(saved).toEqual({
+      ok: true,
+      kind: "queued",
+      message: expect.stringContaining("queued")
+    });
     const state = useHomeThreadStore.getState();
     expect(state.offlineQueue).toHaveLength(1);
     expect(state.offlineQueue[0]?.type).toBe("create_event");
@@ -947,6 +974,100 @@ describe("HomeThread mobile store semantics", () => {
       body: JSON.stringify({ name: "New Household Name" })
     });
     expect(useHomeThreadStore.getState().familyName).toBe("New Household Name");
+  });
+
+  it("credits the assigned kid when a chore is completed", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "api",
+      familyId: "family-1",
+      currentMemberId: "member-parent",
+      members: [
+        { id: "member-parent", name: "Mara", initials: "M", color: "#000", role: "parent", starBalance: 0 },
+        { id: "member-kid", name: "Noah", initials: "N", color: "#2563EB", role: "kid", starBalance: 4 }
+      ],
+      chores: [
+        {
+          id: "chore-laundry",
+          title: "Laundry",
+          dueLabel: "Due 5:30 PM",
+          assignedTo: "member-kid",
+          stars: 2,
+          completed: false
+        }
+      ],
+      completedChoreIds: {},
+      textUpdates: []
+    });
+
+    apiRequestMock.mockResolvedValueOnce({
+      data: {
+        completion: { id: "completion-1" },
+        reward: { id: "reward-1", stars: 2 }
+      }
+    });
+
+    await useHomeThreadStore.getState().completeChore("chore-laundry");
+
+    const state = useHomeThreadStore.getState();
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/families/family-1/chores/chore-laundry/complete",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"memberId\":\"member-kid\"")
+      })
+    );
+    expect(state.members.find((member) => member.id === "member-kid")?.starBalance).toBe(6);
+    expect(state.saveMessage).toContain("Noah earned 2 stars");
+  });
+
+  it("clears Parker mock household data when first signed-in hydrate fails", async () => {
+    const initial = useHomeThreadStore.getInitialState();
+    expect(initial.familyName).toBe("The Parker Home");
+    expect(initial.members.length).toBeGreaterThan(0);
+    expect(initial.events.length).toBeGreaterThan(0);
+
+    apiRequestMock.mockResolvedValue({
+      error: {
+        message: "connect ECONNREFUSED",
+        code: "NETWORK_ERROR"
+      }
+    });
+
+    await useHomeThreadStore.getState().hydrateFromBackend();
+
+    const state = useHomeThreadStore.getState();
+    expect(state.familyName).toBe("HomeThread");
+    expect(state.members).toEqual([]);
+    expect(state.events).toEqual([]);
+    expect(state.chores).toEqual([]);
+    expect(state.familyId).toBe("00000000-0000-4000-8000-000000000201");
+    expect(state.syncSource).toBe("mock");
+    expect(state.syncMessage).toContain("connect ECONNREFUSED");
+  });
+
+  it("returns local-only outcome when commitDraft cannot reach the backend", async () => {
+    useHomeThreadStore.setState({
+      syncSource: "mock",
+      familyId: "00000000-0000-4000-8000-000000000201",
+      events: [],
+      textUpdates: []
+    });
+
+    const outcome = await useHomeThreadStore.getState().commitDraft({
+      kind: "event",
+      title: "Soccer practice",
+      detail: "Saturday at 10 AM",
+      confidence: 0.9,
+      rawText: "Soccer practice Saturday at 10 AM"
+    });
+
+    expect(outcome).toEqual({
+      ok: true,
+      kind: "local",
+      message: "Saved on this device."
+    });
+    expect(useHomeThreadStore.getState().events.some((event) => event.title === "Soccer practice")).toBe(true);
+    expect(apiRequestMock).not.toHaveBeenCalled();
   });
 
   it("clears household state after leaving a family", async () => {

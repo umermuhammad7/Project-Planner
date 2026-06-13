@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PurchasesPackage } from "react-native-purchases";
 
+import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
@@ -20,6 +21,18 @@ function roleLabel(role: string) {
   if (role === "kid") return "Child profile";
   if (role === "parent") return "Admin";
   return "Member";
+}
+
+function feedbackTone(message: string): "success" | "error" | "info" {
+  if (/(fail|error|required|could not|unable|unavailable|only|sign in)/i.test(message)) {
+    return "error";
+  }
+
+  if (/(saving|adding|removing|loading|refreshing|restoring|regenerating|leaving)/i.test(message)) {
+    return "info";
+  }
+
+  return "success";
 }
 
 export function FamilyScreen({ onClose }: { onClose: () => void }) {
@@ -54,6 +67,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const [isRestoringPurchases, setIsRestoringPurchases] = useState(false);
   const [activePurchaseId, setActivePurchaseId] = useState<string | null>(null);
   const [showBillingPlans, setShowBillingPlans] = useState(false);
+  const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
+  const [showAddChildForm, setShowAddChildForm] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const planRows = [
     {
       name: "Parents",
@@ -83,6 +99,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
   const backendConnected = syncSource === "api";
   const billingStatus = getBillingStatus();
+  const adultMembers = members.filter((member) => member.role !== "kid");
   const childProfiles = members.filter((member) => member.role === "kid");
 
   async function handleSaveFamilyName() {
@@ -300,7 +317,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <Text style={styles.kicker}>Household</Text>
           <Text style={styles.title}>{familyName}</Text>
           <Text style={styles.subtitle}>
-            {backendConnected ? "Invites and child profiles." : "Sign in to manage your household."}
+            {backendConnected
+              ? "Invite the second parent, manage child profiles, and keep the home organized."
+              : "Sign in to manage the household from one shared place."}
           </Text>
         </View>
         <Pressable onPress={onClose} style={styles.closeButton}>
@@ -331,15 +350,17 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
       <SectionTitle title="Family access" />
       <Card>
-        <Text style={styles.cardTitle}>Invite code</Text>
-        <Text style={styles.cardText}>Give this to the second parent so they can join the same home.</Text>
+        <Text style={styles.cardTitle}>Invite a second parent</Text>
+        <Text style={styles.cardText}>Share this code so the other adult can join the same household.</Text>
         <Text style={styles.inviteCode}>{inviteCode ?? "Unavailable"}</Text>
         {isFamilyAdmin ? (
           <View style={styles.cardActions}>
             <PrimaryButton
-              label={isSaving ? "Working..." : "Regenerate code"}
+              label="Regenerate code"
               icon="refresh"
               tone="soft"
+              loading={isSaving}
+              disabled={isSaving || !backendConnected}
               onPress={() => {
                 if (isSaving || !backendConnected) return;
                 void handleRegenerateInvite();
@@ -347,37 +368,118 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
             />
           </View>
         ) : (
-          <Text style={styles.helperText}>Only admins can regenerate invite codes.</Text>
+          <Text style={styles.helperText}>Only the household admin can regenerate the invite code.</Text>
         )}
       </Card>
 
       {isFamilyAdmin ? (
         <Card>
-          <Text style={styles.cardTitle}>Household name</Text>
-          <Text style={styles.label}>Family name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Family name"
-            placeholderTextColor={colors.muted}
-            value={editedFamilyName}
-            onChangeText={setEditedFamilyName}
-          />
           <View style={styles.cardActions}>
             <PrimaryButton
-              label={isSaving ? "Working..." : "Save name"}
-              icon="create"
-              onPress={() => {
-                if (isSaving || !backendConnected) return;
-                void handleSaveFamilyName();
-              }}
+              label={showHouseholdDetails ? "Hide household details" : "Edit household details"}
+              icon={showHouseholdDetails ? "chevron-up" : "create"}
+              tone="ghost"
+              onPress={() => setShowHouseholdDetails((value) => !value)}
             />
           </View>
+          {showHouseholdDetails ? (
+            <>
+              <Text style={styles.cardTitle}>Household name</Text>
+              <Text style={styles.cardText}>Use the name everyone in the home will recognize at a glance.</Text>
+              <Text style={styles.label}>Family name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Family name"
+                placeholderTextColor={colors.muted}
+                value={editedFamilyName}
+                onChangeText={setEditedFamilyName}
+              />
+              <View style={styles.cardActions}>
+                <PrimaryButton
+                  label="Save name"
+                  icon="checkmark"
+                  loading={isSaving}
+                  disabled={isSaving || !backendConnected}
+                  onPress={() => {
+                    if (isSaving || !backendConnected) return;
+                    void handleSaveFamilyName();
+                  }}
+                />
+              </View>
+            </>
+          ) : null}
         </Card>
       ) : null}
 
-      <SectionTitle title="Members" action={`${members.length} total`} />
+      <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
+      <ActionFeedback message={saveMessage ?? ""} tone={feedbackTone(saveMessage ?? "")} visible={Boolean(saveMessage)} />
+
+      <SectionTitle title="Adults" action={`${adultMembers.length} total`} />
       <View style={styles.stack}>
-        {members.map((member) => (
+        {adultMembers.map((member) => (
+          <Card key={member.id}>
+            <Row>
+              <MemberAvatar member={member} size={40} />
+              <View style={styles.memberCopy}>
+                <Text style={styles.memberName}>{member.name}</Text>
+                <Text style={styles.memberMeta}>
+                  {roleLabel(member.role)}
+                  {member.userId ? " - signed-in account" : " - invite pending"}
+                </Text>
+              </View>
+              <Pill label={member.userId ? "Connected" : "Pending"} tone={member.userId ? "mint" : "neutral"} />
+            </Row>
+          </Card>
+        ))}
+      </View>
+
+      <SectionTitle title="Child profiles" action={`${childProfiles.length} total`} />
+      {isFamilyAdmin ? (
+        <Card>
+          <Text style={styles.cardTitle}>Kids mode profiles</Text>
+          <Text style={styles.cardText}>Create child profiles for chores, stars, and the kid-friendly view.</Text>
+          <View style={styles.cardActions}>
+            <PrimaryButton
+              label={showAddChildForm ? "Hide child form" : "Add child profile"}
+              icon={showAddChildForm ? "chevron-up" : "person-add"}
+              tone="soft"
+              onPress={() => setShowAddChildForm((value) => !value)}
+            />
+          </View>
+          {showAddChildForm ? (
+            <>
+              <Text style={styles.label}>Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Noah"
+                placeholderTextColor={colors.muted}
+                value={childName}
+                onChangeText={setChildName}
+              />
+              <View style={styles.cardActions}>
+                <PrimaryButton
+                  label="Save child profile"
+                  icon="checkmark"
+                  loading={isSaving}
+                  disabled={isSaving || !backendConnected}
+                  onPress={() => {
+                    if (isSaving || !backendConnected) return;
+                    void handleAddChild();
+                  }}
+                />
+              </View>
+            </>
+          ) : null}
+        </Card>
+      ) : null}
+      <View style={styles.stack}>
+        {childProfiles.length === 0 ? (
+          <Card>
+            <Text style={styles.emptyTitle}>No child profiles yet.</Text>
+            <Text style={styles.emptyText}>Add the first child when you are ready to assign chores and track stars.</Text>
+          </Card>
+        ) : null}
+        {childProfiles.map((member) => (
           <Card key={member.id}>
             <Row>
               <MemberAvatar member={member} size={40} />
@@ -388,7 +490,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                   {member.userId ? " - signed-in account" : " - no login"}
                 </Text>
               </View>
-              {member.role === "kid" ? <Pill label="Kids mode" tone="gold" /> : null}
+              <Pill label="Kids mode" tone="gold" />
             </Row>
             {isFamilyAdmin && member.isVirtual ? (
               <View style={styles.memberActions}>
@@ -403,8 +505,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                     />
                     <View style={styles.memberButtonRow}>
                       <PrimaryButton
-                        label={isSaving ? "Working..." : "Save child"}
+                        label="Save child"
                         icon="checkmark"
+                        loading={isSaving}
+                        disabled={isSaving || !backendConnected}
                         onPress={() => {
                           if (isSaving || !backendConnected) return;
                           void handleSaveMember();
@@ -432,9 +536,11 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                       }}
                     />
                     <PrimaryButton
-                      label={isSaving ? "Working..." : "Remove"}
+                      label="Remove"
                       icon="trash"
                       tone="dark"
+                      loading={isSaving}
+                      disabled={isSaving || !backendConnected}
                       onPress={() => {
                         if (isSaving || !backendConnected) return;
                         void handleRemoveMember(member.id);
@@ -448,46 +554,25 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         ))}
       </View>
 
-      {isFamilyAdmin ? (
-        <>
-          <SectionTitle title="Add child profile" />
-          <Card>
-            <Text style={styles.helperTextCompact}>No login - for chores, stars, and kids mode.</Text>
-            <Text style={styles.label}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Noah"
-              placeholderTextColor={colors.muted}
-              value={childName}
-              onChangeText={setChildName}
-            />
-            <View style={styles.cardActions}>
-              <PrimaryButton
-                label={isSaving ? "Working..." : "Add child profile"}
-                icon="person-add"
-                onPress={() => {
-                  if (isSaving || !backendConnected) return;
-                  void handleAddChild();
-                }}
-              />
-            </View>
-          </Card>
-        </>
-      ) : null}
-
-      {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
-      {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
-
       <Card>
         <Text style={styles.cardTitle}>Household plan</Text>
+        <Text style={styles.cardText}>One plan covers the home. The admin handles billing and everyone else joins with the invite code.</Text>
         <Text style={styles.helperText}>
           Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
           {subscriptionStatus?.subscriptionExpiresAt
             ? ` - expires ${new Date(subscriptionStatus.subscriptionExpiresAt).toLocaleDateString()}`
             : ""}
         </Text>
-        {subscriptionMessage ? <Text style={styles.helperText}>{subscriptionMessage}</Text> : null}
-        {!billingStatus.keyPresent ? <Text style={styles.helperText}>{billingStatus.message}</Text> : null}
+        <ActionFeedback
+          message={subscriptionMessage ?? ""}
+          tone={feedbackTone(subscriptionMessage ?? "")}
+          visible={Boolean(subscriptionMessage)}
+        />
+        <ActionFeedback
+          message={(billingMessage ?? (!billingStatus.keyPresent ? billingStatus.message : "")) || ""}
+          tone={feedbackTone((billingMessage ?? (!billingStatus.keyPresent ? billingStatus.message : "")) || "")}
+          visible={Boolean(billingMessage || !billingStatus.keyPresent)}
+        />
         <View style={styles.cardActions}>
           <PrimaryButton
             label={showBillingPlans ? "Hide plans" : "View plans and billing"}
@@ -498,89 +583,90 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         </View>
         {showBillingPlans ? (
           <>
-        <View style={styles.planToolbar}>
-          <PrimaryButton
-            label={isLoadingBilling ? "Refreshing..." : "Refresh plans"}
-            icon="refresh"
-            tone="ghost"
-            onPress={() => {
-              if (isLoadingBilling) return;
-              void loadBillingOptions();
-            }}
-          />
-          {isFamilyAdmin ? (
-            <PrimaryButton
-              label={isRestoringPurchases ? "Restoring..." : "Restore purchases"}
-              icon="download"
-              tone="soft"
-              onPress={() => {
-                if (isRestoringPurchases) return;
-                void handleRestorePurchases();
-              }}
-            />
-          ) : null}
-        </View>
-        <View style={styles.planStack}>
-          {planRows.map((plan) => (
-            <View key={plan.name} style={styles.planRow}>
-              <View style={styles.planCopy}>
-                <Text style={styles.planName}>{plan.name}</Text>
-                <Text style={styles.planDetail}>{plan.detail}</Text>
-                <Text style={styles.planNote}>{plan.note}</Text>
-              </View>
-              <Text style={styles.planPrice}>{plan.price}</Text>
+            <View style={styles.planToolbar}>
+              <PrimaryButton
+                label="Refresh plans"
+                icon="refresh"
+                tone="ghost"
+                loading={isLoadingBilling}
+                disabled={isLoadingBilling}
+                onPress={() => {
+                  if (isLoadingBilling) return;
+                  void loadBillingOptions();
+                }}
+              />
+              {isFamilyAdmin ? (
+                <PrimaryButton
+                  label="Restore purchases"
+                  icon="download"
+                  tone="soft"
+                  loading={isRestoringPurchases}
+                  disabled={isRestoringPurchases}
+                  onPress={() => {
+                    if (isRestoringPurchases) return;
+                    void handleRestorePurchases();
+                  }}
+                />
+              ) : null}
             </View>
-          ))}
-        </View>
-        <View style={styles.inlineSectionHeader}>
-          <Text style={styles.inlineSectionTitle}>Store checkout</Text>
-          <Text style={styles.inlineSectionMeta}>{billingStatus.platform}</Text>
-        </View>
-        {!billingStatus.keyPresent ? (
-          <Text style={styles.helperText}>{billingStatus.message}</Text>
-        ) : billingMessage ? (
-          <Text style={styles.helperText}>{billingMessage}</Text>
-        ) : null}
+            <View style={styles.planStack}>
+              {planRows.map((plan) => (
+                <View key={plan.name} style={styles.planRow}>
+                  <View style={styles.planCopy}>
+                    <Text style={styles.planName}>{plan.name}</Text>
+                    <Text style={styles.planDetail}>{plan.detail}</Text>
+                    <Text style={styles.planNote}>{plan.note}</Text>
+                  </View>
+                  <Text style={styles.planPrice}>{plan.price}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.inlineSectionHeader}>
+              <Text style={styles.inlineSectionTitle}>Store checkout</Text>
+              <Text style={styles.inlineSectionMeta}>{billingStatus.platform}</Text>
+            </View>
 
-        {billingSummaries.length > 0 ? (
-          <View style={styles.storePlanStack}>
-            {billingSummaries.map((summary, index) => (
-              <View key={summary.id} style={styles.storePlanRow}>
-                <View style={styles.planCopy}>
-                  <Text style={styles.planName}>{summary.title}</Text>
-                  <Text style={styles.planDetail}>{summary.description || "Household subscription"}</Text>
-                  {summary.periodLabel ? <Text style={styles.planNote}>Billed {summary.periodLabel}</Text> : null}
-                </View>
-                <View style={styles.storePlanAside}>
-                  <Text style={styles.planPrice}>{summary.priceLabel}</Text>
-                  {isFamilyAdmin ? (
-                    <PrimaryButton
-                      label={activePurchaseId === summary.id ? "Starting..." : "Choose"}
-                      icon="card"
-                      onPress={() => {
-                        if (activePurchaseId) return;
-                        void handlePurchasePlan(billingPackages[index]!);
-                      }}
-                    />
-                  ) : null}
-                </View>
+            {billingSummaries.length > 0 ? (
+              <View style={styles.storePlanStack}>
+                {billingSummaries.map((summary, index) => (
+                  <View key={summary.id} style={styles.storePlanRow}>
+                    <View style={styles.planCopy}>
+                      <Text style={styles.planName}>{summary.title}</Text>
+                      <Text style={styles.planDetail}>{summary.description || "Household subscription"}</Text>
+                      {summary.periodLabel ? <Text style={styles.planNote}>Billed {summary.periodLabel}</Text> : null}
+                    </View>
+                    <View style={styles.storePlanAside}>
+                      <Text style={styles.planPrice}>{summary.priceLabel}</Text>
+                      {isFamilyAdmin ? (
+                        <PrimaryButton
+                          label="Choose"
+                          icon="card"
+                          loading={activePurchaseId === summary.id}
+                          disabled={Boolean(activePurchaseId)}
+                          onPress={() => {
+                            if (activePurchaseId) return;
+                            void handlePurchasePlan(billingPackages[index]!);
+                          }}
+                        />
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
-        ) : null}
+            ) : null}
 
-        {billingManagementUrl ? (
-          <View style={styles.cardActions}>
-            <PrimaryButton
-              label="Manage in store"
-              icon="open-outline"
-              tone="ghost"
-              onPress={() => {
-                void Linking.openURL(billingManagementUrl);
-              }}
-            />
-          </View>
-        ) : null}
+            {billingManagementUrl ? (
+              <View style={styles.cardActions}>
+                <PrimaryButton
+                  label="Manage in store"
+                  icon="open-outline"
+                  tone="ghost"
+                  onPress={() => {
+                    void Linking.openURL(billingManagementUrl);
+                  }}
+                />
+              </View>
+            ) : null}
           </>
         ) : null}
       </Card>
@@ -591,17 +677,46 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         <Text style={styles.cardText}>
           Leaving removes your membership from this household. You can rejoin later with an invite code.
         </Text>
-        <View style={styles.cardActions}>
-          <PrimaryButton
-            label={isSaving ? "Working..." : "Leave household"}
-            icon="exit"
-            tone="soft"
-            onPress={() => {
-              if (isSaving || !backendConnected) return;
-              void handleLeaveFamily();
-            }}
-          />
-        </View>
+        {!showLeaveConfirm ? (
+          <View style={styles.cardActions}>
+            <PrimaryButton
+              label="Leave household"
+              icon="exit"
+              tone="ghost"
+              loading={isSaving}
+              disabled={isSaving || !backendConnected}
+              onPress={() => {
+                if (isSaving || !backendConnected) return;
+                setShowLeaveConfirm(true);
+              }}
+            />
+          </View>
+        ) : (
+          <>
+            <Text style={styles.warningText}>
+              This removes your access to the shared home until you join again with a fresh invite code.
+            </Text>
+            <View style={styles.memberButtonRow}>
+              <PrimaryButton
+                label="Keep me here"
+                icon="close"
+                tone="soft"
+                onPress={() => setShowLeaveConfirm(false)}
+              />
+              <PrimaryButton
+                label="Confirm leave"
+                icon="exit"
+                tone="dark"
+                loading={isSaving}
+                disabled={isSaving || !backendConnected}
+                onPress={() => {
+                  if (isSaving || !backendConnected) return;
+                  void handleLeaveFamily();
+                }}
+              />
+            </View>
+          </>
+        )}
       </Card>
     </View>
   );
@@ -713,6 +828,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 18,
     marginTop: spacing.sm
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    marginTop: spacing.xs
   },
   inlineSectionHeader: {
     alignItems: "center",
@@ -841,14 +969,15 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: spacing.md
   },
-  formMessage: {
-    color: colors.danger,
+  warningText: {
+    color: colors.coral,
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 19
+    lineHeight: 19,
+    marginTop: spacing.md
   },
-  saveMessage: {
-    color: colors.primary,
+  formMessage: {
+    color: colors.danger,
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19

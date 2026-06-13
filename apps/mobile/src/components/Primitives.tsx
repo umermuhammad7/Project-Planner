@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { PropsWithChildren, useRef } from "react";
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { FamilyMember } from "../types";
@@ -92,33 +92,48 @@ export function PrimaryButton({
   label,
   icon,
   onPress,
-  tone = "primary"
+  tone = "primary",
+  loading = false,
+  disabled = false
 }: {
   label: string;
   icon?: IconName;
   onPress: () => void;
   tone?: "primary" | "dark" | "soft" | "ghost";
+  loading?: boolean;
+  disabled?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const iconColor = buttonForeground(tone);
+  const isDisabled = disabled || loading;
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
+    <Animated.View style={{ alignSelf: "stretch", transform: [{ scale }], opacity: isDisabled ? 0.72 : 1 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ disabled: isDisabled, busy: loading }}
+        disabled={isDisabled}
         onPress={onPress}
-        onPressIn={() => animatePress(scale, 0.97)}
+        onPressIn={() => {
+          if (!isDisabled) {
+            animatePress(scale, 0.97);
+          }
+        }}
         onPressOut={() => animatePress(scale, 1)}
         style={({ pressed }) => [
           styles.primaryButton,
           tone === "dark" && styles.darkButton,
           tone === "soft" && styles.softButton,
           tone === "ghost" && styles.ghostButton,
-          pressed && styles[pressedToneStyleName(tone)]
+          pressed && !isDisabled && styles[pressedToneStyleName(tone)]
         ]}
       >
-        {icon ? <Ionicons name={icon} size={18} color={iconColor} /> : null}
+        {loading ? (
+          <ActivityIndicator size="small" color={iconColor} />
+        ) : icon ? (
+          <Ionicons name={icon} size={18} color={iconColor} />
+        ) : null}
         <Text style={[styles.primaryButtonText, { color: iconColor }]}>{label}</Text>
       </Pressable>
     </Animated.View>
@@ -158,10 +173,13 @@ function animatePress(scale: Animated.Value, toValue: number) {
 
 const styles = StyleSheet.create({
   card: {
+    alignSelf: "stretch",
     backgroundColor: colors.surface,
     borderColor: colors.line,
     borderRadius: radii.lg,
     borderWidth: 1,
+    maxWidth: "100%",
+    minWidth: 0,
     padding: spacing.md,
     ...shadow.card
   },
@@ -173,13 +191,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: spacing.md,
-    marginTop: spacing.xl
+    marginBottom: 12,
+    marginTop: spacing.lg
   },
   sectionText: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 23,
+    fontSize: 21,
     fontWeight: "700"
   },
   sectionAction: {
@@ -231,11 +249,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: radii.lg,
     flex: 1,
-    gap: 4,
-    minHeight: 60,
+    gap: 3,
+    minHeight: 52,
     justifyContent: "center",
-    paddingHorizontal: 4,
-    paddingVertical: 6
+    paddingHorizontal: 2,
+    paddingVertical: 7
   },
   iconButtonSelected: {
     backgroundColor: colors.primarySoft
@@ -260,6 +278,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
+    maxWidth: "100%",
     minHeight: 52,
     paddingHorizontal: spacing.lg,
     shadowColor: colors.ink,

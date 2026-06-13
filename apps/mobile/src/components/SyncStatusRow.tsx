@@ -7,6 +7,7 @@ import { getLiveUpdateNote, getSyncPillLabel, getSyncPillTone, getSyncStatusLine
 
 type SyncStatusRowProps = {
   syncSource: SyncSource;
+  syncMessage?: string;
   isHydrating: boolean;
   realtimeStatus?: RealtimeSyncStatus;
   realtimeMessage?: string;
@@ -15,6 +16,7 @@ type SyncStatusRowProps = {
 
 export function SyncStatusRow({
   syncSource,
+  syncMessage,
   isHydrating,
   realtimeStatus = "inactive",
   realtimeMessage = "",
@@ -22,6 +24,7 @@ export function SyncStatusRow({
 }: SyncStatusRowProps) {
   const statusLine = getSyncStatusLine({
     syncSource,
+    syncMessage,
     isHydrating,
     realtimeStatus,
     realtimeMessage

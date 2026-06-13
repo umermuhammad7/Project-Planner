@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Linking, Platform, StyleSheet, Text, TextInput, View } from "react-native";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
@@ -16,15 +17,20 @@ export function ThreadScreen() {
     commitDraft,
     sendDigestToThread,
     isSaving,
-    saveMessage,
     syncSource,
+    syncMessage,
     isHydrating,
     realtimeStatus,
     realtimeMessage
   } = useHomeThreadStore();
-  const [body, setBody] = useState("Grandma can grab bananas after Noah soccer at 5");
+  const [body, setBody] = useState("");
   const [lastDraft, setLastDraft] = useState<AssistantDraft | null>(null);
   const [lastDigest, setLastDigest] = useState<string | null>(null);
+  const [boardSuccess, setBoardSuccess] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [importInfo, setImportInfo] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [highlightEntryId, setHighlightEntryId] = useState<string | null>(null);
 
   const inboundUpdates = useMemo(
     () => textUpdates.filter((update) => update.direction === "inbound"),
@@ -34,6 +40,28 @@ export function ThreadScreen() {
     () => textUpdates.filter((update) => update.direction === "outbound"),
     [textUpdates]
   );
+
+  useEffect(() => {
+    if (!boardSuccess && !importSuccess && !importInfo) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setBoardSuccess(null);
+      setImportSuccess(null);
+      setImportInfo(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [boardSuccess, importSuccess, importInfo]);
+
+  useEffect(() => {
+    if (!highlightEntryId) {
+      return;
+    }
+
+    const timer = setTimeout(() => setHighlightEntryId(null), 3500);
+    return () => clearTimeout(timer);
+  }, [highlightEntryId]);
 
   const openSms = async (digest: string) => {
     const separator = Platform.OS === "ios" ? "&" : "?";
@@ -48,60 +76,71 @@ export function ThreadScreen() {
     <View>
       <Text style={styles.title}>Family board</Text>
       <Text style={styles.subtitle}>
-        Turn messy texts into clear household updates. SMS is optional - the thread history lives here first.
+        Shared updates, saved digests, and converted family texts live here. This is the household board, not a live chat yet.
       </Text>
 
       <SyncStatusRow
         syncSource={syncSource}
+        syncMessage={syncMessage}
         isHydrating={isHydrating}
         realtimeStatus={realtimeStatus}
         realtimeMessage={realtimeMessage}
       />
 
-      <SectionTitle title="Digest" />
+      <SectionTitle title="Share an update" />
       <Card>
-        <Text style={styles.label}>Send a clean summary</Text>
+        <Text style={styles.label}>Share a clean summary</Text>
         <Text style={styles.meta}>
-          Builds a digest from today's plans, chores, and lists. Saving adds an outbound entry below; SMS only
-          pre-fills your phone's message app.
+          Save a readable household summary to the board below. Send with SMS only pre-fills your phone's message app -
+          nothing sends automatically.
         </Text>
         <View style={styles.actions}>
           <PrimaryButton
-            label="Save digest to thread"
-            icon="send"
+            label="Add summary to family board"
+            icon="bookmark"
             onPress={() => {
               const digest = sendDigestToThread();
               setLastDigest(digest);
+              const latestEntry = useHomeThreadStore.getState().textUpdates[0];
+              if (latestEntry) {
+                setHighlightEntryId(latestEntry.id);
+              }
+              setBoardSuccess("Summary added to the family board.");
             }}
           />
           <PrimaryButton
-            label="Open SMS"
+            label="Send with SMS"
             icon="chatbubble"
             tone="soft"
+            disabled={!lastDigest}
             onPress={() => {
               if (!lastDigest) return;
               void openSms(lastDigest);
             }}
           />
         </View>
+        <ActionFeedback message={boardSuccess ?? ""} tone="success" visible={Boolean(boardSuccess)} />
         {lastDigest ? (
           <View style={styles.preview}>
-            <Pill label="Outbound preview" tone="neutral" />
+            <Pill label="Board preview" tone="neutral" />
             <Text style={styles.previewText}>{lastDigest}</Text>
           </View>
         ) : null}
       </Card>
 
-      <SectionTitle title="Text import" />
+      <SectionTitle title="Import a message" />
       <Card>
         <Text style={styles.label}>Paste a family text</Text>
         <Text style={styles.meta}>
-          HomeThread suggests an event, chore, or list item. Review the draft before saving - nothing sends automatically.
+          HomeThread suggests an event, chore, or list item from a family message. Review the draft before saving.
         </Text>
         <TextInput
           accessibilityLabel="Paste a family text"
           multiline
-          onChangeText={setBody}
+          onChangeText={(value) => {
+            setBody(value);
+            setImportError(null);
+          }}
           placeholder="Paste the group text here..."
           placeholderTextColor={colors.muted}
           style={styles.input}
@@ -113,23 +152,60 @@ export function ThreadScreen() {
             icon="sparkles"
             tone="soft"
             onPress={() => {
-              if (body.trim()) {
-                setLastDraft(importText(body.trim()));
+              if (!body.trim()) {
+                setImportError("Paste family text before parsing.");
+                setImportSuccess(null);
+                setImportInfo(null);
+                return;
               }
+
+              setImportError(null);
+              setImportSuccess(null);
+              setImportInfo(null);
+              setLastDraft(importText(body.trim()));
             }}
           />
           <PrimaryButton
-            label={isSaving ? "Saving..." : "Save to app"}
+            label={isSaving ? "Saving..." : "Save to household"}
             icon="checkmark"
+            loading={isSaving}
+            disabled={!lastDraft || isSaving}
             onPress={() => {
               if (!lastDraft || isSaving) return;
-              void commitDraft(lastDraft).then(() => {
+              const draftTitle = lastDraft.title;
+              void commitDraft(lastDraft).then((outcome) => {
+                if (outcome.kind === "failed") {
+                  setImportError(outcome.message);
+                  setImportSuccess(null);
+                  setImportInfo(null);
+                  return;
+                }
+
+                if (outcome.kind === "local") {
+                  setImportInfo(`Saved "${draftTitle}" on this device only. Pull to refresh when the connection is steady.`);
+                  setImportSuccess(null);
+                  setImportError(null);
+                  setLastDraft(null);
+                  setBody("");
+                  return;
+                }
+
+                const latestEntry = useHomeThreadStore.getState().textUpdates[0];
+                if (latestEntry) {
+                  setHighlightEntryId(latestEntry.id);
+                }
+                setImportSuccess(`Added "${draftTitle}" to your household.`);
+                setImportInfo(null);
+                setImportError(null);
                 setLastDraft(null);
+                setBody("");
               });
             }}
           />
         </View>
-        <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+        <ActionFeedback message={importSuccess ?? ""} tone="success" visible={Boolean(importSuccess)} />
+        <ActionFeedback message={importInfo ?? ""} tone="info" visible={Boolean(importInfo)} />
+        <ActionFeedback message={importError ?? ""} tone="error" visible={Boolean(importError)} />
         {lastDraft ? (
           <View style={styles.result}>
             <Pill label={lastDraft.kind} tone="mint" />
@@ -139,12 +215,12 @@ export function ThreadScreen() {
         ) : null}
       </Card>
 
-      <SectionTitle title="Thread history" action={`${textUpdates.length} entries`} />
+      <SectionTitle title="Board history" action={`${textUpdates.length} entries`} />
       {textUpdates.length === 0 ? (
         <Card>
           <Text style={styles.emptyTitle}>No thread entries yet</Text>
           <Text style={styles.meta}>
-            Save a digest or import a family text to start a readable history of what came from where.
+            Add a summary to the family board or import a family text to start a readable history of what came from where.
           </Text>
         </Card>
       ) : (
@@ -153,7 +229,7 @@ export function ThreadScreen() {
             <>
               <Text style={styles.sectionLabel}>From family texts</Text>
               {inboundUpdates.map((update) => (
-                <ThreadEntry key={update.id} update={update} />
+                <ThreadEntry key={update.id} update={update} highlighted={update.id === highlightEntryId} />
               ))}
             </>
           ) : null}
@@ -161,7 +237,7 @@ export function ThreadScreen() {
             <>
               <Text style={styles.sectionLabel}>From HomeThread</Text>
               {outboundUpdates.map((update) => (
-                <ThreadEntry key={update.id} update={update} />
+                <ThreadEntry key={update.id} update={update} highlighted={update.id === highlightEntryId} />
               ))}
             </>
           ) : null}
@@ -171,30 +247,32 @@ export function ThreadScreen() {
   );
 }
 
-function ThreadEntry({ update }: { update: TextUpdate }) {
+function ThreadEntry({ update, highlighted }: { update: TextUpdate; highlighted?: boolean }) {
   const conversion = formatThreadConversion(update.convertedTo);
   const directionLabel = formatThreadDirection(update.direction);
 
   return (
     <Card>
-      <Row align="flex-start">
-        <View style={[styles.bubbleIcon, update.direction === "outbound" && styles.bubbleIconOutbound]}>
-          <Ionicons
-            name={update.direction === "outbound" ? "send" : "chatbubble-ellipses"}
-            size={18}
-            color={update.direction === "outbound" ? colors.primary : colors.coral}
-          />
-        </View>
-        <View style={styles.fill}>
-          <Row>
-            <Text style={styles.author}>{update.author}</Text>
-            <Text style={styles.time}>{update.createdAt}</Text>
-          </Row>
-          <Pill label={directionLabel} tone={update.direction === "outbound" ? "primary" : "neutral"} />
-          <Text style={styles.body}>{update.body}</Text>
-          {conversion ? <Pill label={conversion} tone="mint" /> : null}
-        </View>
-      </Row>
+      <View style={highlighted ? styles.highlightedEntry : undefined}>
+        <Row align="flex-start">
+          <View style={[styles.bubbleIcon, update.direction === "outbound" && styles.bubbleIconOutbound]}>
+            <Ionicons
+              name={update.direction === "outbound" ? "send" : "chatbubble-ellipses"}
+              size={18}
+              color={update.direction === "outbound" ? colors.primary : colors.coral}
+            />
+          </View>
+          <View style={styles.fill}>
+            <Row>
+              <Text style={styles.author}>{update.author}</Text>
+              <Text style={styles.time}>{update.createdAt}</Text>
+            </Row>
+            <Pill label={directionLabel} tone={update.direction === "outbound" ? "primary" : "neutral"} />
+            <Text style={styles.body}>{update.body}</Text>
+            {conversion ? <Pill label={conversion} tone="mint" /> : null}
+          </View>
+        </Row>
+      </View>
     </Card>
   );
 }
@@ -237,12 +315,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.md,
     marginTop: spacing.md
-  },
-  statusText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.sm
   },
   preview: {
     backgroundColor: colors.surfaceRaised,
@@ -294,6 +366,12 @@ const styles = StyleSheet.create({
   stack: {
     gap: spacing.md
   },
+  highlightedEntry: {
+    backgroundColor: colors.mintSoft,
+    borderRadius: radii.md,
+    margin: -spacing.xs,
+    padding: spacing.xs
+  },
   bubbleIcon: {
     alignItems: "center",
     backgroundColor: colors.coralSoft,
@@ -326,4 +404,3 @@ const styles = StyleSheet.create({
     lineHeight: 21
   }
 });
-

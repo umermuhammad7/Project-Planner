@@ -164,7 +164,8 @@ export function AssistantScreen() {
     }
   ]);
   const [isThinking, setIsThinking] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savedKind, setSavedKind] = useState<"saved" | "local" | null>(null);
+  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
   const [assistantNote, setAssistantNote] = useState<string | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus | null>(null);
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
@@ -249,7 +250,8 @@ export function AssistantScreen() {
       return;
     }
 
-    setSaved(false);
+    setSavedKind(null);
+    setDraftSaveError(null);
     setAssistantNote(null);
     setDraft(null);
     setMealSuggestions(null);
@@ -442,6 +444,7 @@ export function AssistantScreen() {
           <PrimaryButton
             label={isThinking ? "Thinking..." : "Ask assistant"}
             icon="sparkles"
+            disabled={!canSend}
             onPress={() => {
               if (!canSend) return;
               void runAssistant(prompt, "general");
@@ -522,8 +525,8 @@ export function AssistantScreen() {
                           mealType: suggestion.mealType,
                           title: suggestion.title,
                           notes: suggestion.notes ?? undefined
-                        }).then((ok) => {
-                          if (ok) {
+                        }).then((outcome) => {
+                          if (outcome.ok) {
                             setSavedMealKeys((current) => [...current, key]);
                           }
                         });
@@ -555,14 +558,42 @@ export function AssistantScreen() {
             <Text style={styles.meta}>{draft.detail}</Text>
             <Text style={styles.reviewNote}>Review before saving.</Text>
             {assistantNote ? <Text style={styles.note}>{assistantNote}</Text> : null}
-            <Text style={styles.saveStatus}>{isSaving ? "Saving..." : saveMessage}</Text>
+            {draftSaveError ? <Text style={styles.note}>{draftSaveError}</Text> : null}
+            <Text style={styles.saveStatus}>
+              {isSaving
+                ? "Saving..."
+                : savedKind === "saved"
+                  ? "Saved to your household."
+                  : savedKind === "local"
+                    ? "Saved on this device only. Pull to refresh when the connection is steady."
+                    : saveMessage}
+            </Text>
             <View style={styles.saveRow}>
               <PrimaryButton
-                label={isSaving ? "Saving..." : saved ? "Saved" : "Save to HomeThread"}
-                icon={isSaving ? "sync" : saved ? "checkmark" : "add"}
+                label={
+                  isSaving
+                    ? "Saving..."
+                    : savedKind === "saved"
+                      ? "Saved"
+                      : savedKind === "local"
+                        ? "Saved locally"
+                        : "Save to HomeThread"
+                }
+                icon={
+                  isSaving ? "sync" : savedKind === "saved" || savedKind === "local" ? "checkmark" : "add"
+                }
+                disabled={isSaving || savedKind !== null}
                 onPress={() => {
-                  void commitDraft(draft).then(() => {
-                    setSaved(true);
+                  if (isSaving || savedKind !== null) return;
+                  void commitDraft(draft).then((outcome) => {
+                    if (outcome.kind === "failed") {
+                      setDraftSaveError(outcome.message);
+                      setSavedKind(null);
+                      return;
+                    }
+
+                    setDraftSaveError(null);
+                    setSavedKind(outcome.kind === "local" ? "local" : "saved");
                   });
                 }}
               />

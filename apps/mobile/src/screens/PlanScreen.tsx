@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
+import { ActionFeedback } from "../components/ActionFeedback";
+import { DateField } from "../components/DateField";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
+import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, spacing } from "../constants/theme";
+import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TravelReminderStatus } from "../types";
@@ -11,16 +15,23 @@ import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } 
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 
 export function PlanScreen() {
-  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, realtimeStatus, realtimeMessage } =
+  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
+  const { scrollToOffset } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
+  const [startDate, setStartDate] = useState(formatDateInput(new Date()));
   const [startTime, setStartTime] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [showCalendarSync, setShowCalendarSync] = useState(false);
   const [travelStatus, setTravelStatus] = useState<TravelReminderStatus | null>(null);
   const [travelMessage, setTravelMessage] = useState<string>("Travel reminders need an upcoming event with map coordinates.");
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const formOpacity = useRef(new Animated.Value(0)).current;
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
   const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
@@ -36,9 +47,83 @@ export function PlanScreen() {
     () => sortedEvents.filter((event) => getEventUrgency(event)?.label !== "Past").length,
     [sortedEvents]
   );
+
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showForm) {
+      formOpacity.setValue(0);
+      return;
+    }
+
+    Animated.timing(formOpacity, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: Platform.OS !== "web"
+    }).start();
+  }, [formOpacity, showForm]);
+
+  useEffect(() => {
+    if (!successMessage && !infoMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setSuccessMessage(null);
+      setInfoMessage(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [successMessage, infoMessage]);
+
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
+
+  function toggleForm() {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const next = !showForm;
+    setShowForm(next);
+    setErrorMessage(null);
+
+    if (next) {
+      setTimeout(() => scrollToOffset(120), 80);
+    }
+  }
+
+  async function handleCreateEvent() {
+    if (!canSubmit || isSaving) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setInfoMessage(null);
+
+    const outcome = await createEvent({ title, location, startDate, startTime, memberIds });
+    if (outcome.kind === "saved") {
+      const savedTitle = title.trim();
+      setTitle("");
+      setLocation("");
+      setStartDate(formatDateInput(new Date()));
+      setStartTime("");
+      setMemberIds([]);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setShowForm(false);
+      setSuccessMessage(`"${savedTitle}" is now on the family plan.`);
+      return;
+    }
+
+    if (outcome.kind === "queued") {
+      setInfoMessage(outcome.message);
+      return;
+    }
+
+    setErrorMessage(outcome.message || "Could not create that event.");
+  }
 
   useEffect(() => {
     async function loadTravelStatus() {
@@ -78,32 +163,99 @@ export function PlanScreen() {
   return (
     <View>
       <Text style={styles.title}>This week</Text>
-      <Text style={styles.subtitle}>A shared family plan that still holds together when details arrive by text.</Text>
+      <Text style={styles.subtitle}>
+        Plans you add here are saved to your household and stay visible for everyone signed in to HomeThread.
+      </Text>
 
       <SyncStatusRow
         syncSource={syncSource}
+        syncMessage={syncMessage}
         isHydrating={isHydrating}
         realtimeStatus={realtimeStatus}
         realtimeMessage={realtimeMessage}
         showLiveNote
       />
 
-      <View style={styles.actionRow}>
-        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" tone="ghost" onPress={() => void refreshFromBackend()} />
+      <View style={styles.primaryActionWrap}>
         <PrimaryButton
-          label={showForm ? "Close" : "New event"}
+          label={showForm ? "Close event form" : "Add event"}
           icon={showForm ? "close" : "add"}
           tone={showForm ? "soft" : "primary"}
-          onPress={() => setShowForm((value) => !value)}
-        />
-        <PrimaryButton
-          label="Calendar sync"
-          icon="calendar"
-          tone="soft"
-          onPress={() => setShowCalendarSync(true)}
+          onPress={toggleForm}
         />
       </View>
-      <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <View style={styles.utilityRow}>
+        <PrimaryButton
+          label={isHydrating ? "Refreshing..." : "Refresh"}
+          icon="sync"
+          tone="ghost"
+          loading={isHydrating}
+          disabled={isHydrating}
+          onPress={() => void refreshFromBackend()}
+        />
+        <PrimaryButton label="Google Calendar" icon="calendar" tone="soft" onPress={() => setShowCalendarSync(true)} />
+      </View>
+
+      <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
+      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+
+      {showForm ? (
+        <Animated.View style={{ opacity: formOpacity }}>
+          <Card>
+            <Text style={styles.formTitle}>Create event</Text>
+            <Text style={styles.formHint}>
+              Pick the day first, then a time if you need one. This saves to your shared household calendar for everyone in HomeThread.
+            </Text>
+            <TextInput
+              accessibilityLabel="Event title"
+              placeholder="Title"
+              placeholderTextColor={colors.muted}
+              value={title}
+              onChangeText={setTitle}
+              style={styles.input}
+            />
+            <TextInput
+              accessibilityLabel="Event location"
+              placeholder="Location (optional)"
+              placeholderTextColor={colors.muted}
+              value={location}
+              onChangeText={setLocation}
+              style={styles.input}
+            />
+            <DateField label="Day" value={startDate} onChange={setStartDate} />
+            <TimeField label="Start time (optional)" value={startTime} onChange={setStartTime} placeholder="Choose a time" />
+            <Text style={styles.pickerLabel}>Assign to</Text>
+            <View style={styles.pickerRow}>
+              {members.map((member) => {
+                const selected = memberIds.includes(member.id);
+                return (
+                  <Pressable
+                    key={member.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${selected ? "Remove" : "Add"} ${member.name} to event`}
+                    onPress={() => toggleMember(member.id)}
+                  >
+                    <Pill label={member.name} tone={selected ? "primary" : "neutral"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.formActions}>
+              <PrimaryButton
+                label={isSaving ? "Creating..." : "Create event"}
+                icon="checkmark"
+                loading={isSaving}
+                disabled={!canSubmit || isSaving}
+                onPress={() => {
+                  void handleCreateEvent();
+                }}
+              />
+            </View>
+          </Card>
+        </Animated.View>
+      ) : null}
 
       <Card>
         <View style={styles.snapshotRow}>
@@ -137,69 +289,6 @@ export function PlanScreen() {
         ) : null}
       </Card>
 
-      {showForm ? (
-        <Card>
-          <Text style={styles.formTitle}>Create event</Text>
-          <TextInput
-            accessibilityLabel="Event title"
-            placeholder="Title"
-            placeholderTextColor={colors.muted}
-            value={title}
-            onChangeText={setTitle}
-            style={styles.input}
-          />
-          <TextInput
-            accessibilityLabel="Event location"
-            placeholder="Location (optional)"
-            placeholderTextColor={colors.muted}
-            value={location}
-            onChangeText={setLocation}
-            style={styles.input}
-          />
-          <TextInput
-            accessibilityLabel="Event start time"
-            placeholder='Start time (optional, "18:00")'
-            placeholderTextColor={colors.muted}
-            value={startTime}
-            onChangeText={setStartTime}
-            style={styles.input}
-          />
-          <Text style={styles.pickerLabel}>Assign to</Text>
-          <View style={styles.pickerRow}>
-            {members.map((member) => {
-              const selected = memberIds.includes(member.id);
-              return (
-                <Pressable
-                  key={member.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${selected ? "Remove" : "Add"} ${member.name} to event`}
-                  onPress={() => toggleMember(member.id)}
-                >
-                  <Pill label={member.name} tone={selected ? "primary" : "neutral"} />
-                </Pressable>
-              );
-            })}
-          </View>
-          <View style={styles.formActions}>
-            <PrimaryButton
-              label={isSaving ? "Creating..." : "Create"}
-              icon="checkmark"
-              onPress={() => {
-                if (!canSubmit || isSaving) return;
-                void createEvent({ title, location, startTime, memberIds }).then((ok) => {
-                  if (!ok) return;
-                  setTitle("");
-                  setLocation("");
-                  setStartTime("");
-                  setMemberIds([]);
-                  setShowForm(false);
-                });
-              }}
-            />
-          </View>
-        </Card>
-      ) : null}
-
       <SectionTitle title="Household" />
       <View style={styles.peopleRow}>
         {members.map((member) => (
@@ -227,30 +316,53 @@ export function PlanScreen() {
             const importedSource = describeImportedEventSource(event);
             const eventColor =
               members.find((member) => member.id === event.assignedTo[0])?.color ?? colors.primary;
+            const isExpanded = expandedEventId === event.id;
+            const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${event.time}` : event.time;
 
             return (
-              <Card key={event.id}>
-                <Row align="flex-start">
-                  <View style={styles.rail}>
-                    <View style={[styles.dot, { backgroundColor: eventColor }]} />
-                    <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
-                  </View>
-                  <View style={styles.fill}>
-                    <Row>
-                      <Text style={styles.time}>{event.time}</Text>
-                      {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
-                      {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
-                      {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
-                      {!importedSource ? (
-                        <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
+              <Pressable
+                key={event.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${isExpanded ? "Hide" : "Show"} details for ${event.title}`}
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setExpandedEventId((current) => (current === event.id ? null : event.id));
+                }}
+              >
+                <Card>
+                  <Row align="flex-start">
+                    <View style={styles.rail}>
+                      <View style={[styles.dot, { backgroundColor: eventColor }]} />
+                      <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
+                    </View>
+                    <View style={styles.fill}>
+                      <Row>
+                        <Text style={styles.time}>{event.time}</Text>
+                        {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
+                        {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
+                        {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
+                        {!importedSource ? (
+                          <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
+                        ) : null}
+                        <Pill label={isExpanded ? "Tap to close" : "Tap for details"} tone="neutral" />
+                      </Row>
+                      <Text style={styles.eventTitle}>{event.title}</Text>
+                      <Text style={styles.schedule}>{scheduleLabel}</Text>
+                      {assigned ? <Text style={styles.meta}>{assigned}</Text> : null}
+                      {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
+                      {isExpanded ? (
+                        <View style={styles.expandedMeta}>
+                          <Text style={styles.expandedMetaText}>
+                            {assigned ? `Assigned to ${assigned}. ` : ""}
+                            {event.location ? `Location: ${event.location}. ` : ""}
+                            Source: {importedSource ?? event.source}.
+                          </Text>
+                        </View>
                       ) : null}
-                    </Row>
-                    <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.meta}>{assigned}</Text>
-                    {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
-                  </View>
-                </Row>
-              </Card>
+                    </View>
+                  </Row>
+                </Card>
+              </Pressable>
             );
           })
         ) : (
@@ -282,18 +394,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
-  liveUpdateNote: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: spacing.md
+  primaryActionWrap: {
+    marginTop: spacing.lg
   },
-  actionRow: {
+  utilityRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.md,
-    marginTop: spacing.lg
+    marginTop: spacing.sm
   },
   foundationTitle: {
     color: colors.ink,
@@ -364,29 +472,18 @@ const styles = StyleSheet.create({
     textAlign: "center",
     textTransform: "uppercase"
   },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginTop: spacing.md
-  },
-  syncNote: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  statusText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.sm
-  },
   formTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "700",
+    marginBottom: spacing.xs
+  },
+  formHint: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
     marginBottom: spacing.md
   },
   input: {
@@ -476,6 +573,11 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700"
   },
+  schedule: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "800"
+  },
   meta: {
     color: colors.muted,
     fontSize: 14,
@@ -485,6 +587,20 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 13,
     fontWeight: "700"
+  },
+  expandedMeta: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+    padding: spacing.sm
+  },
+  expandedMetaText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18
   },
   emptyTitle: {
     color: colors.ink,
@@ -500,3 +616,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   }
 });
+
+function formatDateInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}

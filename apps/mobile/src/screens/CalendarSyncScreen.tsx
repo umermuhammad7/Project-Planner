@@ -52,7 +52,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     if (syncSource !== "api" || !familyId) {
       setStatus(null);
       setConnections([]);
-      setNote("Calendar sync status needs API mode and a loaded family.");
+      setNote("Calendar status needs a signed-in household.");
       return;
     }
 
@@ -88,7 +88,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     const message =
       result.data?.message ??
       result.error?.message ??
-      "Google Calendar connect is unavailable.";
+      "Google Calendar is unavailable right now.";
 
     setNote(authUrl ? `${message} Finish in your browser, then return here and refresh status.` : message);
 
@@ -113,7 +113,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     setNote(
       result.data?.message ??
         result.error?.message ??
-        "iCal feed connect is unavailable right now."
+      "iCal feed import is unavailable right now."
     );
 
     if (result.data?.ok) {
@@ -124,7 +124,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
 
   async function syncNow(connectionId?: string) {
     if (!familyId || syncSource !== "api") {
-      setNote("Sync now needs API mode and a loaded family.");
+      setNote("Sync now needs a signed-in household.");
       return;
     }
 
@@ -142,7 +142,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     setIsSyncing(false);
 
     if (!result.data) {
-      setNote(result.error?.message ?? "Calendar sync failed.");
+      setNote(result.error?.message ?? "Calendar import failed.");
       return;
     }
 
@@ -161,10 +161,10 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
     <View>
       <PrimaryButton label="Back to plan" icon="arrow-back" tone="dark" onPress={onBack} />
 
-      <Text style={styles.title}>Calendar sync</Text>
+      <Text style={styles.title}>Google Calendar</Text>
       <Text style={styles.subtitle}>
-        Connect Google or save an iCal feed, then use Sync now to import future events manually. Background sync and
-        remote edit/delete reconciliation are not implemented yet.
+        Connect Google Calendar when you want to pull outside events into HomeThread. Plans you create in HomeThread
+        still stay inside your shared household even without a connected calendar.
       </Text>
 
       {isLoading ? <Text style={styles.note}>Loading calendar status...</Text> : null}
@@ -178,7 +178,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
           />
           <Text style={styles.statusMessage}>{status.message}</Text>
           <Text style={styles.helper}>
-            Google connect: {status.googleConnectImplemented ? "available" : "not configured"} - Manual iCal import:{" "}
+            Google import: {status.googleConnectImplemented ? "available" : "not configured"} - iCal feed import:{" "}
             {status.icalImportImplemented ? "available" : "not available"}
           </Text>
         </Card>
@@ -229,7 +229,8 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
         <Card>
           <Text style={styles.emptyTitle}>No calendars connected yet.</Text>
           <Text style={styles.emptyText}>
-            Connect Google Calendar or save an iCal feed when you want HomeThread to pull family events in manually.
+            Connect Google Calendar or save an iCal feed when you want HomeThread to pull outside events in. Household
+            plans you add in HomeThread still save here even without a connected calendar.
           </Text>
         </Card>
       )}
@@ -246,7 +247,7 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
           }}
         />
         <PrimaryButton
-          label="Try Google connect"
+          label="Connect Google Calendar"
           icon="link"
           tone="dark"
           onPress={() => {

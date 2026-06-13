@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useState } from "react";
 import { LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
+import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
@@ -20,15 +21,18 @@ export function ListsScreen() {
     refreshFromBackend,
     isHydrating,
     isSaving,
-    saveMessage,
     createShoppingItem,
     syncSource,
+    syncMessage,
     realtimeStatus,
     realtimeMessage
   } = useHomeThreadStore();
   const [newItem, setNewItem] = useState("");
   const [newListTitle, setNewListTitle] = useState("");
   const [newListType, setNewListType] = useState<"grocery" | "todo" | "packing" | "custom">("grocery");
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
   const canCreateList = useMemo(() => newListTitle.trim().length > 0, [newListTitle]);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
@@ -44,6 +48,106 @@ export function ListsScreen() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!successMessage && !infoMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setSuccessMessage(null);
+      setInfoMessage(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [successMessage, infoMessage]);
+
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => setErrorMessage(null), 5000);
+    return () => clearTimeout(timer);
+  }, [errorMessage]);
+
+  function clearFeedback() {
+    setSuccessMessage(null);
+    setInfoMessage(null);
+    setErrorMessage(null);
+  }
+
+  function applyOutcome(
+    outcome: { kind: string; message: string },
+    onSaved?: () => void
+  ) {
+    if (outcome.kind === "saved") {
+      onSaved?.();
+      setSuccessMessage(outcome.message);
+      setInfoMessage(null);
+      setErrorMessage(null);
+      return;
+    }
+
+    if (outcome.kind === "queued" || outcome.kind === "local") {
+      setInfoMessage(outcome.message);
+      setSuccessMessage(null);
+      setErrorMessage(null);
+      return;
+    }
+
+    setErrorMessage(outcome.message || "Something went wrong.");
+    setSuccessMessage(null);
+    setInfoMessage(null);
+  }
+
+  async function handleCreateList() {
+    if (!canCreateList || isSaving) {
+      return;
+    }
+
+    clearFeedback();
+    const outcome = await createList({ title: newListTitle, type: newListType });
+    applyOutcome(outcome, () => {
+      setNewListTitle("");
+      setNewListType("grocery");
+    });
+  }
+
+  async function handleAddItem() {
+    if (!canAdd || isSaving) {
+      return;
+    }
+
+    clearFeedback();
+    const savedTitle = newItem.trim();
+    const outcome = await createShoppingItem({ title: savedTitle });
+    applyOutcome(outcome, () => setNewItem(""));
+  }
+
+  async function handleClearChecked() {
+    if (isSaving || checkedCount === 0) {
+      return;
+    }
+
+    clearFeedback();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const outcome = await clearCheckedShoppingItems();
+    if (!outcome) {
+      return;
+    }
+
+    applyOutcome(outcome);
+  }
+
+  async function handleToggleItem(itemId: string) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const outcome = await toggleShoppingItem(itemId);
+    if (outcome?.kind === "failed") {
+      setErrorMessage(outcome.message);
+      setSuccessMessage(null);
+      setInfoMessage(null);
+    }
+  }
+
   return (
     <View>
       <Text style={styles.title}>Shared lists</Text>
@@ -51,6 +155,7 @@ export function ListsScreen() {
 
       <SyncStatusRow
         syncSource={syncSource}
+        syncMessage={syncMessage}
         isHydrating={isHydrating}
         realtimeStatus={realtimeStatus}
         realtimeMessage={realtimeMessage}
@@ -58,21 +163,31 @@ export function ListsScreen() {
       />
 
       <View style={styles.actionRow}>
-        <PrimaryButton label={isHydrating ? "Refreshing..." : "Refresh"} icon="sync" tone="ghost" onPress={() => void refreshFromBackend()} />
+        <PrimaryButton
+          label={isHydrating ? "Refreshing..." : "Refresh"}
+          icon="sync"
+          tone="ghost"
+          loading={isHydrating}
+          disabled={isHydrating}
+          onPress={() => void refreshFromBackend()}
+        />
         {checkedCount > 0 ? (
           <PrimaryButton
             label={isSaving ? "Clearing..." : `Clear checked (${checkedCount})`}
             icon="trash"
             tone="soft"
+            loading={isSaving}
+            disabled={isSaving}
             onPress={() => {
-              if (isSaving) return;
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              void clearCheckedShoppingItems();
+              void handleClearChecked();
             }}
           />
         ) : null}
       </View>
-      <Text style={styles.statusText}>{isSaving ? "Saving..." : saveMessage}</Text>
+
+      <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
+      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
       <Card>
         <Text style={styles.formTitle}>Create list</Text>
@@ -85,13 +200,7 @@ export function ListsScreen() {
           style={styles.input}
           returnKeyType="done"
           onSubmitEditing={() => {
-            if (!canCreateList || isSaving) return;
-            void createList({ title: newListTitle, type: newListType }).then((ok) => {
-              if (ok) {
-                setNewListTitle("");
-                setNewListType("grocery");
-              }
-            });
+            void handleCreateList();
           }}
         />
         <Text style={styles.pickerLabel}>Type</Text>
@@ -114,14 +223,10 @@ export function ListsScreen() {
           <PrimaryButton
             label={isSaving ? "Creating..." : "Create list"}
             icon="add-circle"
+            loading={isSaving}
+            disabled={!canCreateList || isSaving}
             onPress={() => {
-              if (!canCreateList || isSaving) return;
-              void createList({ title: newListTitle, type: newListType }).then((ok) => {
-                if (ok) {
-                  setNewListTitle("");
-                  setNewListType("grocery");
-                }
-              });
+              void handleCreateList();
             }}
           />
         </View>
@@ -171,21 +276,17 @@ export function ListsScreen() {
             style={styles.input}
             returnKeyType="done"
             onSubmitEditing={() => {
-              if (!canAdd || isSaving) return;
-              void createShoppingItem({ title: newItem }).then((ok) => {
-                if (ok) setNewItem("");
-              });
+              void handleAddItem();
             }}
           />
           <View style={styles.formActions}>
             <PrimaryButton
               label={isSaving ? "Adding..." : "Add"}
               icon="add"
+              loading={isSaving}
+              disabled={!canAdd || isSaving}
               onPress={() => {
-                if (!canAdd || isSaving) return;
-                void createShoppingItem({ title: newItem }).then((ok) => {
-                  if (ok) setNewItem("");
-                });
+                void handleAddItem();
               }}
             />
           </View>
@@ -212,8 +313,7 @@ export function ListsScreen() {
                   accessibilityState={{ checked: item.checked }}
                   accessibilityLabel={`${item.checked ? "Uncheck" : "Check"} ${item.title}`}
                   onPress={() => {
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    toggleShoppingItem(item.id);
+                    void handleToggleItem(item.id);
                   }}
                 >
                   <Card>
@@ -262,35 +362,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
-  realtimeNote: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: spacing.md
-  },
   actionRow: {
     flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.lg
-  },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginTop: spacing.md
-  },
-  syncNote: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  statusText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.sm
   },
   formTitle: {
     color: colors.ink,

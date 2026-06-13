@@ -4,38 +4,32 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radii, spacing } from "../constants/theme";
 
 export function OfflineBanner({
-  visible,
   pendingCount = 0,
   failedCount = 0,
   replayMessage,
   isReplaying = false,
   onRetryReplay
 }: {
-  visible: boolean;
   pendingCount?: number;
   failedCount?: number;
   replayMessage?: string | null;
   isReplaying?: boolean;
   onRetryReplay?: () => void;
 }) {
-  if (!visible && pendingCount === 0 && failedCount === 0 && !replayMessage) {
+  const waitingCount = pendingCount + failedCount;
+
+  if (waitingCount === 0 && !replayMessage && !isReplaying) {
     return null;
   }
 
-  const waitingCount = pendingCount + failedCount;
-
   return (
     <View style={styles.banner}>
-      <Ionicons name={visible ? "cloud-offline" : "time"} size={18} color={colors.ink} />
+      <Ionicons name="time" size={18} color={colors.ink} />
       <View style={styles.copy}>
         <Text style={styles.text}>
-          {visible
-            ? waitingCount > 0
-              ? `You're offline - ${waitingCount} change${waitingCount === 1 ? "" : "s"} will sync when you're back online.`
-              : "You're offline. New changes will save on this device and sync when you're back online."
-            : waitingCount > 0
-              ? `${waitingCount} change${waitingCount === 1 ? "" : "s"} waiting to sync when you're back online.`
-              : "Queued changes will sync on the next successful refresh."}
+          {waitingCount > 0
+            ? `${waitingCount} change${waitingCount === 1 ? "" : "s"} waiting to sync when the server is reachable again.`
+            : "Queued changes will sync on the next successful refresh."}
         </Text>
         {failedCount > 0 ? (
           <Text style={styles.meta}>{failedCount} queued change{failedCount === 1 ? "" : "s"} failed last replay.</Text>
