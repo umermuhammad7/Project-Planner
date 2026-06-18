@@ -9,7 +9,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://homethread-backend-production-3248.up.railway.app/api/v1",
+        "EXPO_PUBLIC_API_URL": "https://homethread-backend-production.up.railway.app/api/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://vssrqzhjyugtdmraaqcc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_YS-ZCNqWyU-B4FEi3afZyg_wPXSH2rJ",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
@@ -18,7 +18,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://homethread-backend-production-3248.up.railway.app/api/v1",
+        "EXPO_PUBLIC_API_URL": "https://homethread-backend-production.up.railway.app/api/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://vssrqzhjyugtdmraaqcc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_YS-ZCNqWyU-B4FEi3afZyg_wPXSH2rJ",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
@@ -27,7 +27,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://homethread-backend-production-3248.up.railway.app/api/v1",
+        "EXPO_PUBLIC_API_URL": "https://homethread-backend-production.up.railway.app/api/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://vssrqzhjyugtdmraaqcc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_YS-ZCNqWyU-B4FEi3afZyg_wPXSH2rJ",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
