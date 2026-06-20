@@ -46,6 +46,9 @@
       ],
       "./plugins/withDateTimePicker"
     ],
+    "experiments": {
+      "autolinkingModuleResolution": true
+    },
     "extra": {
       "eas": {
         "projectId": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"

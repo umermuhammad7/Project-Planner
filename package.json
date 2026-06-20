@@ -1,6 +1,14 @@
 {
   "name": "homethread",
   "private": true,
+  "expo": {
+    "autolinking": {
+      "searchPaths": [
+        "./node_modules",
+        "./apps/mobile/node_modules"
+      ]
+    }
+  },
   "workspaces": [
     "apps/mobile",
     "apps/backend",
