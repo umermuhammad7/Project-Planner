@@ -78,10 +78,12 @@ export async function pickAndUploadAvatar(userId: string) {
     };
   }
 
-  const { data } = supabaseClient.storage.from(avatarBucket).getPublicUrl(path);
+  const publicUrl = supabaseClient.storage.from(avatarBucket).getPublicUrl(path).data.publicUrl;
+  const signedUrlResult = await supabaseClient.storage.from(avatarBucket).createSignedUrl(path, 60 * 60 * 24 * 365);
+  const resolvedUrl = signedUrlResult.data?.signedUrl ?? publicUrl;
 
   return {
     ok: true as const,
-    avatarUrl: data.publicUrl
+    avatarUrl: resolvedUrl
   };
 }

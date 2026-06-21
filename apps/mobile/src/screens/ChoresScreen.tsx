@@ -13,7 +13,7 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 export function ChoresScreen() {
   const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
-  const { scrollToOffset } = useScrollAssist();
+  const { scrollToOffset, scrollToTop } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [dueTime, setDueTime] = useState("");
@@ -23,7 +23,6 @@ export function ChoresScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [completionTone, setCompletionTone] = useState<"success" | "error" | "info">("success");
-  const canSubmit = useMemo(() => title.trim().length > 0, [title]);
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
   const completedChores = useMemo(() => chores.filter((chore) => chore.completed), [chores]);
 
@@ -58,7 +57,12 @@ export function ChoresScreen() {
   }
 
   async function handleCreateChore() {
-    if (!canSubmit || isSaving) {
+    if (isSaving) {
+      return;
+    }
+
+    if (!title.trim()) {
+      setErrorMessage("Chore title is required.");
       return;
     }
 
@@ -74,6 +78,7 @@ export function ChoresScreen() {
       setAssignedTo(null);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setShowForm(false);
+      scrollToTop();
       setSuccessMessage(`"${savedTitle}" was added to today's chores.`);
       return;
     }
@@ -153,7 +158,8 @@ export function ChoresScreen() {
             onChangeText={setTitle}
             style={styles.input}
           />
-          <TimeField label="Due time (optional)" value={dueTime} onChange={setDueTime} placeholder="Tap to choose a time" />
+          <TimeField label="Due time for today (optional)" value={dueTime} onChange={setDueTime} placeholder="Tap to choose a time" />
+          <Text style={styles.helperNote}>Pick a time if this chore should pop up later today.</Text>
           <Text style={styles.pickerLabel}>Assign to</Text>
           <View style={styles.pickerRow}>
             <Pressable
@@ -182,7 +188,7 @@ export function ChoresScreen() {
               label={isSaving ? "Creating..." : "Create chore"}
               icon="checkmark"
               loading={isSaving}
-              disabled={!canSubmit || isSaving}
+              disabled={isSaving}
               onPress={() => {
                 void handleCreateChore();
               }}
@@ -197,28 +203,31 @@ export function ChoresScreen() {
           openChores.map((chore) => {
             const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
             return (
-              <Pressable
-                key={chore.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Complete ${chore.title}`}
-                onPress={() => {
-                  void handleCompleteChore(chore.id);
-                }}
-              >
-                <Card>
-                  <Row>
-                    <View style={styles.check}>
-                      <Ionicons name="ellipse-outline" size={20} color={colors.muted} />
-                    </View>
-                    <View style={styles.fill}>
-                      <Text style={styles.choreTitle}>{chore.title}</Text>
-                      <Text style={styles.meta}>{chore.dueLabel}</Text>
-                    </View>
-                    <MemberAvatar member={member} size={34} />
-                    <Pill label={`${chore.stars} stars`} tone="gold" icon="star" />
-                  </Row>
-                </Card>
-              </Pressable>
+              <Card key={chore.id}>
+                <Row>
+                  <View style={styles.check}>
+                    <Ionicons name="ellipse-outline" size={20} color={colors.muted} />
+                  </View>
+                  <View style={styles.fill}>
+                    <Text style={styles.choreTitle}>{chore.title}</Text>
+                    <Text style={styles.meta}>{chore.dueLabel}</Text>
+                  </View>
+                  <MemberAvatar member={member} size={34} />
+                  <Pill label={`${chore.stars} stars`} tone="gold" icon="star" />
+                </Row>
+                <View style={styles.choreActions}>
+                  <PrimaryButton
+                    label={isSaving ? "Saving..." : "Mark done"}
+                    icon="checkmark-circle"
+                    tone="soft"
+                    loading={isSaving}
+                    disabled={isSaving}
+                    onPress={() => {
+                      void handleCompleteChore(chore.id);
+                    }}
+                  />
+                </View>
+              </Card>
             );
           })
         ) : (
@@ -327,6 +336,13 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.sm
   },
+  helperNote: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.sm
+  },
   formActions: {
     marginTop: spacing.lg
   },
@@ -347,6 +363,9 @@ const styles = StyleSheet.create({
   },
   fill: {
     flex: 1
+  },
+  choreActions: {
+    marginTop: spacing.md
   },
   check: {
     alignItems: "center",

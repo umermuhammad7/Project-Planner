@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
+import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
@@ -21,6 +22,18 @@ function buildInitials(displayName: string | null, email: string | null) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function feedbackTone(message: string): "success" | "error" | "info" {
+  if (/(fail|error|required|could not|unable|not available|not ready|need|allow)/i.test(message)) {
+    return "error";
+  }
+
+  if (/(working|uploading|sending|refresh|register)/i.test(message)) {
+    return "info";
+  }
+
+  return "success";
 }
 
 export function SettingsScreen({
@@ -57,6 +70,9 @@ export function SettingsScreen({
   const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [cloudAiReady, setCloudAiReady] = useState<boolean | null>(null);
@@ -92,14 +108,19 @@ export function SettingsScreen({
 
   async function handleSaveProfile() {
     setFormMessage(null);
-    const result = await updateProfile({ displayName: editedDisplayName });
-    if (!result.ok) {
-      setFormMessage(result.message ?? "Could not update your profile.");
-      return;
-    }
+    setIsSavingProfile(true);
+    try {
+      const result = await updateProfile({ displayName: editedDisplayName });
+      if (!result.ok) {
+        setFormMessage(result.message ?? "Could not update your profile.");
+        return;
+      }
 
-    setEditedDisplayName(useAuthStore.getState().displayName ?? editedDisplayName.trim());
-    setFormMessage("Profile saved.");
+      setEditedDisplayName(useAuthStore.getState().displayName ?? editedDisplayName.trim());
+      setFormMessage("Profile saved.");
+    } finally {
+      setIsSavingProfile(false);
+    }
   }
 
   async function handleUploadPhoto() {
@@ -138,8 +159,13 @@ export function SettingsScreen({
 
   async function handlePasswordReset() {
     setFormMessage(null);
-    const result = await requestPasswordReset();
-    setFormMessage(result.message ?? null);
+    setIsSendingReset(true);
+    try {
+      const result = await requestPasswordReset();
+      setFormMessage(result.message ?? null);
+    } finally {
+      setIsSendingReset(false);
+    }
   }
 
   async function handleChangePassword() {
@@ -154,12 +180,17 @@ export function SettingsScreen({
       return;
     }
 
-    const result = await updatePassword(newPassword);
-    setFormMessage(result.message ?? null);
+    setIsUpdatingPassword(true);
+    try {
+      const result = await updatePassword(newPassword);
+      setFormMessage(result.message ?? null);
 
-    if (result.ok) {
-      setNewPassword("");
-      setConfirmPassword("");
+      if (result.ok) {
+        setNewPassword("");
+        setConfirmPassword("");
+      }
+    } finally {
+      setIsUpdatingPassword(false);
     }
   }
 
@@ -235,6 +266,8 @@ export function SettingsScreen({
         </Pressable>
       </View>
 
+      <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
+
       <Card>
         <View style={styles.profileSummary}>
           {avatarUrl ? (
@@ -274,11 +307,12 @@ export function SettingsScreen({
         </View>
         <View style={styles.cardActions}>
           <PrimaryButton
-            label={isSaving ? "Working..." : "Save profile"}
+            label={isSavingProfile ? "Saving..." : "Save profile"}
             icon="person-circle"
-            disabled={isSaving || !backendConnected}
+            loading={isSavingProfile}
+            disabled={isSaving || isSavingProfile || !backendConnected}
             onPress={() => {
-              if (isSaving) return;
+              if (isSaving || isSavingProfile) return;
               if (!backendConnected) {
                 setFormMessage("Profile changes need a connected household. Refresh and try again.");
                 return;
@@ -295,7 +329,12 @@ export function SettingsScreen({
         {authMode === "dev_token" ? (
           <Text style={styles.cardText}>This device is using a developer session, so password controls are unavailable here.</Text>
         ) : authProvider === "google" ? (
-          <Text style={styles.cardText}>You signed in with Google, so password changes stay with your Google account.</Text>
+          <>
+            <View style={styles.providerRow}>
+              <Pill label="Google sign-in" tone="primary" icon="logo-google" />
+            </View>
+            <Text style={styles.cardText}>You signed in with Google, so password changes stay with your Google account instead of happening inside HomeThread.</Text>
+          </>
         ) : (
           <>
             <Text style={styles.cardText}>Change your password while signed in, or send a reset email.</Text>
@@ -319,27 +358,31 @@ export function SettingsScreen({
             />
             <View style={styles.cardActions}>
               <PrimaryButton
-                label="Update password"
+                label={isUpdatingPassword ? "Updating..." : "Update password"}
                 icon="lock-closed"
-                disabled={!backendConnected}
+                loading={isUpdatingPassword}
+                disabled={!backendConnected || isUpdatingPassword || isSendingReset}
                 onPress={() => {
                   if (!backendConnected) {
                     setFormMessage("Password changes need a connected session. Refresh and try again.");
                     return;
                   }
+                  if (isUpdatingPassword || isSendingReset) return;
                   void handleChangePassword();
                 }}
               />
               <PrimaryButton
-                label="Send reset email"
+                label={isSendingReset ? "Sending..." : "Send reset email"}
                 icon="mail"
                 tone="ghost"
-                disabled={!backendConnected}
+                loading={isSendingReset}
+                disabled={!backendConnected || isUpdatingPassword || isSendingReset}
                 onPress={() => {
                   if (!backendConnected) {
                     setFormMessage("Password reset needs a connected session. Refresh and try again.");
                     return;
                   }
+                  if (isUpdatingPassword || isSendingReset) return;
                   void handlePasswordReset();
                 }}
               />
@@ -401,8 +444,6 @@ export function SettingsScreen({
           <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
         </View>
       </Card>
-
-      {formMessage ? <Text style={styles.formMessage}>{formMessage}</Text> : null}
 
       <SectionTitle title="Build diagnostics" />
       <Card>
@@ -539,9 +580,14 @@ const styles = StyleSheet.create({
     lineHeight: 22
   },
   closeButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
     justifyContent: "center",
     minHeight: 44,
-    paddingHorizontal: spacing.sm
+    paddingHorizontal: spacing.md
   },
   closeLabel: {
     color: colors.primary,
@@ -643,6 +689,9 @@ const styles = StyleSheet.create({
   },
   summaryActions: {
     marginTop: spacing.md
+  },
+  providerRow: {
+    marginBottom: spacing.sm
   },
   preferenceStack: {
     gap: spacing.md,

@@ -5,6 +5,7 @@ import { runAssistantAssist } from "../lib/assistant.js";
 import { runMealSuggest } from "../lib/mealSuggest.js";
 import { runRecipeImport } from "../lib/recipeImport.js";
 import { requireAuth } from "../plugins/auth.js";
+import { requirePlus } from "../plugins/requirePlus.js";
 
 export async function aiRoutes(app: FastifyInstance) {
   const aiRateLimit = {
@@ -13,6 +14,7 @@ export async function aiRoutes(app: FastifyInstance) {
   } as const;
 
   app.addHook("preHandler", requireAuth);
+  app.addHook("preHandler", requirePlus);
 
   app.get("/status", { config: { rateLimit: aiRateLimit } }, async () => {
     const status = getAssistantProviderStatus();

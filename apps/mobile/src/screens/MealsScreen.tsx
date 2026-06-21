@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
+import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { MealType, RecipeImportDraft, RecipeImportResponse, RecipeIngredient, SaveOutcome } from "../types";
@@ -113,6 +114,7 @@ export function MealsScreen() {
     syncMessage,
     isHydrating
   } = useHomeThreadStore();
+  const { scrollToTop } = useScrollAssist();
 
   const [title, setTitle] = useState("");
   const [recipeTitle, setRecipeTitle] = useState("");
@@ -135,11 +137,6 @@ export function MealsScreen() {
   const plannedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === plannedRecipeId) ?? null,
     [plannedRecipeId, recipes]
-  );
-  const canSave = useMemo(() => Boolean(plannedRecipeId) || title.trim().length > 0, [plannedRecipeId, title]);
-  const canSaveRecipe = useMemo(
-    () => recipeTitle.trim().length > 0 && parseIngredientNames(recipeIngredients).length > 0,
-    [recipeIngredients, recipeTitle]
   );
   const importTimingPreview = useMemo(
     () => (importPreview ? formatRecipeTiming(importPreview) : null),
@@ -168,10 +165,14 @@ export function MealsScreen() {
     setErrorMessage(null);
     const tone = feedbackToneForOutcome(outcome.kind);
     if (tone === "success") {
+      Keyboard.dismiss();
+      scrollToTop();
       setSuccessMessage(outcome.message);
     } else if (tone === "info") {
+      scrollToTop();
       setInfoMessage(outcome.message);
     } else {
+      scrollToTop();
       setErrorMessage(outcome.message);
     }
 
@@ -345,7 +346,7 @@ export function MealsScreen() {
           {meals.length > 0 ? (
             <View style={styles.weekGroceryRow}>
               <PrimaryButton
-                label={isSaving ? "Working..." : "Week to grocery"}
+                label={isSaving ? "Working..." : "Add week to grocery"}
                 icon="basket"
                 tone="soft"
                 loading={isSaving}
@@ -399,7 +400,7 @@ export function MealsScreen() {
                 style={styles.input}
                 returnKeyType="done"
                 onSubmitEditing={() => {
-                  if (!canSave || isSaving) return;
+                  if (isSaving) return;
                   void savePlannedMeal();
                 }}
               />
@@ -431,9 +432,9 @@ export function MealsScreen() {
                 label={isSaving ? "Saving..." : "Save meal"}
                 icon="restaurant"
                 loading={isSaving}
-                disabled={!canSave || isSaving}
+                disabled={isSaving}
                 onPress={() => {
-                  if (!canSave || isSaving) return;
+                  if (isSaving) return;
                   void savePlannedMeal();
                 }}
               />
@@ -478,7 +479,7 @@ export function MealsScreen() {
                       </Row>
                       <View style={styles.mealActions}>
                         <PrimaryButton
-                          label="To grocery"
+                          label="Add to grocery"
                           icon="basket"
                           tone="soft"
                           loading={isSaving}
@@ -654,9 +655,9 @@ export function MealsScreen() {
                   label={isSaving ? "Saving..." : "Save recipe"}
                   icon="restaurant-outline"
                   loading={isSaving}
-                  disabled={!canSaveRecipe || isSaving}
+                  disabled={isSaving}
                   onPress={() => {
-                    if (!canSaveRecipe || isSaving) return;
+                    if (isSaving) return;
                     void createRecipe({
                       title: recipeTitle,
                       ingredientNames: parseIngredientNames(recipeIngredients)
@@ -685,7 +686,7 @@ export function MealsScreen() {
                       <Text style={styles.itemMeta}>{formatRecipeIngredientPreview(recipe.ingredients)}</Text>
                     </View>
                     <PrimaryButton
-                      label="To grocery"
+                      label="Add to grocery"
                       icon="basket"
                       tone="soft"
                       loading={isSaving}

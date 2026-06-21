@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
+import { Alert, Animated, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { DateField } from "../components/DateField";
@@ -15,15 +15,16 @@ import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } 
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 
 export function PlanScreen() {
-  const { events, members, createEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
+  const { events, members, createEvent, updateEvent, deleteEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
-  const { scrollToOffset } = useScrollAssist();
+  const { scrollToOffset, scrollToTop } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [startDate, setStartDate] = useState(formatDateInput(new Date()));
   const [startTime, setStartTime] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [showCalendarSync, setShowCalendarSync] = useState(false);
   const [travelStatus, setTravelStatus] = useState<TravelReminderStatus | null>(null);
   const [travelMessage, setTravelMessage] = useState<string>("Travel reminders need an upcoming event with map coordinates.");
@@ -83,11 +84,39 @@ export function PlanScreen() {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
 
+  function resetForm() {
+    setTitle("");
+    setLocation("");
+    setStartDate(formatDateInput(new Date()));
+    setStartTime("");
+    setMemberIds([]);
+    setEditingEventId(null);
+  }
+
+  function populateForm(event: (typeof sortedEvents)[number]) {
+    setTitle(event.title);
+    setLocation(event.location ?? "");
+    const sourceDate = event.startAt ? new Date(event.startAt) : new Date();
+    setStartDate(formatDateInput(sourceDate));
+    setStartTime(formatTimeInput(sourceDate));
+    setMemberIds(event.assignedTo);
+    setEditingEventId(event.id);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setInfoMessage(null);
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowForm(true);
+    setTimeout(() => scrollToOffset(120), 80);
+  }
+
   function toggleForm() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const next = !showForm;
     setShowForm(next);
     setErrorMessage(null);
+    if (!next) {
+      resetForm();
+    }
 
     if (next) {
       setTimeout(() => scrollToOffset(120), 80);
@@ -95,7 +124,7 @@ export function PlanScreen() {
   }
 
   async function handleCreateEvent() {
-    if (!canSubmit || isSaving) {
+    if (isSaving) {
       return;
     }
 
@@ -103,17 +132,23 @@ export function PlanScreen() {
     setSuccessMessage(null);
     setInfoMessage(null);
 
-    const outcome = await createEvent({ title, location, startDate, startTime, memberIds });
+    if (!title.trim()) {
+      setErrorMessage("Event title is required.");
+      return;
+    }
+
+    const outcome = editingEventId
+      ? await updateEvent({ eventId: editingEventId, title, location, startDate, startTime, memberIds })
+      : await createEvent({ title, location, startDate, startTime, memberIds });
     if (outcome.kind === "saved") {
       const savedTitle = title.trim();
-      setTitle("");
-      setLocation("");
-      setStartDate(formatDateInput(new Date()));
-      setStartTime("");
-      setMemberIds([]);
+      resetForm();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setShowForm(false);
-      setSuccessMessage(`"${savedTitle}" is now on the family plan.`);
+      scrollToTop();
+      setSuccessMessage(
+        editingEventId ? `"${savedTitle}" was updated.` : `"${savedTitle}" is now on the family plan.`
+      );
       return;
     }
 
@@ -123,6 +158,37 @@ export function PlanScreen() {
     }
 
     setErrorMessage(outcome.message || "Could not create that event.");
+  }
+
+  async function handleDeleteEvent(eventId: string, titleText: string) {
+    if (isSaving) {
+      return;
+    }
+
+    Alert.alert("Delete event?", `Remove "${titleText}" from the household plan?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void deleteEvent(eventId).then((outcome) => {
+            if (!outcome.ok) {
+              setErrorMessage(outcome.message);
+              return;
+            }
+
+            setExpandedEventId((current) => (current === eventId ? null : current));
+            if (editingEventId === eventId) {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setShowForm(false);
+              resetForm();
+            }
+            scrollToTop();
+            setSuccessMessage(`"${titleText}" was removed.`);
+          });
+        }
+      }
+    ]);
   }
 
   useEffect(() => {
@@ -204,7 +270,7 @@ export function PlanScreen() {
       {showForm ? (
         <Animated.View style={{ opacity: formOpacity }}>
           <Card>
-            <Text style={styles.formTitle}>Create event</Text>
+            <Text style={styles.formTitle}>{editingEventId ? "Edit event" : "Create event"}</Text>
             <Text style={styles.formHint}>
               Pick the day first, then a time if you need one. This saves to your shared household calendar for everyone in HomeThread.
             </Text>
@@ -244,14 +310,28 @@ export function PlanScreen() {
             </View>
             <View style={styles.formActions}>
               <PrimaryButton
-                label={isSaving ? "Creating..." : "Create event"}
+                label={isSaving ? (editingEventId ? "Saving..." : "Creating...") : editingEventId ? "Save changes" : "Create event"}
                 icon="checkmark"
                 loading={isSaving}
-                disabled={!canSubmit || isSaving}
+                disabled={isSaving}
                 onPress={() => {
                   void handleCreateEvent();
                 }}
               />
+              {editingEventId ? (
+                <PrimaryButton
+                  label="Cancel edit"
+                  icon="close"
+                  tone="ghost"
+                  disabled={isSaving}
+                  onPress={() => {
+                    if (isSaving) return;
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setShowForm(false);
+                    resetForm();
+                  }}
+                />
+              ) : null}
             </View>
           </Card>
         </Animated.View>
@@ -304,7 +384,7 @@ export function PlanScreen() {
         ))}
       </View>
 
-      <SectionTitle title="Plans ahead" action="Today" />
+      <SectionTitle title="Plans ahead" action={`${upcomingCount} upcoming`} />
       <View style={styles.stack}>
         {sortedEvents.length > 0 ? (
           sortedEvents.map((event) => {
@@ -320,49 +400,65 @@ export function PlanScreen() {
             const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${event.time}` : event.time;
 
             return (
-              <Pressable
-                key={event.id}
-                accessibilityRole="button"
-                accessibilityLabel={`${isExpanded ? "Hide" : "Show"} details for ${event.title}`}
-                onPress={() => {
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                  setExpandedEventId((current) => (current === event.id ? null : event.id));
-                }}
-              >
-                <Card>
-                  <Row align="flex-start">
-                    <View style={styles.rail}>
-                      <View style={[styles.dot, { backgroundColor: eventColor }]} />
-                      <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
-                    </View>
-                    <View style={styles.fill}>
-                      <Row>
-                        <Text style={styles.time}>{event.time}</Text>
-                        {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
-                        {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
-                        {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
-                        {!importedSource ? (
-                          <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
-                        ) : null}
-                        <Pill label={isExpanded ? "Tap to close" : "Tap for details"} tone="neutral" />
-                      </Row>
-                      <Text style={styles.eventTitle}>{event.title}</Text>
-                      <Text style={styles.schedule}>{scheduleLabel}</Text>
-                      {assigned ? <Text style={styles.meta}>{assigned}</Text> : null}
-                      {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
-                      {isExpanded ? (
-                        <View style={styles.expandedMeta}>
-                          <Text style={styles.expandedMetaText}>
-                            {assigned ? `Assigned to ${assigned}. ` : ""}
-                            {event.location ? `Location: ${event.location}. ` : ""}
-                            Source: {importedSource ?? event.source}.
-                          </Text>
-                        </View>
+              <Card key={event.id}>
+                <Row align="flex-start">
+                  <View style={styles.rail}>
+                    <View style={[styles.dot, { backgroundColor: eventColor }]} />
+                    <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
+                  </View>
+                  <View style={styles.fill}>
+                    <Row>
+                      <Text style={styles.time}>{event.time}</Text>
+                      {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
+                      {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
+                      {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
+                      {!importedSource ? (
+                        <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
                       ) : null}
+                    </Row>
+                    <Text style={styles.eventTitle}>{event.title}</Text>
+                    <Text style={styles.schedule}>{scheduleLabel}</Text>
+                    {assigned ? <Text style={styles.meta}>{assigned}</Text> : null}
+                    {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
+                    <View style={styles.eventActionRow}>
+                      <PrimaryButton
+                        label={isExpanded ? "Hide details" : "Details"}
+                        icon={isExpanded ? "chevron-up" : "chevron-down"}
+                        tone="ghost"
+                        onPress={() => {
+                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                          setExpandedEventId((current) => (current === event.id ? null : event.id));
+                        }}
+                      />
+                      <PrimaryButton
+                        label="Edit"
+                        icon="create"
+                        tone="soft"
+                        disabled={isSaving}
+                        onPress={() => populateForm(event)}
+                      />
+                      <PrimaryButton
+                        label="Delete"
+                        icon="trash"
+                        tone="ghost"
+                        disabled={isSaving}
+                        onPress={() => {
+                          void handleDeleteEvent(event.id, event.title);
+                        }}
+                      />
                     </View>
-                  </Row>
-                </Card>
-              </Pressable>
+                    {isExpanded ? (
+                      <View style={styles.expandedMeta}>
+                        <Text style={styles.expandedMetaText}>
+                          {assigned ? `Assigned to ${assigned}. ` : ""}
+                          {event.location ? `Location: ${event.location}. ` : ""}
+                          Source: {importedSource ?? event.source}.
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </Row>
+              </Card>
             );
           })
         ) : (
@@ -497,6 +593,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm
   },
   formActions: {
+    gap: spacing.md,
     marginTop: spacing.lg
   },
   pickerLabel: {
@@ -588,6 +685,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700"
   },
+  eventActionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.xs
+  },
   expandedMeta: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.lineStrong,
@@ -622,4 +725,10 @@ function formatDateInput(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatTimeInput(value: Date) {
+  const hours = String(value.getHours()).padStart(2, "0");
+  const minutes = String(value.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
 }

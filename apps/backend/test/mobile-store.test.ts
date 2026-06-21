@@ -224,7 +224,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.members.find((member) => member.id === "member-kid")?.starBalance).toBe(11);
     expect(state.meals[0]?.title).toBe("Taco Tuesday prep");
     expect(state.chores[0]?.completed).toBe(true);
-    expect(state.chores[0]?.dueLabel).toBe("Due 6:00 PM");
+    expect(state.chores[0]?.dueLabel).toBe("Today at 6:00 PM");
     expect(state.syncMessage).toContain("2 lists");
     expect(state.syncMessage).toContain("2 lists");
   });

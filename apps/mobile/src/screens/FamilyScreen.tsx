@@ -334,16 +334,16 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         </View>
         <View style={styles.summaryGrid}>
           <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue}>{members.length}</Text>
-            <Text style={styles.summaryLabel}>members</Text>
+            <Text style={styles.summaryValue}>{adultMembers.length}</Text>
+            <Text style={styles.summaryLabel}>adults</Text>
           </View>
           <View style={styles.summaryStat}>
             <Text style={styles.summaryValue}>{childProfiles.length}</Text>
-            <Text style={styles.summaryLabel}>child profiles</Text>
+            <Text style={styles.summaryLabel}>kids</Text>
           </View>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue}>{inviteCode ? "Ready" : "None"}</Text>
-            <Text style={styles.summaryLabel}>invite code</Text>
+          <View style={[styles.summaryStat, styles.summaryStatWide]}>
+            <Text style={styles.summaryValue}>{inviteCode ? "Ready" : "Missing"}</Text>
+            <Text style={styles.summaryLabel}>invite</Text>
           </View>
         </View>
       </Card>
@@ -353,6 +353,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         <Text style={styles.cardTitle}>Invite a second parent</Text>
         <Text style={styles.cardText}>Share this code so the other adult can join the same household.</Text>
         <Text style={styles.inviteCode}>{inviteCode ?? "Unavailable"}</Text>
+        <Text style={styles.helperText}>On the other phone: sign in first, then choose Join with code during household setup.</Text>
         {isFamilyAdmin ? (
           <View style={styles.cardActions}>
             <PrimaryButton
@@ -438,6 +439,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         <Card>
           <Text style={styles.cardTitle}>Kids mode profiles</Text>
           <Text style={styles.cardText}>Create child profiles for chores, stars, and the kid-friendly view.</Text>
+          <Text style={styles.helperText}>Child profiles stay inside Kids mode on a signed-in household device in this build.</Text>
           <View style={styles.cardActions}>
             <PrimaryButton
               label={showAddChildForm ? "Hide child form" : "Add child profile"}
@@ -756,9 +758,14 @@ const styles = StyleSheet.create({
     lineHeight: 22
   },
   closeButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
     minHeight: 44,
     justifyContent: "center",
-    paddingHorizontal: spacing.sm
+    paddingHorizontal: spacing.md
   },
   closeLabel: {
     color: colors.primary,
@@ -772,6 +779,7 @@ const styles = StyleSheet.create({
   },
   summaryGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
     marginTop: spacing.lg
   },
@@ -780,8 +788,12 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.md,
     borderWidth: 1,
-    flex: 1,
+    flexBasis: "47%",
+    flexGrow: 1,
     padding: spacing.md
+  },
+  summaryStatWide: {
+    flexBasis: "100%"
   },
   summaryValue: {
     color: colors.ink,

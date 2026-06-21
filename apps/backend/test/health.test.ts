@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 
 describe("health route", () => {
-  it("returns service health", async () => {
+  it("returns service health with database status", async () => {
     const app = buildApp();
     const response = await app.inject({
       method: "GET",
@@ -12,8 +12,10 @@ describe("health route", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      ok: true,
-      service: "homethread-backend"
+      status: "ok",
+      service: "homethread-backend",
+      db: "ok"
     });
+    await app.close();
   });
 });

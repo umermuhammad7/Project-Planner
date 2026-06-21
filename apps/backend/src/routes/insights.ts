@@ -22,6 +22,7 @@ import {
 } from "../db/schema.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
+import { requirePlus } from "../plugins/requirePlus.js";
 
 const paramsSchema = z.object({
   familyId: uuidSchema
@@ -33,6 +34,7 @@ const BUSYNESS_WINDOW_DAYS = 14;
 
 export async function insightsRoutes(app: FastifyInstance) {
   app.addHook("preHandler", requireAuth);
+  app.addHook("preHandler", requirePlus);
 
   app.get("/weekly", async (request, reply) => {
     const currentUser = request.currentUser!;

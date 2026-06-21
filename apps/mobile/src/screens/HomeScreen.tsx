@@ -197,8 +197,6 @@ export function HomeScreen({
           <View style={styles.dateBadge}>
             <Text style={styles.dateBadgeText}>Today - {todayDateParts.compact}</Text>
           </View>
-          <Text style={styles.dayTitle}>{todayDateParts.weekday}</Text>
-          <Text style={styles.dateTitle}>{todayDateParts.monthDay}</Text>
           <View style={styles.headerMeta}>
             <Pill label={householdSummaryLabel} tone="neutral" icon="people" />
           </View>
@@ -269,7 +267,7 @@ export function HomeScreen({
 
           <View style={styles.heroActions}>
             <PrimaryButton label="Ask assistant" icon="sparkles" onPress={() => goTo("add")} />
-            <PrimaryButton label="Board" icon="chatbubbles" tone="soft" onPress={() => goTo("thread")} />
+            <PrimaryButton label="Family board" icon="chatbubbles" tone="soft" onPress={() => goTo("thread")} />
             {onEnterKidsMode && kidMembers.length > 0 ? (
               <PrimaryButton label="Kids mode" icon="happy" tone="ghost" onPress={onEnterKidsMode} />
             ) : null}
@@ -302,12 +300,14 @@ export function HomeScreen({
 
       {onOpenFamilySettings || onOpenInsights ? (
         <Card>
+          <Text style={styles.shortcutTitle}>Household tools</Text>
+          <Text style={styles.shortcutMeta}>Open the home details or weekly insights without hunting through the screen.</Text>
           <View style={styles.shortcutRow}>
             {onOpenFamilySettings ? (
-              <PrimaryButton label="Household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
+              <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
             ) : null}
             {onOpenInsights ? (
-              <PrimaryButton label="Insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
+              <PrimaryButton label="See insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
             ) : null}
           </View>
         </Card>
@@ -451,26 +451,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 12,
     fontWeight: "800"
-  },
-  dayTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 32,
-    fontWeight: "700",
-    lineHeight: 38
-  },
-  dateTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 24,
-    fontWeight: "700",
-    lineHeight: 30
-  },
-  subhead: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22
   },
   headerRail: {
     alignItems: "flex-start",
@@ -653,6 +633,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.md
+  },
+  shortcutTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: spacing.xs
+  },
+  shortcutMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginBottom: spacing.md
   },
   fill: {
     flex: 1

@@ -245,9 +245,14 @@ const styles = StyleSheet.create({
     lineHeight: 22
   },
   closeButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
     minHeight: 44,
     justifyContent: "center",
-    paddingHorizontal: spacing.sm
+    paddingHorizontal: spacing.md
   },
   closeLabel: {
     color: colors.primary,

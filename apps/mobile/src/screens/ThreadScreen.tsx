@@ -132,7 +132,7 @@ export function ThreadScreen() {
       <Card>
         <Text style={styles.label}>Paste a family text</Text>
         <Text style={styles.meta}>
-          HomeThread suggests an event, chore, or list item from a family message. Review the draft before saving.
+          Paste a family message and HomeThread will suggest an event, chore, or list item before anything is saved.
         </Text>
         <TextInput
           accessibilityLabel="Paste a family text"
@@ -148,7 +148,7 @@ export function ThreadScreen() {
         />
         <View style={styles.actions}>
           <PrimaryButton
-            label="Parse text"
+            label="Review suggestion"
             icon="sparkles"
             tone="soft"
             onPress={() => {
@@ -166,7 +166,7 @@ export function ThreadScreen() {
             }}
           />
           <PrimaryButton
-            label={isSaving ? "Saving..." : "Save to household"}
+            label={isSaving ? "Saving..." : "Save suggestion"}
             icon="checkmark"
             loading={isSaving}
             disabled={!lastDraft || isSaving}
@@ -210,7 +210,7 @@ export function ThreadScreen() {
           <View style={styles.result}>
             <Pill label={lastDraft.kind} tone="mint" />
             <Text style={styles.resultText}>{lastDraft.title}</Text>
-            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% parser confidence - review before saving</Text>
+            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% confidence - review this suggestion, then save it if it looks right.</Text>
           </View>
         ) : null}
       </Card>

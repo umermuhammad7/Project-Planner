@@ -1,13 +1,42 @@
+declare const __DEV__: boolean | undefined;
+
 declare const process: {
   env: {
     EXPO_PUBLIC_API_URL?: string;
     EXPO_PUBLIC_DEV_AUTH_TOKEN?: string;
+    EXPO_PUBLIC_SENTRY_DSN?: string;
+    NODE_ENV?: string;
   };
 };
 
 const DEFAULT_API_URL = "http://localhost:3001/api/v1";
-const API_URL = process.env.EXPO_PUBLIC_API_URL?.trim() || DEFAULT_API_URL;
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+const API_URL = configuredApiUrl || DEFAULT_API_URL;
 const REQUEST_TIMEOUT_MS = 15000;
+
+function isLocalhostApiUrl(url: string) {
+  return /localhost|127\.0\.0\.1/i.test(url);
+}
+
+function isDevRuntime() {
+  if (typeof __DEV__ !== "undefined") {
+    return __DEV__;
+  }
+
+  return process.env.NODE_ENV !== "production";
+}
+
+export function isProductionApiMisconfigured() {
+  if (isDevRuntime()) {
+    return false;
+  }
+
+  if (!configuredApiUrl) {
+    return true;
+  }
+
+  return isLocalhostApiUrl(configuredApiUrl);
+}
 
 let accessTokenProvider: () => string | null = () => null;
 let unauthorizedHandler: () => void | Promise<void> = () => undefined;
@@ -29,15 +58,18 @@ export type ApiResult<T> = {
 };
 
 export function getApiConfigurationStatus() {
-  const envValue = process.env.EXPO_PUBLIC_API_URL?.trim();
+  const envValue = configuredApiUrl;
   const usingDefaultLocalUrl = !envValue;
 
   return {
     apiUrl: API_URL,
     usingDefaultLocalUrl,
-    message: usingDefaultLocalUrl
-      ? "This build is not pointing at a shared server yet. Test devices need the production API configured in the build."
-      : null
+    productionMisconfigured: isProductionApiMisconfigured(),
+    message: isProductionApiMisconfigured()
+      ? "This production build is missing a reachable household server URL. Set EXPO_PUBLIC_API_URL before shipping to TestFlight."
+      : usingDefaultLocalUrl
+        ? "This build is not pointing at a shared server yet. Test devices need the production API configured in the build."
+        : null
   };
 }
 

@@ -128,7 +128,8 @@ export const eventMembers = pgTable(
     memberId: uuid("member_id").notNull().references(() => familyMembers.id, { onDelete: "cascade" })
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.eventId, table.memberId] })
+    pk: primaryKey({ columns: [table.eventId, table.memberId] }),
+    memberIdx: index("idx_event_members_member").on(table.memberId)
   })
 );
 
@@ -149,7 +150,8 @@ export const chores = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
-    familyIdx: index("idx_chores_family").on(table.familyId)
+    familyIdx: index("idx_chores_family").on(table.familyId),
+    assignedToIdx: index("idx_chores_assigned_to").on(table.assignedTo)
   })
 );
 
@@ -185,13 +187,19 @@ export const rewards = pgTable(
   })
 );
 
-export const rewardPrizes = pgTable("reward_prizes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  starsCost: integer("stars_cost").notNull(),
-  isActive: boolean("is_active").notNull().default(true)
-});
+export const rewardPrizes = pgTable(
+  "reward_prizes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    starsCost: integer("stars_cost").notNull(),
+    isActive: boolean("is_active").notNull().default(true)
+  },
+  (table) => ({
+    familyIdx: index("idx_reward_prizes_family").on(table.familyId)
+  })
+);
 
 export const lists = pgTable(
   "lists",
@@ -245,24 +253,30 @@ export const mealPlans = pgTable(
   })
 );
 
-export const recipes = pgTable("recipes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  familyId: uuid("family_id").references(() => families.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  ingredients: jsonb("ingredients").notNull().default([]),
-  instructions: jsonb("instructions").notNull().default([]),
-  prepTimeMinutes: integer("prep_time_minutes"),
-  cookTimeMinutes: integer("cook_time_minutes"),
-  servings: integer("servings"),
-  imageUrl: text("image_url"),
-  sourceUrl: text("source_url"),
-  tags: text("tags").array(),
-  nutrition: jsonb("nutrition"),
-  isFavorite: boolean("is_favorite").notNull().default(false),
-  createdBy: uuid("created_by").references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
-});
+export const recipes = pgTable(
+  "recipes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id").references(() => families.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    ingredients: jsonb("ingredients").notNull().default([]),
+    instructions: jsonb("instructions").notNull().default([]),
+    prepTimeMinutes: integer("prep_time_minutes"),
+    cookTimeMinutes: integer("cook_time_minutes"),
+    servings: integer("servings"),
+    imageUrl: text("image_url"),
+    sourceUrl: text("source_url"),
+    tags: text("tags").array(),
+    nutrition: jsonb("nutrition"),
+    isFavorite: boolean("is_favorite").notNull().default(false),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    familyIdx: index("idx_recipes_family").on(table.familyId)
+  })
+);
 
 export const mealPlanItems = pgTable(
   "meal_plan_items",
@@ -277,7 +291,8 @@ export const mealPlanItems = pgTable(
   },
   (table) => ({
     dayCheck: check("meal_plan_items_day_of_week_check", sql`${table.dayOfWeek} between 0 and 6`),
-    mealTypeCheck: check("meal_plan_items_meal_type_check", sql`${table.mealType} in ('breakfast', 'lunch', 'dinner', 'snack')`)
+    mealTypeCheck: check("meal_plan_items_meal_type_check", sql`${table.mealType} in ('breakfast', 'lunch', 'dinner', 'snack')`),
+    planIdx: index("idx_meal_plan_items_plan").on(table.planId)
   })
 );
 
@@ -296,7 +311,8 @@ export const notifications = pgTable(
     pushTicket: text("push_ticket")
   },
   (table) => ({
-    userIdx: index("idx_notifications_user").on(table.userId, table.sentAt)
+    userIdx: index("idx_notifications_user").on(table.userId, table.sentAt),
+    familyIdx: index("idx_notifications_family").on(table.familyId)
   })
 );
 
@@ -318,15 +334,24 @@ export const calendarConnections = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
-    providerCheck: check("calendar_connections_provider_check", sql`${table.provider} in ('google', 'apple', 'outlook', 'ical')`)
+    providerCheck: check("calendar_connections_provider_check", sql`${table.provider} in ('google', 'apple', 'outlook', 'ical')`),
+    userIdx: index("idx_calendar_connections_user").on(table.userId),
+    familyIdx: index("idx_calendar_connections_family").on(table.familyId)
   })
 );
 
-export const aiConversations = pgTable("ai_conversations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
-  messages: jsonb("messages").notNull().default([]),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-});
+export const aiConversations = pgTable(
+  "ai_conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
+    messages: jsonb("messages").notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userIdx: index("idx_ai_conversations_user").on(table.userId),
+    familyIdx: index("idx_ai_conversations_family").on(table.familyId)
+  })
+);

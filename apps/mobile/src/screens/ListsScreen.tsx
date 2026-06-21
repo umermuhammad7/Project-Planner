@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useState } from "react";
-import { LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
+import { Keyboard, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
+import { useScrollAssist } from "../context/ScrollAssistContext";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
@@ -27,14 +28,13 @@ export function ListsScreen() {
     realtimeStatus,
     realtimeMessage
   } = useHomeThreadStore();
+  const { scrollToTop } = useScrollAssist();
   const [newItem, setNewItem] = useState("");
   const [newListTitle, setNewListTitle] = useState("");
   const [newListType, setNewListType] = useState<"grocery" | "todo" | "packing" | "custom">("grocery");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const canAdd = useMemo(() => newItem.trim().length > 0, [newItem]);
-  const canCreateList = useMemo(() => newListTitle.trim().length > 0, [newListTitle]);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const checkedCount = shoppingItems.filter((item) => item.checked).length;
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
@@ -100,27 +100,47 @@ export function ListsScreen() {
   }
 
   async function handleCreateList() {
-    if (!canCreateList || isSaving) {
+    if (isSaving) {
+      return;
+    }
+
+    if (!newListTitle.trim()) {
+      setErrorMessage("List name is required.");
+      setSuccessMessage(null);
+      setInfoMessage(null);
       return;
     }
 
     clearFeedback();
     const outcome = await createList({ title: newListTitle, type: newListType });
     applyOutcome(outcome, () => {
+      Keyboard.dismiss();
+      scrollToTop();
       setNewListTitle("");
       setNewListType("grocery");
     });
   }
 
   async function handleAddItem() {
-    if (!canAdd || isSaving) {
+    if (isSaving) {
+      return;
+    }
+
+    if (!newItem.trim()) {
+      setErrorMessage("Item name is required.");
+      setSuccessMessage(null);
+      setInfoMessage(null);
       return;
     }
 
     clearFeedback();
     const savedTitle = newItem.trim();
     const outcome = await createShoppingItem({ title: savedTitle });
-    applyOutcome(outcome, () => setNewItem(""));
+    applyOutcome(outcome, () => {
+      Keyboard.dismiss();
+      scrollToTop();
+      setNewItem("");
+    });
   }
 
   async function handleClearChecked() {
@@ -224,7 +244,7 @@ export function ListsScreen() {
             label={isSaving ? "Creating..." : "Create list"}
             icon="add-circle"
             loading={isSaving}
-            disabled={!canCreateList || isSaving}
+            disabled={isSaving}
             onPress={() => {
               void handleCreateList();
             }}
@@ -284,7 +304,7 @@ export function ListsScreen() {
               label={isSaving ? "Adding..." : "Add"}
               icon="add"
               loading={isSaving}
-              disabled={!canAdd || isSaving}
+              disabled={isSaving}
               onPress={() => {
                 void handleAddItem();
               }}

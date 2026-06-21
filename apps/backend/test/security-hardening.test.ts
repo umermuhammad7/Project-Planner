@@ -255,10 +255,186 @@ describe("security hardening", () => {
 
     expect(unsafeResponse.statusCode).toBe(400);
     expect(unsafeResponse.json()).toEqual({
-      error: "iCal feeds must use a public hostname.",
+      error: "This iCal feed is not allowed.",
       code: "ICAL_URL_NOT_ALLOWED"
     });
 
     await app.close();
+  });
+
+  it("blocks cross-family event reads for non-members", async () => {
+    const app = buildApp();
+
+    const familyAResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Read Family A" }
+    });
+    expect(familyAResponse.statusCode).toBe(201);
+    const familyAId = familyAResponse.json().family.id as string;
+
+    const familyBResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Read Family B" }
+    });
+    expect(familyBResponse.statusCode).toBe(201);
+    const familyBId = familyBResponse.json().family.id as string;
+
+    const eventResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/events`,
+      headers: authHeaders,
+      payload: {
+        title: "Soccer practice",
+        startAt: "2026-06-15T16:00:00.000Z",
+        endAt: "2026-06-15T17:00:00.000Z",
+        allDay: false
+      }
+    });
+    expect(eventResponse.statusCode).toBe(201);
+
+    const { db } = await import("../src/db/client.js");
+    const { familyMembers } = await import("../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(familyMembers).where(eq(familyMembers.familyId, familyAId));
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/families/${familyAId}/events`,
+      headers: authHeaders
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: "You are not a member of this family",
+      code: "FAMILY_FORBIDDEN"
+    });
+
+    const allowedResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/families/${familyBId}/events`,
+      headers: authHeaders
+    });
+    expect(allowedResponse.statusCode).toBe(200);
+
+    await app.close();
+  });
+
+  it("blocks event edits from non-admin members who did not create the event", async () => {
+    const app = buildApp();
+
+    const familyResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Edit Guard Family" }
+    });
+    expect(familyResponse.statusCode).toBe(201);
+    const familyId = familyResponse.json().family.id as string;
+
+    const eventResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyId}/events`,
+      headers: authHeaders,
+      payload: {
+        title: "Original title",
+        startAt: "2026-06-15T16:00:00.000Z",
+        endAt: "2026-06-15T17:00:00.000Z",
+        allDay: false
+      }
+    });
+    expect(eventResponse.statusCode).toBe(201);
+    const eventId = eventResponse.json().event.id as string;
+
+    const { db } = await import("../src/db/client.js");
+    const { events, familyMembers } = await import("../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    const { ensureUserProfile } = await import("../src/lib/userProvisioning.js");
+
+    const otherUserId = "00000000-0000-4000-8000-000000000099";
+    await ensureUserProfile(otherUserId, "other.member@homethread.test");
+
+    await db
+      .update(familyMembers)
+      .set({ role: "member" })
+      .where(eq(familyMembers.familyId, familyId));
+    await db
+      .update(events)
+      .set({ createdBy: otherUserId })
+      .where(eq(events.id, eventId));
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyId}/events/${eventId}`,
+      headers: authHeaders,
+      payload: {
+        title: "Changed title"
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: "Only the event creator or a family admin can edit this event",
+      code: "EVENT_FORBIDDEN"
+    });
+
+    await app.close();
+  });
+
+  it("requires auth for AI routes", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/ai/status"
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: "Missing bearer token",
+      code: "AUTH_REQUIRED"
+    });
+    await app.close();
+  });
+
+  it("blocks AI routes when plus entitlement is required", async () => {
+    const previousRequirePlus = process.env.REQUIRE_PLUS;
+    try {
+      process.env.REQUIRE_PLUS = "true";
+      vi.resetModules();
+      const { buildApp: buildFreshApp } = await import("../src/app.js");
+      const app = buildFreshApp();
+
+      const familyResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/families",
+        headers: authHeaders,
+        payload: { name: "Plus Guard Family" }
+      });
+      expect(familyResponse.statusCode).toBe(201);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/ai/status",
+        headers: authHeaders
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({
+        error: "Plus subscription required for this feature.",
+        code: "PLUS_REQUIRED"
+      });
+
+      await app.close();
+    } finally {
+      if (previousRequirePlus === undefined) {
+        delete process.env.REQUIRE_PLUS;
+      } else {
+        process.env.REQUIRE_PLUS = previousRequirePlus;
+      }
+      vi.resetModules();
+    }
   });
 });

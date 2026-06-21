@@ -15,6 +15,7 @@ import { getCalendarSyncStatus, getGoogleOAuthConfig } from "../env.js";
 import { syncGoogleConnection, syncIcalConnection, validateIcalUrlSafety } from "../lib/calendarImport.js";
 import { encryptCalendarToken } from "../lib/calendarTokenCrypto.js";
 import { sendError } from "../lib/http.js";
+import { logSafeError } from "../lib/redactLog.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -89,6 +90,8 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
       return reply.status(501).send(payload);
     }
 
+    const redirectUri = resolveGoogleRedirectUri(request, oauth.redirectUri);
+
     const state = signCalendarState(
       {
         familyId,
@@ -100,7 +103,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", oauth.clientId);
-    authUrl.searchParams.set("redirect_uri", oauth.redirectUri);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", oauth.scopes.join(" "));
     authUrl.searchParams.set("access_type", "offline");
@@ -162,11 +165,12 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     }
 
     try {
+      const redirectUri = resolveGoogleRedirectUri(request, oauth.redirectUri);
       const tokenData = await exchangeGoogleCode({
         code: query.code,
         clientId: oauth.clientId,
         clientSecret: oauth.clientSecret,
-        redirectUri: oauth.redirectUri
+        redirectUri
       });
 
       const primaryCalendarId = await fetchPrimaryCalendarId(tokenData.accessToken);
@@ -187,12 +191,13 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
           )
         );
     } catch (error) {
+      logSafeError(error);
       return reply
         .status(502)
         .type("text/html")
         .send(
           renderCalendarCallbackPage(
-            error instanceof Error ? error.message : "Google Calendar connect failed."
+            "Google Calendar could not be connected. Return to HomeThread and try again."
           )
         );
     }
@@ -206,12 +211,8 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     try {
       await validateIcalUrlSafety(body.icalUrl);
     } catch (error) {
-      return sendError(
-        reply,
-        400,
-        error instanceof Error ? error.message : "This iCal feed is not allowed.",
-        "ICAL_URL_NOT_ALLOWED"
-      );
+      logSafeError(error);
+      return sendError(reply, 400, "This iCal feed is not allowed.", "ICAL_URL_NOT_ALLOWED");
     }
 
     await upsertIcalConnection({
@@ -316,13 +317,14 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
           message: `${connection.provider} calendar sync is not implemented in this build.`
         });
       } catch (error) {
+        logSafeError(error);
         results.push({
           connectionId: connection.id,
           provider: connection.provider as "google" | "apple" | "outlook" | "ical",
           added: 0,
           skipped: 0,
           failed: 1,
-          message: error instanceof Error ? error.message : "Calendar sync failed."
+          message: "Calendar sync failed for this connection."
         });
       }
     }
@@ -336,6 +338,31 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
 
     return reply.send(payload);
   });
+}
+
+function resolveGoogleRedirectUri(
+  request: { headers: Record<string, string | string[] | undefined> },
+  configuredRedirectUri: string
+) {
+  try {
+    const forwardedHost = request.headers["x-forwarded-host"];
+    const forwardedProto = request.headers["x-forwarded-proto"];
+    const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+    const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto ?? "https";
+
+    if (!host) {
+      return configuredRedirectUri;
+    }
+
+    const configured = new URL(configuredRedirectUri);
+    if (configured.host === host && configured.pathname === "/api/v1/calendar-sync/google/callback") {
+      return configuredRedirectUri;
+    }
+
+    return new URL("/api/v1/calendar-sync/google/callback", `${proto}://${host}`).toString();
+  } catch {
+    return configuredRedirectUri;
+  }
 }
 
 function signCalendarState(payload: CalendarOAuthState, secret: string) {

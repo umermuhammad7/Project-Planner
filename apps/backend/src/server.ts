@@ -1,6 +1,9 @@
 import { buildApp } from "./app.js";
 import { env } from "./env.js";
+import { initBackendSentry } from "./lib/sentry.js";
 import { startJobWorker, stopJobWorker } from "./jobs/boss.js";
+
+initBackendSentry();
 
 const app = buildApp();
 await startJobWorker();

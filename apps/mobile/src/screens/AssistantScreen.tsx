@@ -171,6 +171,10 @@ export function AssistantScreen() {
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
 
   const canSend = useMemo(() => prompt.trim().length > 0 && !isThinking, [isThinking, prompt]);
+  const latestAssistantMessage = useMemo(
+    () => [...messages].reverse().find((message) => message.role === "assistant" && message.id !== "assistant-welcome") ?? null,
+    [messages]
+  );
   const assistantContext = useMemo<AssistantContext>(() => {
     const upcomingEvents = [...events]
       .sort(compareEventsByStartAt)
@@ -451,6 +455,12 @@ export function AssistantScreen() {
             }}
           />
         </View>
+        {latestAssistantMessage ? (
+          <View style={styles.latestReplyCard}>
+            <Text style={styles.latestReplyLabel}>Latest reply</Text>
+            <Text style={styles.latestReplyText}>{latestAssistantMessage.body}</Text>
+          </View>
+        ) : null}
       </Card>
 
       <SectionTitle title="Quick prompts" />
@@ -720,6 +730,27 @@ const styles = StyleSheet.create({
   },
   sendRow: {
     marginTop: spacing.md
+  },
+  latestReplyCard: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.md
+  },
+  latestReplyLabel: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  latestReplyText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20
   },
   draftTop: {
     alignItems: "center",

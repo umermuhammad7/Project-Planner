@@ -31,7 +31,8 @@ import { PlanScreen } from "./src/screens/PlanScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
 import { WelcomeScreen } from "./src/screens/WelcomeScreen";
-import { getApiConfigurationStatus } from "./src/services/api";
+import { getApiConfigurationStatus, isProductionApiMisconfigured } from "./src/services/api";
+import { initMobileSentry } from "./src/services/sentry";
 import { refreshPushTokenIfAvailable } from "./src/services/notifications";
 import { useAuthStore } from "./src/store/useAuthStore";
 import { useHomeThreadStore, resetHomeThreadStoreForSignedOut } from "./src/store/useHomeThreadStore";
@@ -99,6 +100,10 @@ function AppShell() {
   useEffect(() => {
     void bootstrapAuth();
   }, [bootstrapAuth]);
+
+  useEffect(() => {
+    initMobileSentry();
+  }, []);
 
   useEffect(() => {
     const apiConfig = getApiConfigurationStatus();
@@ -244,6 +249,26 @@ function AppShell() {
     ]).start();
   }, [screenKey, screenOpacity, screenTranslateY]);
 
+  if (isProductionApiMisconfigured()) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.configBlockWrap}>
+          <View style={styles.connectingWrap}>
+            <View style={styles.connecting}>
+              <Text style={styles.connectingEyebrow}>Build configuration</Text>
+              <Text style={styles.connectingTitle}>Household server not configured</Text>
+              <Text style={styles.connectingSubtitle}>
+                This production build is missing a reachable EXPO_PUBLIC_API_URL. Configure the Railway API host in
+                EAS secrets before installing on a phone.
+              </Text>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
@@ -366,6 +391,11 @@ const styles = StyleSheet.create({
   },
   keyboardView: {
     flex: 1
+  },
+  configBlockWrap: {
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.lg
   },
   content: {
     alignItems: "stretch",

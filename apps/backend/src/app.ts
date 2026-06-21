@@ -6,6 +6,7 @@ import { ZodError } from "zod";
 
 import { env, getAllowedFrontendOrigins } from "./env.js";
 import { sendError, sendZodError } from "./lib/http.js";
+import { logSafeError } from "./lib/redactLog.js";
 import { aiRoutes } from "./routes/ai.js";
 import { authRoutes } from "./routes/auth.js";
 import { choresRoutes } from "./routes/chores.js";
@@ -24,7 +25,8 @@ import { webhookRoutes } from "./routes/webhooks.js";
 
 export function buildApp() {
   const app = Fastify({
-    logger: env.NODE_ENV !== "test"
+    logger: env.NODE_ENV !== "test",
+    bodyLimit: 1_048_576
   });
 
   const allowedOrigins = new Set(getAllowedFrontendOrigins());
@@ -67,7 +69,7 @@ export function buildApp() {
       return sendZodError(reply, error);
     }
 
-    requestLogSafeError(error);
+    logSafeError(error);
     return sendError(reply, 500, "Something went wrong", "INTERNAL_ERROR");
   });
 
@@ -88,10 +90,4 @@ export function buildApp() {
   app.register(webhookRoutes, { prefix: "/api/v1/webhooks" });
 
   return app;
-}
-
-function requestLogSafeError(error: unknown) {
-  if (env.NODE_ENV !== "test") {
-    console.error(error);
-  }
 }

@@ -1,6 +1,6 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
@@ -31,6 +31,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [familyName, setFamilyName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
+  const [preferredSetupTab, setPreferredSetupTab] = useState<SetupTab>("create");
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showWelcomeDetails, setShowWelcomeDetails] = useState(false);
@@ -86,8 +87,9 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   useEffect(() => {
     if (authMode === "supabase" && !familyId && mode === "welcome") {
       setMode("family-setup");
+      setSetupTab(preferredSetupTab);
     }
-  }, [authMode, familyId, mode]);
+  }, [authMode, familyId, mode, preferredSetupTab]);
 
   async function completeAuthFlow() {
     const liveFamilyId = useAuthStore.getState().familyId;
@@ -98,7 +100,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     }
 
     setMode("family-setup");
-    setSetupTab("create");
+    setSetupTab(preferredSetupTab);
     setCreatedInviteCode(null);
     setFormMessage(null);
   }
@@ -144,7 +146,18 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
     if (!result.ok) {
       setFormMessage(result.message ?? "Google sign-in could not start.");
+      return;
     }
+
+    if (Platform.OS !== "web") {
+      await completeAuthFlow();
+    }
+  }
+
+  function beginJoinJourney() {
+    setFormMessage(null);
+    setPreferredSetupTab("join");
+    setMode("login");
   }
 
   async function handleCreateFamily() {
@@ -217,6 +230,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
           <View style={styles.setupTabs}>
             <Pressable
               onPress={() => {
+                setPreferredSetupTab("create");
                 setSetupTab("create");
                 setFormMessage(null);
               }}
@@ -228,6 +242,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             </Pressable>
             <Pressable
               onPress={() => {
+                setPreferredSetupTab("join");
                 setSetupTab("join");
                 setFormMessage(null);
               }}
@@ -332,6 +347,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                   void handleGoogleSignIn();
                 }}
               />
+              <Text style={styles.helperTextCompact}>iPhone may show a secure sign-in prompt before the Google account chooser opens.</Text>
               <Text style={styles.orLabel}>Or use email</Text>
             </>
           ) : null}
@@ -416,7 +432,17 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                   void handleGoogleSignIn();
                 }}
               />
-              <PrimaryButton label="Create account" icon="mail" tone="soft" onPress={() => setMode("register")} />
+              <Text style={styles.helperTextCompact}>iPhone may briefly confirm secure browser sign-in before you choose a Google account.</Text>
+              <PrimaryButton
+                label="Create account"
+                icon="mail"
+                tone="soft"
+                onPress={() => {
+                  setPreferredSetupTab("create");
+                  setMode("register");
+                }}
+              />
+              <PrimaryButton label="Join with code" icon="people" tone="ghost" onPress={beginJoinJourney} />
               <Pressable onPress={() => setMode("login")} style={styles.loginLinkButton}>
                 <Text style={styles.loginLead}>Already have an account?</Text>
                 <Text style={styles.loginLink}>Log in</Text>
@@ -439,6 +465,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
           ) : null}
         </View>
         <Text style={styles.trustNote}>Your household stays private until you sign in.</Text>
+        <Text style={styles.helperTextCompact}>Second parent? Sign in first, then choose Join with code on the next screen.</Text>
       </Card>
 
       <Card>

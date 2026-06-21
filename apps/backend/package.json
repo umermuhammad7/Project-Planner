@@ -24,6 +24,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@homethread/shared": "0.1.0",
     "@lukeed/ms": "^2.0.2",
+    "@sentry/node": "^9.47.1",
     "@supabase/supabase-js": "^2.106.2",
     "abstract-logging": "^2.0.1",
     "ajv": "^8.20.0",

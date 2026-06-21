@@ -294,6 +294,15 @@ type HomeThreadState = {
     startTime?: string;
     memberIds?: string[];
   }) => Promise<SaveOutcome>;
+  updateEvent: (input: {
+    eventId: string;
+    title: string;
+    location?: string;
+    startDate?: string;
+    startTime?: string;
+    memberIds?: string[];
+  }) => Promise<SaveOutcome>;
+  deleteEvent: (eventId: string) => Promise<SaveOutcome>;
   createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<SaveOutcome>;
   completeChore: (id: string) => Promise<SaveOutcome | null>;
   toggleChore: (id: string) => void;
@@ -724,7 +733,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     await get().refreshFromBackend();
-    set({ saveMessage: `${trimmedName} added to your household.` });
+    set({
+      isSaving: false,
+      saveMessage: `${trimmedName} added to your household.`
+    });
     return { ok: true };
   },
   updateVirtualMember: async ({ memberId, displayName }) => {
@@ -771,7 +783,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     await get().refreshFromBackend();
-    set({ saveMessage: `${trimmedName} updated.` });
+    set({
+      isSaving: false,
+      saveMessage: `${trimmedName} updated.`
+    });
     return { ok: true };
   },
   removeVirtualMember: async (memberId) => {
@@ -808,7 +823,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     await get().refreshFromBackend();
-    set({ saveMessage: `${member.name} removed from your household.` });
+    set({
+      isSaving: false,
+      saveMessage: `${member.name} removed from your household.`
+    });
     return { ok: true };
   },
   createEvent: async ({ title, location, startDate, startTime, memberIds: rawMemberIds }) => {
@@ -910,6 +928,130 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
 
     return makeSaveOutcome("saved", "Event saved.");
+  },
+  updateEvent: async ({ eventId, title, location, startDate, startTime, memberIds: rawMemberIds }) => {
+    const state = get();
+    const existingEvent = state.events.find((event) => event.id === eventId);
+    if (!existingEvent) {
+      const outcome = makeSaveOutcome("failed", "That event is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      const outcome = makeSaveOutcome("failed", "Event title is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const trimmedDate = startDate?.trim() ?? "";
+    const trimmedTime = startTime?.trim() ?? "";
+    const startAt = resolveEventStartAt({ startDate: trimmedDate, startTime: trimmedTime });
+    if (!startAt) {
+      const outcome = makeSaveOutcome("failed", 'Choose a real day and use a time like "5:30 PM".');
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const memberIds = dedupeMemberIds(rawMemberIds);
+    const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
+    const eventPayload = {
+      title: normalizedTitle,
+      description: null,
+      location: location?.trim() ? location.trim() : null,
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      allDay: false,
+      memberIds
+    };
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const updatedLocalEvent = mapEvent(
+        {
+          id: eventId,
+          title: normalizedTitle,
+          location: eventPayload.location,
+          startAt: eventPayload.startAt,
+          memberIds,
+          countdownLabel: existingEvent.countdownLabel ?? null,
+          externalSource: existingEvent.externalSource ?? null,
+          importedFrom: existingEvent.importedFrom ?? null,
+          externalCalendarId: existingEvent.externalCalendarId ?? null
+        },
+        memberIds,
+        existingEvent.source
+      );
+      const outcome = makeSaveOutcome("local", "Event updated on this device.");
+      set((current) => ({
+        events: current.events.map((event) => (event.id === eventId ? updatedLocalEvent : event)),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveMessage: "Saving event..." });
+
+    const result = await apiRequest<{ event: BackendEventRecord }>(`/families/${state.familyId}/events/${eventId}`, {
+      method: "PATCH",
+      body: JSON.stringify(eventPayload)
+    });
+
+    if (!result.data?.event) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to update event");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const outcome = makeSaveOutcome("saved", "Event updated.");
+    set((current) => ({
+      events: current.events.map((event) =>
+        event.id === eventId
+          ? mapEvent(result.data!.event, result.data!.event.memberIds ?? memberIds, existingEvent.source)
+          : event
+      ),
+      isSaving: false,
+      saveMessage: outcome.message
+    }));
+    return outcome;
+  },
+  deleteEvent: async (eventId) => {
+    const state = get();
+    const existingEvent = state.events.find((event) => event.id === eventId);
+    if (!existingEvent) {
+      const outcome = makeSaveOutcome("failed", "That event is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", "Event removed from this device.");
+      set((current) => ({
+        events: current.events.filter((event) => event.id !== eventId),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveMessage: "Removing event..." });
+
+    const result = await apiRequest<{ deleted: boolean }>(`/families/${state.familyId}/events/${eventId}`, {
+      method: "DELETE"
+    });
+
+    if (!result.data?.deleted) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove event");
+      set({ isSaving: false, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const outcome = makeSaveOutcome("saved", "Event removed.");
+    set((current) => ({
+      events: current.events.filter((event) => event.id !== eventId),
+      isSaving: false,
+      saveMessage: outcome.message
+    }));
+    return outcome;
   },
   createChore: async ({ title, dueTime, assignedTo, starsValue }) => {
     const state = get();
@@ -2454,7 +2596,7 @@ function mapEvent(
     id: event.id,
     title: event.title,
     time: format(startAt, "h:mm a"),
-    dateLabel: format(startAt, "EEE"),
+    dateLabel: format(startAt, "EEE, MMM d"),
     startAt: event.startAt,
     location: event.location ?? undefined,
     countdownLabel: event.countdownLabel ?? null,
@@ -2470,7 +2612,7 @@ function mapChore(chore: BackendChoreRecord): Chore {
   return {
     id: chore.id,
     title: chore.title,
-    dueLabel: chore.dueTime ? `Due ${formatStoredTimeValue(chore.dueTime)}` : "Anytime today",
+    dueLabel: chore.dueTime ? `Today at ${formatStoredTimeValue(chore.dueTime)}` : "Anytime today",
     assignedTo: chore.assignedTo ?? "unassigned",
     stars: chore.starsValue,
     completed: false

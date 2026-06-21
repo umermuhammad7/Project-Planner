@@ -32,10 +32,45 @@ const envSchema = z.object({
   TRAVEL_HOME_LATITUDE: z.coerce.number().optional(),
   TRAVEL_HOME_LONGITUDE: z.coerce.number().optional(),
   REVENUECAT_WEBHOOK_SECRET: z.string().optional(),
-  REVENUECAT_ENTITLEMENT_ID: z.string().default("family_plus")
+  REVENUECAT_ENTITLEMENT_ID: z.string().default("family_plus"),
+  REQUIRE_PLUS: z.coerce.boolean().default(false),
+  DB_POOL_MAX: z.coerce.number().int().positive().default(10),
+  DB_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  DB_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  SENTRY_DSN: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);
+
+assertProductionEnv(process.env, env);
+
+function assertProductionEnv(rawEnv: NodeJS.ProcessEnv, parsed: z.infer<typeof envSchema>) {
+  if (parsed.NODE_ENV !== "production") {
+    return;
+  }
+
+  const errors: string[] = [];
+
+  if (!rawEnv.DATABASE_URL?.trim()) {
+    errors.push("DATABASE_URL must be set in production.");
+  }
+
+  if (rawEnv.DATABASE_URL?.includes("localhost") || rawEnv.DATABASE_URL?.includes("127.0.0.1")) {
+    errors.push("DATABASE_URL must not point at localhost in production.");
+  }
+
+  if (parsed.DEV_AUTH_ENABLED) {
+    errors.push("DEV_AUTH_ENABLED must be false in production.");
+  }
+
+  if (!parsed.SUPABASE_URL?.trim() || !parsed.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    errors.push("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in production.");
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid production environment:\n- ${errors.join("\n- ")}`);
+  }
+}
 
 export function getAllowedFrontendOrigins() {
   return env.FRONTEND_URL.split(",")
