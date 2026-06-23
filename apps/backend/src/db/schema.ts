@@ -355,3 +355,42 @@ export const aiConversations = pgTable(
     familyIdx: index("idx_ai_conversations_family").on(table.familyId)
   })
 );
+
+export const childPairingCodes = pgTable(
+  "child_pairing_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id").notNull().references(() => familyMembers.id, { onDelete: "cascade" }),
+    code: text("code").notNull().unique(),
+    createdBy: uuid("created_by").notNull().references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    familyIdx: index("idx_child_pairing_codes_family").on(table.familyId),
+    memberIdx: index("idx_child_pairing_codes_member").on(table.memberId)
+  })
+);
+
+export const childDevices = pgTable(
+  "child_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id").notNull().references(() => familyMembers.id, { onDelete: "cascade" }),
+    pairingCodeId: uuid("pairing_code_id").references(() => childPairingCodes.id, { onDelete: "set null" }),
+    deviceToken: text("device_token").notNull().unique(),
+    pushToken: text("push_token"),
+    deviceLabel: text("device_label"),
+    pairedAt: timestamp("paired_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+  },
+  (table) => ({
+    familyIdx: index("idx_child_devices_family").on(table.familyId),
+    memberIdx: index("idx_child_devices_member").on(table.memberId)
+  })
+);

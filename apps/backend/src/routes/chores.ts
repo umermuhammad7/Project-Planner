@@ -11,6 +11,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { choreCompletions, chores, rewards } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
+import { cancelChoreReminderForDate, syncChoreReminderSchedule } from "../lib/reminderScheduling.js";
 import { requireAuth } from "../plugins/auth.js";
 import { ensureFamilyMemberIds, requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -74,6 +75,8 @@ export async function choresRoutes(app: FastifyInstance) {
         createdBy: currentUser.id
       })
       .returning();
+
+    await syncChoreReminderSchedule(chore);
 
     return reply.status(201).send({ chore });
   });
@@ -143,6 +146,8 @@ export async function choresRoutes(app: FastifyInstance) {
       .where(and(eq(chores.familyId, familyId), eq(chores.id, choreId)))
       .returning();
 
+    await syncChoreReminderSchedule(chore);
+
     return { chore };
   });
 
@@ -151,6 +156,7 @@ export async function choresRoutes(app: FastifyInstance) {
     const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
+    await cancelChoreReminderForDate(familyId, choreId);
     await db.delete(chores).where(and(eq(chores.familyId, familyId), eq(chores.id, choreId)));
     return { deleted: true };
   });
@@ -217,6 +223,8 @@ export async function choresRoutes(app: FastifyInstance) {
 
       return { completion, reward };
     });
+
+    await cancelChoreReminderForDate(familyId, choreId);
 
     return reply.status(201).send(result);
   });

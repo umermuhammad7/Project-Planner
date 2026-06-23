@@ -130,6 +130,10 @@ function friendlyAuthError(message: string | undefined, fallback: string) {
     return "Sign-in is not set up in this version of the app yet.";
   }
 
+  if (/unsupported provider|provider is not enabled/i.test(message)) {
+    return "Google sign-in is not enabled for this HomeThread project yet.";
+  }
+
   return message;
 }
 

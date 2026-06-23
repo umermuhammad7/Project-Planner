@@ -5,11 +5,24 @@ import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "r
 import { Card, Pill, PrimaryButton } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
+import { copyText } from "../utils/copyText";
+import {
+  clearHouseholdSetupIntent,
+  readHouseholdSetupIntent,
+  writeHouseholdSetupIntent,
+  type HouseholdSetupIntent
+} from "../utils/householdSetupIntent";
 
 type Mode = "welcome" | "login" | "register" | "family-setup";
 type SetupTab = "create" | "join";
 
-export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
+export function WelcomeScreen({
+  onSignedIn,
+  onSetupChildDevice
+}: {
+  onSignedIn: () => void;
+  onSetupChildDevice?: () => void;
+}) {
   const {
     mode: authMode,
     authMessage,
@@ -31,8 +44,9 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [familyName, setFamilyName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [createdInviteCode, setCreatedInviteCode] = useState<string | null>(null);
-  const [preferredSetupTab, setPreferredSetupTab] = useState<SetupTab>("create");
+  const [preferredSetupTab, setPreferredSetupTab] = useState<SetupTab | null>(null);
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [createdInviteFeedback, setCreatedInviteFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showWelcomeDetails, setShowWelcomeDetails] = useState(false);
   const howItWorks = [
@@ -48,8 +62,8 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     },
     {
       step: "3",
-      title: "Invite everyone else",
-      text: "The second parent joins by code, and child profiles stay inside the same household."
+      title: "Add adults, then child profiles",
+      text: "Other adults join with the adult invite code after signing in. Child profiles are added separately - kids never use that code."
     }
   ];
   const planRows = [
@@ -85,11 +99,30 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const welcomeMessage = formMessage ?? (configurationWarning ? null : authMessage);
 
   useEffect(() => {
+    void readHouseholdSetupIntent().then((intent) => {
+      if (!intent) {
+        return;
+      }
+
+      setPreferredSetupTab(intent);
+      setSetupTab(intent);
+    });
+  }, []);
+
+  useEffect(() => {
     if (authMode === "supabase" && !familyId && mode === "welcome") {
       setMode("family-setup");
-      setSetupTab(preferredSetupTab);
+      if (preferredSetupTab) {
+        setSetupTab(preferredSetupTab);
+      }
     }
   }, [authMode, familyId, mode, preferredSetupTab]);
+
+  async function applySetupIntent(intent: HouseholdSetupIntent) {
+    setPreferredSetupTab(intent);
+    setSetupTab(intent);
+    await writeHouseholdSetupIntent(intent);
+  }
 
   async function completeAuthFlow() {
     const liveFamilyId = useAuthStore.getState().familyId;
@@ -100,12 +133,24 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     }
 
     setMode("family-setup");
-    setSetupTab(preferredSetupTab);
+    if (preferredSetupTab) {
+      setSetupTab(preferredSetupTab);
+    }
     setCreatedInviteCode(null);
     setFormMessage(null);
   }
 
   async function handlePasswordAuth(kind: "login" | "register") {
+    if (!email.trim()) {
+      setFormMessage("Enter your email.");
+      return;
+    }
+
+    if (!password.trim()) {
+      setFormMessage("Enter your password.");
+      return;
+    }
+
     setIsSubmitting(true);
     setFormMessage(null);
 
@@ -138,10 +183,18 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
     onSignedIn();
   }
 
-  async function handleGoogleSignIn() {
+  async function handleGoogleSignIn(intent?: HouseholdSetupIntent) {
+    if (intent) {
+      await applySetupIntent(intent);
+    }
+
     setIsSubmitting(true);
     setFormMessage(null);
     const result = await signInWithGoogle();
+    if (result.ok && Platform.OS === "web") {
+      setFormMessage("Redirecting to Google sign-in...");
+      return;
+    }
     setIsSubmitting(false);
 
     if (!result.ok) {
@@ -156,11 +209,36 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
   function beginJoinJourney() {
     setFormMessage(null);
-    setPreferredSetupTab("join");
+    void applySetupIntent("join");
     setMode("login");
   }
 
+  function beginCreateJourney() {
+    setFormMessage(null);
+    void applySetupIntent("create");
+    setMode("register");
+  }
+
+  function beginLogin() {
+    setFormMessage(null);
+    setMode("login");
+  }
+
+  async function handleCopyCreatedInvite() {
+    if (!createdInviteCode) {
+      return;
+    }
+
+    const result = await copyText(createdInviteCode);
+    setCreatedInviteFeedback(result.ok ? "Adult invite code copied." : (result.message ?? "Could not copy automatically."));
+  }
+
   async function handleCreateFamily() {
+    if (!familyName.trim()) {
+      setFormMessage("Enter a household name.");
+      return;
+    }
+
     setIsSubmitting(true);
     setFormMessage(null);
 
@@ -177,10 +255,16 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       return;
     }
 
+    await clearHouseholdSetupIntent();
     onSignedIn();
   }
 
   async function handleJoinFamily() {
+    if (!inviteCode.trim()) {
+      setFormMessage("Enter the adult invite code.");
+      return;
+    }
+
     setIsSubmitting(true);
     setFormMessage(null);
 
@@ -192,6 +276,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       return;
     }
 
+    await clearHouseholdSetupIntent();
     onSignedIn();
   }
 
@@ -201,16 +286,31 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <View style={styles.screen}>
           <Pill label="Household created" tone="primary" icon="home" />
           <Text style={styles.title}>Your family is ready.</Text>
-          <Text style={styles.subtitle}>Share this code when the second parent is ready to join.</Text>
+          <Text style={styles.subtitle}>Share this adult invite code when the second parent is ready to join.</Text>
 
           <Card>
-            <Text style={styles.cardTitle}>Invite code</Text>
-            <Text style={styles.inviteCode}>{createdInviteCode}</Text>
-            <Text style={styles.cardText}>You manage billing. Other adults join with this code.</Text>
+            <Text style={styles.cardTitle}>Adult invite code</Text>
+            <Text selectable style={styles.inviteCode}>
+              {createdInviteCode}
+            </Text>
+            <Text style={styles.cardText}>
+              The second parent signs in, chooses Join with adult invite code, and enters this code. Kids never use it.
+            </Text>
+            <View style={styles.formActions}>
+              <PrimaryButton label="Copy code" icon="copy" tone="soft" onPress={() => void handleCopyCreatedInvite()} />
+            </View>
+            {createdInviteFeedback ? <Text style={styles.formMessage}>{createdInviteFeedback}</Text> : null}
           </Card>
 
           <View style={styles.actions}>
-            <PrimaryButton label="Enter HomeThread" icon="home" onPress={onSignedIn} />
+            <PrimaryButton
+              label="Enter HomeThread"
+              icon="home"
+              onPress={() => {
+                void clearHouseholdSetupIntent();
+                onSignedIn();
+              }}
+            />
           </View>
         </View>
       );
@@ -224,14 +324,19 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
           </Pressable>
         </View>
         <Text style={styles.title}>Set up your household</Text>
-        <Text style={styles.subtitle}>Create a new home or join with an invite code.</Text>
+        <Text style={styles.subtitle}>
+          {preferredSetupTab === "create" || (!preferredSetupTab && setupTab === "create")
+            ? "Name your home. You become admin and get an adult invite code for the second adult."
+            : preferredSetupTab === "join" || setupTab === "join"
+              ? "Enter the adult invite code from the household owner."
+              : "Create a new home or join with an adult invite code."}
+        </Text>
 
         <Card>
           <View style={styles.setupTabs}>
             <Pressable
               onPress={() => {
-                setPreferredSetupTab("create");
-                setSetupTab("create");
+                void applySetupIntent("create");
                 setFormMessage(null);
               }}
               style={[styles.setupTab, setupTab === "create" ? styles.setupTabActive : null]}
@@ -242,14 +347,13 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             </Pressable>
             <Pressable
               onPress={() => {
-                setPreferredSetupTab("join");
-                setSetupTab("join");
+                void applySetupIntent("join");
                 setFormMessage(null);
               }}
               style={[styles.setupTab, setupTab === "join" ? styles.setupTabActive : null]}
             >
               <Text style={[styles.setupTabLabel, setupTab === "join" ? styles.setupTabLabelActive : null]}>
-                Join with code
+                Join with adult invite code
               </Text>
             </Pressable>
           </View>
@@ -264,11 +368,13 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                 value={familyName}
                 onChangeText={setFamilyName}
               />
-              <Text style={styles.helperTextCompact}>You become the admin and get an invite code for the second parent.</Text>
+              <Text style={styles.helperTextCompact}>
+                You become the admin and get an adult invite code for the second parent.
+              </Text>
             </>
           ) : (
             <>
-              <Text style={styles.label}>Invite code</Text>
+              <Text style={styles.label}>Adult invite code</Text>
               <TextInput
                 style={styles.input}
                 autoCapitalize="characters"
@@ -277,7 +383,7 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
                 value={inviteCode}
                 onChangeText={setInviteCode}
               />
-              <Text style={styles.helperTextCompact}>Ask the household admin for their code.</Text>
+              <Text style={styles.helperTextCompact}>Ask the household admin for their adult invite code. Kids never join this way.</Text>
             </>
           )}
 
@@ -298,7 +404,10 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
           onPress={() => {
             if (isSubmitting) return;
             void signOut().then(() => {
+              void clearHouseholdSetupIntent();
               setMode("welcome");
+              setPreferredSetupTab(null);
+              setSetupTab("create");
               setFamilyName("");
               setInviteCode("");
               setCreatedInviteCode(null);
@@ -315,6 +424,15 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
 
   if (mode === "login" || mode === "register") {
     const isRegister = mode === "register";
+    const joiningHousehold = preferredSetupTab === "join";
+    const creatingHousehold = preferredSetupTab === "create";
+    const googleLabel = isSubmitting
+      ? "Working..."
+      : joiningHousehold
+        ? "Continue with Google to join"
+        : creatingHousehold && isRegister
+          ? "Continue with Google to create"
+          : "Continue with Google";
 
     return (
       <View style={styles.screen}>
@@ -329,24 +447,47 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             <Text style={styles.backLabel}>Back</Text>
           </Pressable>
         </View>
+        {joiningHousehold ? <Pill label="Joining a household" tone="mint" icon="key" /> : null}
+        {creatingHousehold && isRegister ? <Pill label="Creating a household" tone="primary" icon="home" /> : null}
         <Text style={styles.title}>{isRegister ? "Create your account" : "Welcome back"}</Text>
         <Text style={styles.subtitle}>
           {isRegister
-            ? "Start with your own sign-in, then create or join the household."
-            : "Sign in and pick up where the household left off."}
+            ? creatingHousehold
+              ? "Sign in first. On the next screen you will name the household and get an adult invite code."
+              : "Start with your own sign-in, then create or join the household."
+            : joiningHousehold
+              ? "Sign in first. On the next screen, enter the adult invite code."
+              : "Sign in and pick up where the household left off."}
         </Text>
 
         <Card>
           {supabaseConfiguredOnClient ? (
             <>
               <PrimaryButton
-                label={isSubmitting ? "Working..." : "Continue with Google"}
+                label={googleLabel}
                 icon="logo-google"
                 onPress={() => {
                   if (isSubmitting) return;
+                  if (joiningHousehold) {
+                    void handleGoogleSignIn("join");
+                    return;
+                  }
+                  if (creatingHousehold && isRegister) {
+                    void handleGoogleSignIn("create");
+                    return;
+                  }
                   void handleGoogleSignIn();
                 }}
               />
+              {joiningHousehold ? (
+                <Text style={styles.helperTextCompact}>
+                  After Google sign-in, you will enter the adult invite code - not a child profile.
+                </Text>
+              ) : creatingHousehold && isRegister ? (
+                <Text style={styles.helperTextCompact}>
+                  After Google sign-in, you will create the household and receive an adult invite code.
+                </Text>
+              ) : null}
               <Text style={styles.helperTextCompact}>iPhone may show a secure sign-in prompt before the Google account chooser opens.</Text>
               <Text style={styles.orLabel}>Or use email</Text>
             </>
@@ -386,6 +527,11 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <Pressable onPress={() => setMode(isRegister ? "login" : "register")} style={styles.linkButton}>
           <Text style={styles.link}>{isRegister ? "Already have an account?" : "Need an account?"}</Text>
         </Pressable>
+        {!isRegister ? (
+          <Pressable onPress={beginJoinJourney} style={styles.linkButton}>
+            <Text style={styles.link}>Joining with an adult invite code?</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -419,34 +565,53 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
       {welcomeMessage ? <Text style={styles.formMessage}>{welcomeMessage}</Text> : null}
 
       <Card>
-          <Text style={styles.cardTitle}>Get started</Text>
-          <Text style={styles.cardText}>Choose the fastest way in. You can set up the household right after.</Text>
         <View style={styles.entryStack}>
           {supabaseConfiguredOnClient && authMode !== "supabase" ? (
             <>
-              <PrimaryButton
-                label={isSubmitting ? "Working..." : "Continue with Google"}
-                icon="logo-google"
-                onPress={() => {
-                  if (isSubmitting) return;
-                  void handleGoogleSignIn();
-                }}
-              />
-              <Text style={styles.helperTextCompact}>iPhone may briefly confirm secure browser sign-in before you choose a Google account.</Text>
-              <PrimaryButton
-                label="Create account"
-                icon="mail"
-                tone="soft"
-                onPress={() => {
-                  setPreferredSetupTab("create");
-                  setMode("register");
-                }}
-              />
-              <PrimaryButton label="Join with code" icon="people" tone="ghost" onPress={beginJoinJourney} />
-              <Pressable onPress={() => setMode("login")} style={styles.loginLinkButton}>
+              <View style={styles.pathBlock}>
+                <Text style={styles.pathLabel}>Start a new household</Text>
+                <PrimaryButton label="Create household" icon="home" tone="soft" onPress={beginCreateJourney} />
+                <PrimaryButton
+                  label={isSubmitting ? "Working..." : "Continue with Google to create"}
+                  icon="logo-google"
+                  tone="ghost"
+                  onPress={() => {
+                    if (isSubmitting) return;
+                    void handleGoogleSignIn("create");
+                  }}
+                />
+              </View>
+              <View style={styles.pathBlock}>
+                <Text style={styles.pathLabel}>Second adult joining</Text>
+                <PrimaryButton label="Join with adult invite code" icon="key" tone="soft" onPress={beginJoinJourney} />
+                <PrimaryButton
+                  label={isSubmitting ? "Working..." : "Continue with Google to join"}
+                  icon="logo-google"
+                  tone="ghost"
+                  onPress={() => {
+                    if (isSubmitting) return;
+                    void handleGoogleSignIn("join");
+                  }}
+                />
+              </View>
+              <Pressable onPress={beginLogin} style={styles.loginLinkButton}>
                 <Text style={styles.loginLead}>Already have an account?</Text>
                 <Text style={styles.loginLink}>Log in</Text>
               </Pressable>
+              {onSetupChildDevice ? (
+                <View style={styles.pathBlock}>
+                  <Text style={styles.pathLabel}>Child's own phone or tablet</Text>
+                  <PrimaryButton
+                    label="Set up a child's device"
+                    icon="phone-portrait"
+                    tone="ghost"
+                    onPress={onSetupChildDevice}
+                  />
+                  <Text style={styles.helperTextCompact}>
+                    KC- pairing code from Household. One phone per child - not the adult invite code.
+                  </Text>
+                </View>
+              ) : null}
             </>
           ) : null}
           {devTokenAvailable ? (
@@ -464,27 +629,23 @@ export function WelcomeScreen({ onSignedIn }: { onSignedIn: () => void }) {
             </View>
           ) : null}
         </View>
-        <Text style={styles.trustNote}>Your household stays private until you sign in.</Text>
-        <Text style={styles.helperTextCompact}>Second parent? Sign in first, then choose Join with code on the next screen.</Text>
       </Card>
 
-      <Card>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setShowWelcomeDetails((value) => !value)}
-          style={styles.detailsToggle}
-        >
-          <Text style={styles.detailsToggleLabel}>
-            {showWelcomeDetails ? "Hide details" : "How it works and pricing"}
-          </Text>
-          <Text style={styles.detailsToggleMeta}>
-            Family flow, invite model, and pricing draft
-          </Text>
-        </Pressable>
-      </Card>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setShowWelcomeDetails((value) => !value)}
+        style={styles.detailsToggle}
+      >
+        <Text style={styles.detailsToggleLabel}>
+          {showWelcomeDetails ? "Hide details" : "How it works and pricing"}
+        </Text>
+      </Pressable>
 
       {showWelcomeDetails ? (
         <>
+          <Text style={styles.helperTextCompact}>
+            Second adult? Sign in, then choose Join with adult invite code. Child profiles are added later in Household - kids never use that code.
+          </Text>
           <Card>
             <Text style={styles.cardTitle}>How it works</Text>
             <View style={styles.stepStack}>
@@ -630,10 +791,10 @@ const styles = StyleSheet.create({
   welcomeTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "700",
     letterSpacing: 0,
-    lineHeight: 34
+    lineHeight: 32
   },
   welcomeSubtitle: {
     color: colors.muted,
@@ -750,6 +911,16 @@ const styles = StyleSheet.create({
   entryStack: {
     gap: spacing.md,
     marginTop: spacing.sm
+  },
+  pathBlock: {
+    gap: spacing.xs
+  },
+  pathLabel: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
   },
   secondaryActions: {
     flexDirection: "row",

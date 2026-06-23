@@ -1,11 +1,14 @@
+import type { ChildDeviceRecord } from "@homethread/shared";
 import { useEffect, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PurchasesPackage } from "react-native-purchases";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
+import { createChildPairingCode, listChildDevices, revokeChildDevice } from "../services/childDeviceApi";
 import {
   type BillingPackageSummary,
   getBillingCustomerInfo,
@@ -15,12 +18,32 @@ import {
   restoreBillingPurchases
 } from "../services/billing";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { MobileSubscriptionStatus } from "../types";
+import { MobileSubscriptionStatus, FamilyMember } from "../types";
+import { getCurrentUserAccessLabel, getMemberAccessKind, getMemberAccessLabel } from "../utils/memberAccessLabel";
+import { copyText } from "../utils/copyText";
+import { useAuthStore } from "../store/useAuthStore";
 
-function roleLabel(role: string) {
-  if (role === "kid") return "Child profile";
-  if (role === "parent") return "Admin";
-  return "Member";
+function roleLabel(member: Pick<FamilyMember, "role" | "userId">, familyCreatedBy: string | null | undefined) {
+  return getMemberAccessLabel(member, familyCreatedBy);
+}
+
+function formatChildDeviceStatus(device: ChildDeviceRecord) {
+  if (device.revokedAt) {
+    return "Revoked - phone signed out on next use";
+  }
+
+  if (device.pushToken) {
+    return "Active - notifications on";
+  }
+
+  return "Active - paired";
+}
+
+function accessPillTone(kind: ReturnType<typeof getMemberAccessKind>) {
+  if (kind === "owner") return "gold" as const;
+  if (kind === "admin") return "primary" as const;
+  if (kind === "child") return "gold" as const;
+  return "neutral" as const;
 }
 
 function feedbackTone(message: string): "success" | "error" | "info" {
@@ -40,6 +63,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     familyId,
     familyName,
     inviteCode,
+    familyCreatedBy,
     isFamilyAdmin,
     members,
     syncSource,
@@ -52,11 +76,13 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     updateVirtualMember,
     removeVirtualMember
   } = useHomeThreadStore();
+  const currentUserId = useAuthStore((state) => state.userId);
   const [childName, setChildName] = useState("");
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<MobileSubscriptionStatus | null>(null);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
@@ -70,6 +96,16 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
   const [showAddChildForm, setShowAddChildForm] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [activePairingCodes, setActivePairingCodes] = useState<
+    Record<string, { code: string; expiresAt: string; memberName: string }>
+  >({});
+  const [childDevices, setChildDevices] = useState<ChildDeviceRecord[]>([]);
+  const [pairingFeedback, setPairingFeedback] = useState<string | null>(null);
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false);
+  const [isRegeneratingInvite, setIsRegeneratingInvite] = useState(false);
+  const [isAddingChild, setIsAddingChild] = useState(false);
+  const [pairingMemberId, setPairingMemberId] = useState<string | null>(null);
+  const [childFormMessage, setChildFormMessage] = useState<string | null>(null);
   const planRows = [
     {
       name: "Parents",
@@ -101,6 +137,11 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const billingStatus = getBillingStatus();
   const adultMembers = members.filter((member) => member.role !== "kid");
   const childProfiles = members.filter((member) => member.role === "kid");
+  const currentAccessLabel = getCurrentUserAccessLabel({
+    isFamilyAdmin,
+    currentUserId,
+    familyCreatedBy
+  });
 
   async function handleSaveFamilyName() {
     setFormMessage(null);
@@ -116,7 +157,6 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     setFormMessage(null);
     const result = await leaveFamily();
     if (!result.ok) {
-      setFormMessage(result.message ?? "Could not leave this household.");
       return;
     }
     onClose();
@@ -124,20 +164,112 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
   async function handleRegenerateInvite() {
     setFormMessage(null);
+    setInviteFeedback(null);
+    setIsRegeneratingInvite(true);
     const result = await regenerateInviteCode();
+    setIsRegeneratingInvite(false);
     if (!result.ok) {
-      setFormMessage(result.message ?? "Could not regenerate invite code.");
+      setInviteFeedback(result.message ?? "Could not regenerate invite code.");
+      return;
     }
+
+    const updatedCode = useHomeThreadStore.getState().inviteCode;
+    setInviteFeedback(updatedCode ? `New adult code ready: ${updatedCode}` : "Adult invite code updated.");
+  }
+
+  async function loadChildDevices() {
+    if (!familyId || !backendConnected) {
+      setChildDevices([]);
+      return;
+    }
+
+    setIsLoadingDevices(true);
+    const result = await listChildDevices(familyId);
+    setIsLoadingDevices(false);
+
+    if (result.data) {
+      setChildDevices(result.data.devices);
+    }
+  }
+
+  async function handleGeneratePairingCode(memberId: string, memberName: string) {
+    if (!familyId || !backendConnected) {
+      setPairingFeedback("Sign in to generate a child pairing code.");
+      return;
+    }
+
+    setPairingFeedback(null);
+    setPairingMemberId(memberId);
+    const result = await createChildPairingCode(familyId, memberId);
+    setPairingMemberId(null);
+    if (!result.data) {
+      setPairingFeedback(result.error?.message ?? "Could not create a pairing code.");
+      return;
+    }
+
+    setActivePairingCodes((current) => ({
+      ...current,
+      [memberId]: {
+        code: result.data!.pairingCode,
+        expiresAt: result.data!.expiresAt,
+        memberName: result.data!.memberName || memberName
+      }
+    }));
+    setPairingFeedback(`Pairing code ready for ${memberName}. One phone per child - a new pairing replaces the old device.`);
+    void loadChildDevices();
+  }
+
+  async function handleCopyPairingCode(code: string) {
+    const result = await copyText(code);
+    setPairingFeedback(result.ok ? "Pairing code copied." : (result.message ?? "Could not copy automatically."));
+  }
+
+  async function handleRevokeChildDevice(deviceId: string) {
+    if (!familyId || !backendConnected) {
+      return;
+    }
+
+    setPairingFeedback(null);
+    const result = await revokeChildDevice(familyId, deviceId);
+    if (!result.data?.revoked) {
+      setPairingFeedback(result.error?.message ?? "Could not revoke that device.");
+      return;
+    }
+
+    setPairingFeedback("Device revoked. That phone loses access on its next check-in.");
+    void loadChildDevices();
+  }
+
+  async function handleCopyInvite() {
+    if (!inviteCode) {
+      setInviteFeedback("No invite code available yet.");
+      return;
+    }
+
+    const result = await copyText(inviteCode);
+    setInviteFeedback(result.ok ? "Adult invite code copied." : (result.message ?? "Could not copy automatically."));
   }
 
   async function handleAddChild() {
     setFormMessage(null);
-    const result = await createVirtualMember({ displayName: childName, role: "child" });
-    if (!result.ok) {
-      setFormMessage(result.message ?? "Could not add child profile.");
+    setChildFormMessage(null);
+    const trimmedName = childName.trim();
+    if (!trimmedName) {
+      setChildFormMessage("Enter a name for the child profile.");
       return;
     }
+
+    setIsAddingChild(true);
+    const result = await createVirtualMember({ displayName: trimmedName, role: "child" });
+    setIsAddingChild(false);
+    if (!result.ok) {
+      setChildFormMessage(result.message ?? "Could not add that child profile.");
+      return;
+    }
+
     setChildName("");
+    setShowAddChildForm(false);
+    setChildFormMessage(result.message ?? `${trimmedName} added.`);
   }
 
   async function handleSaveMember() {
@@ -151,7 +283,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       displayName: editingMemberName
     });
     if (!result.ok) {
-      setFormMessage(result.message ?? "Could not update child profile.");
+      setFormMessage(result.message ?? "Could not update that profile.");
       return;
     }
 
@@ -163,7 +295,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     setFormMessage(null);
     const result = await removeVirtualMember(memberId);
     if (!result.ok) {
-      setFormMessage(result.message ?? "Could not remove child profile.");
+      setFormMessage(result.message ?? "Could not remove that profile.");
       return;
     }
 
@@ -210,7 +342,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       setBillingPackages([]);
       setBillingSummaries([]);
       setBillingManagementUrl(null);
-      setBillingMessage("Only the household admin manages billing. Everyone else joins by invite code.");
+      setBillingMessage("Only the household admin manages billing. Other adults join with the adult invite code.");
       return;
     }
 
@@ -295,6 +427,42 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   }, [familyName]);
 
   useEffect(() => {
+    if (!formMessage && !saveMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setFormMessage(null);
+      if (saveMessage) {
+        useHomeThreadStore.setState({ saveMessage: "" });
+      }
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [formMessage, saveMessage]);
+
+  useEffect(() => {
+    if (!inviteFeedback) {
+      return;
+    }
+
+    const timer = setTimeout(() => setInviteFeedback(null), 3500);
+    return () => clearTimeout(timer);
+  }, [inviteFeedback]);
+
+  useEffect(() => {
+    if (!pairingFeedback) {
+      return;
+    }
+
+    const timer = setTimeout(() => setPairingFeedback(null), 4500);
+    return () => clearTimeout(timer);
+  }, [pairingFeedback]);
+
+  useEffect(() => {
+    void loadChildDevices();
+  }, [familyId, backendConnected]);
+
+  useEffect(() => {
     void loadSubscriptionStatus();
   }, [backendConnected, familyId]);
 
@@ -312,66 +480,147 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.kicker}>Household</Text>
-          <Text style={styles.title}>{familyName}</Text>
-          <Text style={styles.subtitle}>
-            {backendConnected
-              ? "Invite the second parent, manage child profiles, and keep the home organized."
-              : "Sign in to manage the household from one shared place."}
-          </Text>
-        </View>
-        <Pressable onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeLabel}>Close</Text>
-        </Pressable>
-      </View>
+      <ScreenHeader
+        eyebrow="Household"
+        title={familyName}
+        subtitle={
+          backendConnected
+            ? "Share the adult invite code, manage kids, and keep the home organized."
+            : "Sign in to manage the household from one shared place."
+        }
+        icon="home"
+        variant="admin"
+        onActionPress={onClose}
+      />
 
-      <Card>
+      <View style={styles.summaryStrip}>
         <View style={styles.summaryTop}>
-          <Pill label={isFamilyAdmin ? "Admin access" : "Member access"} tone={isFamilyAdmin ? "primary" : "neutral"} />
+          <Pill label={`${currentAccessLabel} access`} tone={accessPillTone(
+            currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
+          )} />
           <Pill label={backendConnected ? "Connected" : "Local-only"} tone={backendConnected ? "mint" : "neutral"} />
         </View>
         <View style={styles.summaryGrid}>
           <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue}>{adultMembers.length}</Text>
-            <Text style={styles.summaryLabel}>adults</Text>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {adultMembers.length}
+            </Text>
+            <Text style={styles.summaryLabel} numberOfLines={1}>
+              Adults
+            </Text>
           </View>
           <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue}>{childProfiles.length}</Text>
-            <Text style={styles.summaryLabel}>kids</Text>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {childProfiles.length}
+            </Text>
+            <Text style={styles.summaryLabel} numberOfLines={1}>
+              Kids
+            </Text>
           </View>
-          <View style={[styles.summaryStat, styles.summaryStatWide]}>
-            <Text style={styles.summaryValue}>{inviteCode ? "Ready" : "Missing"}</Text>
-            <Text style={styles.summaryLabel}>invite</Text>
+          <View style={styles.summaryStat}>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {inviteCode ? "Set" : "None"}
+            </Text>
+            <Text style={styles.summaryLabel} numberOfLines={1}>
+              Adult code
+            </Text>
           </View>
         </View>
-      </Card>
+      </View>
 
-      <SectionTitle title="Family access" />
-      <Card>
-        <Text style={styles.cardTitle}>Invite a second parent</Text>
-        <Text style={styles.cardText}>Share this code so the other adult can join the same household.</Text>
-        <Text style={styles.inviteCode}>{inviteCode ?? "Unavailable"}</Text>
-        <Text style={styles.helperText}>On the other phone: sign in first, then choose Join with code during household setup.</Text>
-        {isFamilyAdmin ? (
-          <View style={styles.cardActions}>
+      <View style={styles.inviteHero}>
+        <Text style={styles.inviteHeroTitle}>Adult invite code</Text>
+        <Text style={styles.inviteHeroText}>
+          For a second parent only. Share after they sign in. Kids never use this code.
+        </Text>
+        <Text selectable style={styles.inviteCode} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+          {inviteCode ?? "Unavailable"}
+        </Text>
+        <Text style={styles.inviteCodeHint}>
+          Their path: Welcome → Join with adult invite code → sign in → enter code.
+        </Text>
+        <View style={styles.inviteActionRow}>
+          <PrimaryButton
+            label="Copy code"
+            icon="copy"
+            tone="soft"
+            disabled={!inviteCode}
+            onPress={() => {
+              void handleCopyInvite();
+            }}
+          />
+          {isFamilyAdmin ? (
             <PrimaryButton
-              label="Regenerate code"
+              label="Regenerate"
               icon="refresh"
-              tone="soft"
-              loading={isSaving}
-              disabled={isSaving || !backendConnected}
+              loading={isRegeneratingInvite}
+              disabled={isRegeneratingInvite || !backendConnected}
               onPress={() => {
-                if (isSaving || !backendConnected) return;
+                if (isRegeneratingInvite || !backendConnected) return;
                 void handleRegenerateInvite();
               }}
             />
+          ) : null}
+        </View>
+        {inviteFeedback ? <Text style={styles.inviteFeedback}>{inviteFeedback}</Text> : null}
+        {!isFamilyAdmin ? (
+          <Text style={styles.helperTextCompact}>Only the household admin can regenerate the adult invite code.</Text>
+        ) : null}
+      </View>
+
+      <View style={styles.secondaryPanel}>
+        <Text style={styles.secondaryTitle}>Kids on this device</Text>
+        <Text style={styles.secondaryText}>
+          Add child profiles below. A signed-in parent opens Kids mode from Home and picks who is using this phone.
+        </Text>
+      </View>
+
+      <View style={styles.futurePairingPanel}>
+        <View style={styles.futurePairingHeader}>
+          <Text style={styles.futurePairingTitle}>Pair child device</Text>
+          <Pill label="KC- codes" tone="gold" icon="key" />
+        </View>
+        <Text style={styles.futurePairingText}>
+          One active phone per child. A new KC- code replaces the previous device. Revoke here to sign a phone out immediately.
+        </Text>
+        <View style={styles.futurePairingPlaceholders}>
+          <View style={styles.futurePairingSlot}>
+            <Text style={styles.futurePairingSlotLabel}>QR scan</Text>
+            <Text style={styles.futurePairingSlotValue}>Planned</Text>
           </View>
-        ) : (
-          <Text style={styles.helperText}>Only the household admin can regenerate the invite code.</Text>
-        )}
-      </Card>
+          <View style={styles.futurePairingSlot}>
+            <Text style={styles.futurePairingSlotLabel}>Paired devices</Text>
+            <Text style={styles.futurePairingSlotValue}>
+              {isLoadingDevices ? "Loading..." : `${childDevices.filter((device) => !device.revokedAt).length} active`}
+            </Text>
+          </View>
+        </View>
+        {pairingFeedback ? <Text style={styles.pairingFeedback}>{pairingFeedback}</Text> : null}
+        {childDevices.length > 0 ? (
+          <View style={styles.deviceList}>
+            {[...childDevices]
+              .sort((left, right) => Number(Boolean(left.revokedAt)) - Number(Boolean(right.revokedAt)))
+              .map((device) => (
+              <View key={device.id} style={styles.deviceRow}>
+                <View style={styles.deviceCopy}>
+                  <Text style={styles.deviceName}>{device.memberName}</Text>
+                  <Text style={styles.deviceMeta}>{formatChildDeviceStatus(device)}</Text>
+                </View>
+                {isFamilyAdmin && !device.revokedAt ? (
+                  <PrimaryButton
+                    label="Revoke"
+                    icon="close-circle"
+                    tone="ghost"
+                    onPress={() => {
+                      void handleRevokeChildDevice(device.id);
+                    }}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
 
       {isFamilyAdmin ? (
         <Card>
@@ -412,34 +661,39 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         </Card>
       ) : null}
 
-      <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
-      <ActionFeedback message={saveMessage ?? ""} tone={feedbackTone(saveMessage ?? "")} visible={Boolean(saveMessage)} />
+      <ActionFeedback
+        message={formMessage ?? saveMessage ?? ""}
+        tone={feedbackTone(formMessage ?? saveMessage ?? "")}
+        visible={Boolean(formMessage ?? saveMessage)}
+      />
 
       <SectionTitle title="Adults" action={`${adultMembers.length} total`} />
-      <View style={styles.stack}>
+      <View style={styles.memberList}>
         {adultMembers.map((member) => (
-          <Card key={member.id}>
+          <View key={member.id} style={styles.memberRow}>
             <Row>
               <MemberAvatar member={member} size={40} />
               <View style={styles.memberCopy}>
                 <Text style={styles.memberName}>{member.name}</Text>
                 <Text style={styles.memberMeta}>
-                  {roleLabel(member.role)}
-                  {member.userId ? " - signed-in account" : " - invite pending"}
+                  {roleLabel(member, familyCreatedBy)}
+                  {member.userId ? " - signed in" : " - invite pending"}
                 </Text>
               </View>
-              <Pill label={member.userId ? "Connected" : "Pending"} tone={member.userId ? "mint" : "neutral"} />
+              <View style={styles.accessPillWrap}>
+                <Pill
+                  label={getMemberAccessLabel(member, familyCreatedBy)}
+                  tone={accessPillTone(getMemberAccessKind(member, familyCreatedBy))}
+                />
+              </View>
             </Row>
-          </Card>
+          </View>
         ))}
       </View>
 
       <SectionTitle title="Child profiles" action={`${childProfiles.length} total`} />
       {isFamilyAdmin ? (
-        <Card>
-          <Text style={styles.cardTitle}>Kids mode profiles</Text>
-          <Text style={styles.cardText}>Create child profiles for chores, stars, and the kid-friendly view.</Text>
-          <Text style={styles.helperText}>Child profiles stay inside Kids mode on a signed-in household device in this build.</Text>
+        <View style={styles.addChildPanel}>
           <View style={styles.cardActions}>
             <PrimaryButton
               label={showAddChildForm ? "Hide child form" : "Add child profile"}
@@ -460,39 +714,46 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
               />
               <View style={styles.cardActions}>
                 <PrimaryButton
-                  label="Save child profile"
+                  label={isAddingChild ? "Saving..." : "Save child profile"}
                   icon="checkmark"
-                  loading={isSaving}
-                  disabled={isSaving || !backendConnected}
+                  loading={isAddingChild}
+                  disabled={isAddingChild || !backendConnected}
                   onPress={() => {
-                    if (isSaving || !backendConnected) return;
+                    if (isAddingChild || !backendConnected) return;
                     void handleAddChild();
                   }}
                 />
               </View>
+              <ActionFeedback
+                message={childFormMessage ?? ""}
+                tone={feedbackTone(childFormMessage ?? "")}
+                visible={Boolean(childFormMessage)}
+              />
             </>
           ) : null}
-        </Card>
+        </View>
       ) : null}
-      <View style={styles.stack}>
+      <View style={styles.memberList}>
         {childProfiles.length === 0 ? (
-          <Card>
+          <View style={styles.emptyRow}>
             <Text style={styles.emptyTitle}>No child profiles yet.</Text>
             <Text style={styles.emptyText}>Add the first child when you are ready to assign chores and track stars.</Text>
-          </Card>
+          </View>
         ) : null}
         {childProfiles.map((member) => (
-          <Card key={member.id}>
+          <View key={member.id} style={styles.memberRow}>
             <Row>
               <MemberAvatar member={member} size={40} />
               <View style={styles.memberCopy}>
                 <Text style={styles.memberName}>{member.name}</Text>
                 <Text style={styles.memberMeta}>
-                  {roleLabel(member.role)}
-                  {member.userId ? " - signed-in account" : " - no login"}
+                  {roleLabel(member, familyCreatedBy)}
+                  {member.userId ? " - signed-in account" : " - profile only"}
                 </Text>
               </View>
-              <Pill label="Kids mode" tone="gold" />
+              <View style={styles.accessPillWrap}>
+                <Pill label="Child profile" tone="gold" />
+              </View>
             </Row>
             {isFamilyAdmin && member.isVirtual ? (
               <View style={styles.memberActions}>
@@ -530,6 +791,16 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                 ) : (
                   <View style={styles.memberButtonRow}>
                     <PrimaryButton
+                      label={pairingMemberId === member.id ? "Generating..." : "Pair device"}
+                      icon="phone-portrait"
+                      tone="soft"
+                      loading={pairingMemberId === member.id}
+                      disabled={!backendConnected || pairingMemberId === member.id}
+                      onPress={() => {
+                        void handleGeneratePairingCode(member.id, member.name);
+                      }}
+                    />
+                    <PrimaryButton
                       label="Rename"
                       icon="create"
                       onPress={() => {
@@ -550,15 +821,38 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                     />
                   </View>
                 )}
+                {activePairingCodes[member.id] ? (
+                  <View style={styles.pairingCodeCard}>
+                    <Text style={styles.pairingCodeLabel}>Child pairing code for {member.name}</Text>
+                    <Text selectable style={styles.pairingCodeValue}>
+                      {activePairingCodes[member.id]?.code}
+                    </Text>
+                    <Text style={styles.pairingCodeHint}>
+                      Child enters this on Welcome → Set up a child's device. Pairing again replaces the old phone.
+                    </Text>
+                    <PrimaryButton
+                      label="Copy pairing code"
+                      icon="copy"
+                      tone="ghost"
+                      onPress={() => {
+                        const code = activePairingCodes[member.id]?.code;
+                        if (code) {
+                          void handleCopyPairingCode(code);
+                        }
+                      }}
+                    />
+                  </View>
+                ) : null}
               </View>
             ) : null}
-          </Card>
+          </View>
         ))}
       </View>
 
+      <SectionTitle title="Household plan" action="Billing" />
       <Card>
-        <Text style={styles.cardTitle}>Household plan</Text>
-        <Text style={styles.cardText}>One plan covers the home. The admin handles billing and everyone else joins with the invite code.</Text>
+        <Text style={styles.cardTitle}>Plan and billing</Text>
+        <Text style={styles.cardText}>One plan covers the home. The admin handles billing; other adults join with the adult invite code.</Text>
         <Text style={styles.helperText}>
           Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
           {subscriptionStatus?.subscriptionExpiresAt
@@ -677,7 +971,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       <Card>
         <Text style={styles.cardTitle}>Leave household</Text>
         <Text style={styles.cardText}>
-          Leaving removes your membership from this household. You can rejoin later with an invite code.
+          Leaving removes your membership from this household. You can rejoin later with an adult invite code.
         </Text>
         {!showLeaveConfirm ? (
           <View style={styles.cardActions}>
@@ -696,7 +990,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         ) : (
           <>
             <Text style={styles.warningText}>
-              This removes your access to the shared home until you join again with a fresh invite code.
+              This removes your access to the shared home until you join again with a fresh adult invite code.
             </Text>
             <View style={styles.memberButtonRow}>
               <PrimaryButton
@@ -772,6 +1066,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700"
   },
+  summaryStrip: {
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    gap: spacing.md,
+    paddingBottom: spacing.md
+  },
   summaryTop: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -780,26 +1080,81 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md,
-    marginTop: spacing.lg
+    gap: spacing.sm
   },
   summaryStat: {
+    alignItems: "center",
     backgroundColor: colors.canvas,
     borderColor: colors.line,
     borderRadius: radii.md,
     borderWidth: 1,
-    flexBasis: "47%",
+    flexBasis: "30%",
     flexGrow: 1,
+    minWidth: 96,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  inviteHero: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.lg
+  },
+  inviteHeroTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 24,
+    fontWeight: "700",
+    lineHeight: 30
+  },
+  inviteHeroText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20
+  },
+  secondaryPanel: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.xs,
     padding: spacing.md
   },
-  summaryStatWide: {
-    flexBasis: "100%"
+  secondaryTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  secondaryText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
+  },
+  addChildPanel: {
+    gap: spacing.sm
+  },
+  memberList: {
+    gap: spacing.xs
+  },
+  memberRow: {
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    paddingVertical: spacing.sm
+  },
+  emptyRow: {
+    gap: spacing.xs,
+    paddingVertical: spacing.sm
   },
   summaryValue: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 24,
-    fontWeight: "700"
+    fontSize: 22,
+    fontWeight: "700",
+    lineHeight: 26
   },
   summaryLabel: {
     color: colors.muted,
@@ -822,10 +1177,150 @@ const styles = StyleSheet.create({
   },
   inviteCode: {
     color: colors.ink,
-    fontSize: 28,
+    fontFamily: fonts.display,
+    fontSize: 26,
     fontWeight: "900",
-    letterSpacing: 2,
+    letterSpacing: 1.5,
+    lineHeight: 32,
+    marginTop: spacing.sm
+  },
+  inviteCodeHint: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginTop: spacing.xs
+  },
+  inviteActionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
     marginTop: spacing.md
+  },
+  inviteFeedback: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: spacing.sm
+  },
+  futurePairingPanel: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    borderStyle: "dashed",
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  futurePairingHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "space-between"
+  },
+  futurePairingTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  futurePairingText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
+  },
+  futurePairingPlaceholders: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.xs
+  },
+  futurePairingSlot: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexGrow: 1,
+    gap: 2,
+    minWidth: 128,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  futurePairingSlotLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
+  },
+  futurePairingSlotValue: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  pairingFeedback: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: spacing.sm
+  },
+  deviceList: {
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  deviceRow: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.sm
+  },
+  deviceCopy: {
+    flex: 1,
+    gap: 2
+  },
+  deviceName: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  deviceMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  pairingCodeCard: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    padding: spacing.sm
+  },
+  pairingCodeLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
+  },
+  pairingCodeValue: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: 1.2
+  },
+  pairingCodeHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18
   },
   helperText: {
     color: colors.muted,
@@ -833,6 +1328,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 19,
     marginTop: spacing.md
+  },
+  comingSoonTitle: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.sm,
+    textTransform: "uppercase"
+  },
+  comingSoonText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
   },
   helperTextCompact: {
     color: colors.tertiary,
@@ -952,7 +1460,11 @@ const styles = StyleSheet.create({
   },
   memberCopy: {
     flex: 1,
-    gap: 2
+    gap: 2,
+    minWidth: 0
+  },
+  accessPillWrap: {
+    flexShrink: 0
   },
   memberName: {
     color: colors.ink,

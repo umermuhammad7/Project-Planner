@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { Card, FieldError, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, spacing } from "../constants/theme";
@@ -23,6 +24,7 @@ export function ChoresScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [completionTone, setCompletionTone] = useState<"success" | "error" | "info">("success");
+  const [titleError, setTitleError] = useState<string | null>(null);
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
   const completedChores = useMemo(() => chores.filter((chore) => chore.completed), [chores]);
 
@@ -50,6 +52,7 @@ export function ChoresScreen() {
     const next = !showForm;
     setShowForm(next);
     setErrorMessage(null);
+    setTitleError(null);
 
     if (next) {
       setTimeout(() => scrollToOffset(120), 80);
@@ -62,11 +65,13 @@ export function ChoresScreen() {
     }
 
     if (!title.trim()) {
-      setErrorMessage("Chore title is required.");
+      setTitleError("Chore title is required.");
+      setErrorMessage(null);
       return;
     }
 
     setErrorMessage(null);
+    setTitleError(null);
     setSuccessMessage(null);
     setInfoMessage(null);
 
@@ -95,6 +100,8 @@ export function ChoresScreen() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const outcome = await completeChore(choreId);
     if (!outcome) {
+      setCompletionTone("error");
+      setCompletionMessage("Could not find that chore.");
       return;
     }
 
@@ -110,8 +117,13 @@ export function ChoresScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>Around the house</Text>
-      <Text style={styles.subtitle}>Small, visible wins with rewards kids can understand and adults can trust.</Text>
+      <ScreenHeader
+        eyebrow="Chores"
+        title="Around the house"
+        subtitle="Assign, complete, and track rewards. Due times apply to today."
+        icon="checkmark-done-circle"
+        density="compact"
+      />
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -144,20 +156,26 @@ export function ChoresScreen() {
 
       <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
       <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
-      <ActionFeedback message={completionMessage ?? ""} tone={completionTone} visible={Boolean(completionMessage)} />
       <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
       {showForm ? (
         <Card>
           <Text style={styles.formTitle}>Create chore</Text>
+          <Text style={styles.fieldLabel}>Title</Text>
           <TextInput
             accessibilityLabel="Chore title"
             placeholder="Title"
             placeholderTextColor={colors.muted}
             value={title}
-            onChangeText={setTitle}
-            style={styles.input}
+            onChangeText={(value) => {
+              setTitle(value);
+              if (titleError) {
+                setTitleError(null);
+              }
+            }}
+            style={[styles.input, titleError ? styles.inputInvalid : null]}
           />
+          <FieldError message={titleError} />
           <TimeField label="Due time for today (optional)" value={dueTime} onChange={setDueTime} placeholder="Tap to choose a time" />
           <Text style={styles.helperNote}>Pick a time if this chore should pop up later today.</Text>
           <Text style={styles.pickerLabel}>Assign to</Text>
@@ -197,11 +215,12 @@ export function ChoresScreen() {
         </Card>
       ) : null}
 
-      <SectionTitle title="Due today" />
+      <SectionTitle title="Due today" action={`${openChores.length} open`} />
+      <ActionFeedback message={completionMessage ?? ""} tone={completionTone} visible={Boolean(completionMessage)} />
       <View style={styles.stack}>
         {openChores.length > 0 ? (
           openChores.map((chore) => {
-            const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
+            const member = members.find((item) => item.id === chore.assignedTo);
             return (
               <Card key={chore.id}>
                 <Row>
@@ -212,14 +231,13 @@ export function ChoresScreen() {
                     <Text style={styles.choreTitle}>{chore.title}</Text>
                     <Text style={styles.meta}>{chore.dueLabel}</Text>
                   </View>
-                  <MemberAvatar member={member} size={34} />
+                  {member ? <MemberAvatar member={member} size={34} /> : null}
                   <Pill label={`${chore.stars} stars`} tone="gold" icon="star" />
                 </Row>
                 <View style={styles.choreActions}>
                   <PrimaryButton
                     label={isSaving ? "Saving..." : "Mark done"}
                     icon="checkmark-circle"
-                    tone="soft"
                     loading={isSaving}
                     disabled={isSaving}
                     onPress={() => {
@@ -245,21 +263,18 @@ export function ChoresScreen() {
           <SectionTitle title="Finished" action={`${completedChores.length} done`} />
           <View style={styles.stack}>
             {completedChores.map((chore) => {
-              const member = members.find((item) => item.id === chore.assignedTo) ?? members[0];
+              const member = members.find((item) => item.id === chore.assignedTo);
               return (
-                <Card key={chore.id}>
-                  <Row>
-                    <View style={[styles.check, styles.checkDone]}>
-                      <Ionicons name="checkmark" size={20} color="#FFFFFF" />
-                    </View>
-                    <View style={styles.fill}>
-                      <Text style={[styles.choreTitle, styles.doneText]}>{chore.title}</Text>
-                      <Text style={styles.meta}>{chore.dueLabel}</Text>
-                    </View>
-                    <MemberAvatar member={member} size={34} />
-                    <Pill label="Done" tone="mint" icon="checkmark" />
-                  </Row>
-                </Card>
+                <View key={chore.id} style={styles.completedRow}>
+                  <View style={[styles.check, styles.checkDone]}>
+                    <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.fill}>
+                    <Text style={[styles.choreTitle, styles.doneText]}>{chore.title}</Text>
+                    <Text style={styles.meta}>{chore.dueLabel}</Text>
+                  </View>
+                  {member ? <MemberAvatar member={member} size={30} /> : null}
+                </View>
               );
             })}
           </View>
@@ -324,7 +339,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "700",
-    marginBottom: spacing.md
+    marginBottom: spacing.sm
+  },
+  fieldLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "700"
   },
   input: {
     backgroundColor: colors.surfaceRaised,
@@ -334,7 +354,10 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 16,
     padding: spacing.md,
-    marginTop: spacing.sm
+    marginTop: spacing.xs
+  },
+  inputInvalid: {
+    borderColor: colors.coral
   },
   helperNote: {
     color: colors.muted,
@@ -360,6 +383,15 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: spacing.md
+  },
+  completedRow: {
+    alignItems: "center",
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    opacity: 0.72,
+    paddingVertical: spacing.sm
   },
   fill: {
     flex: 1

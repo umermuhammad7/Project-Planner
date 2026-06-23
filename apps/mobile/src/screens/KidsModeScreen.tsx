@@ -31,15 +31,28 @@ function previousRewardTarget(stars: number) {
   return previous ?? 0;
 }
 
-export function KidsModeScreen({ onExit }: { onExit: () => void }) {
+export function KidsModeScreen({
+  activeKidMemberId,
+  onExit
+}: {
+  activeKidMemberId: string;
+  onExit: () => void;
+}) {
   const { chores, members, events, meals, completeChore, refreshFromBackend, isSaving } =
     useHomeThreadStore();
   const [exitHintVisible, setExitHintVisible] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"success" | "error" | "info">("success");
 
-  const kidMembers = useMemo(() => members.filter((member) => member.role === "kid"), [members]);
-  const kidIds = useMemo(() => new Set(kidMembers.map((member) => member.id)), [kidMembers]);
+  const activeKid = useMemo(
+    () => members.find((member) => member.id === activeKidMemberId) ?? null,
+    [activeKidMemberId, members]
+  );
+  const kidMembers = useMemo(
+    () => (activeKid ? [activeKid] : []),
+    [activeKid]
+  );
+  const kidIds = useMemo(() => new Set([activeKidMemberId]), [activeKidMemberId]);
 
   const kidChores = useMemo(
     () => chores.filter((chore) => kidIds.has(chore.assignedTo)),
@@ -132,9 +145,11 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
       <Card>
         <View style={styles.heroPanel}>
           <View style={styles.heroCopy}>
-            <Text style={styles.greeting}>Your turn today</Text>
+            <Text style={styles.greeting}>{activeKid ? `${activeKid.name}'s turn` : "Your turn today"}</Text>
             <Text style={styles.heroNote}>Chores done, stars earned.</Text>
-            {exitHintVisible ? <Text style={styles.exitHint}>Keep holding the lock to leave kids mode.</Text> : null}
+            {exitHintVisible ? (
+              <Text style={styles.exitHint}>Keep holding the lock to leave kids mode. Parent PIN unlock is coming later.</Text>
+            ) : null}
           </View>
           <View style={styles.heroBadge}>
             <Ionicons name="star" size={22} color={colors.gold} />
@@ -153,8 +168,6 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
           </View>
         </View>
       </Card>
-
-      <ActionFeedback message={statusMessage ?? ""} tone={statusTone} visible={Boolean(statusMessage)} />
 
       <SectionTitle title="Stars" action={`${totalKidStars} total`} />
       <View style={styles.rewardStack}>
@@ -186,12 +199,13 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
           ))
         ) : (
           <Card>
-            <Text style={styles.emptyText}>No kid profiles in this family yet.</Text>
+            <Text style={styles.emptyText}>This child profile is no longer in the household.</Text>
           </Card>
         )}
       </View>
 
       <SectionTitle title="Chores to do" action={`${openKidChores.length} left`} />
+      <ActionFeedback message={statusMessage ?? ""} tone={statusTone} visible={Boolean(statusMessage)} />
       <View style={styles.choreStack}>
         {openKidChores.length > 0 ? (
           openKidChores.map((chore) => {
@@ -236,9 +250,10 @@ export function KidsModeScreen({ onExit }: { onExit: () => void }) {
           <SectionTitle title="Finished today" action={`${doneKidChores.length} done`} />
           <View style={styles.doneStack}>
             {doneKidChores.map((chore) => (
-              <Card key={chore.id}>
+              <View key={chore.id} style={styles.doneRow}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.mint} />
                 <Text style={styles.doneChoreTitle}>{chore.title}</Text>
-              </Card>
+              </View>
             ))}
           </View>
         </>
@@ -469,6 +484,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
+    minHeight: 48,
     paddingVertical: spacing.md
   },
   doneButtonPressed: {
@@ -480,7 +496,16 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   doneStack: {
-    gap: spacing.sm
+    gap: spacing.xs
+  },
+  doneRow: {
+    alignItems: "center",
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    opacity: 0.75,
+    paddingVertical: spacing.sm
   },
   doneChoreTitle: {
     color: colors.muted,

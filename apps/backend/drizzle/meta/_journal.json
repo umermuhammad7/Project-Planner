@@ -15,6 +15,13 @@
       "when": 1779963303812,
       "tag": "0001_prod_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782183695998,
+      "tag": "0002_curly_captain_america",
+      "breakpoints": true
     }
   ]
 }

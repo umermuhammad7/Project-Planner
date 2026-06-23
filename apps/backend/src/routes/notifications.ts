@@ -16,7 +16,7 @@ import { enqueueDailyDigestJob, getJobWorkerStatus } from "../jobs/boss.js";
 import { notifications } from "../db/schema.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyMember } from "../plugins/familyAccess.js";
-import { sendNotificationToFamilyMembers } from "../lib/pushNotifications.js";
+import { deliverHouseholdNotification } from "../lib/pushNotifications.js";
 
 const familyQuerySchema = z.object({
   familyId: uuidSchema
@@ -92,7 +92,7 @@ export async function notificationsRoutes(app: FastifyInstance) {
     if (!membership || reply.sent) return;
 
     const digest = await buildDailyDigest(familyId, currentUser.id);
-    const delivery = await sendNotificationToFamilyMembers({
+    const delivery = await deliverHouseholdNotification({
       familyId,
       title: digest.title,
       body: digest.body,
@@ -101,10 +101,10 @@ export async function notificationsRoutes(app: FastifyInstance) {
 
     return dailyDigestSendResponseSchema.parse({
       queued: false,
-      delivered: delivery.delivered,
-      createdNotifications: delivery.createdNotifications,
+      delivered: delivery.adultDelivered,
+      createdNotifications: delivery.adultNotificationsCreated,
       message:
-        delivery.createdNotifications > 0
+        delivery.adultNotificationsCreated > 0
           ? "Daily digest created and push delivery attempted for signed-in family members."
           : "No signed-in family members with push tokens were available for this digest."
     });

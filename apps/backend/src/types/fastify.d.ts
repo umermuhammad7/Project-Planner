@@ -6,5 +6,11 @@ declare module "fastify" {
       id: string;
       email: string;
     };
+    childDevice?: {
+      id: string;
+      familyId: string;
+      memberId: string;
+      deviceToken: string;
+    };
   }
 }

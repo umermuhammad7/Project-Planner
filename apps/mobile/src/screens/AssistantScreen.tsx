@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { ActionFeedback } from "../components/ActionFeedback";
+import { Pill, PrimaryButton } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
@@ -165,16 +167,16 @@ export function AssistantScreen() {
   ]);
   const [isThinking, setIsThinking] = useState(false);
   const [savedKind, setSavedKind] = useState<"saved" | "local" | null>(null);
-  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
+  const [draftFeedback, setDraftFeedback] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(
+    null
+  );
   const [assistantNote, setAssistantNote] = useState<string | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus | null>(null);
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
+  const [showPrompts, setShowPrompts] = useState(false);
+  const conversationRef = useRef<ScrollView | null>(null);
 
   const canSend = useMemo(() => prompt.trim().length > 0 && !isThinking, [isThinking, prompt]);
-  const latestAssistantMessage = useMemo(
-    () => [...messages].reverse().find((message) => message.role === "assistant" && message.id !== "assistant-welcome") ?? null,
-    [messages]
-  );
   const assistantContext = useMemo<AssistantContext>(() => {
     const upcomingEvents = [...events]
       .sort(compareEventsByStartAt)
@@ -248,6 +250,22 @@ export function AssistantScreen() {
     };
   }, [syncSource]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      conversationRef.current?.scrollToEnd({ animated: true });
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [isThinking, messages, draft, mealSuggestions]);
+
+  useEffect(() => {
+    if (!draftFeedback) {
+      return;
+    }
+
+    const timer = setTimeout(() => setDraftFeedback(null), draftFeedback.tone === "error" ? 5000 : 4000);
+    return () => clearTimeout(timer);
+  }, [draftFeedback]);
+
   async function runAssistant(messageText: string, intent?: AssistantIntent) {
     const trimmed = messageText.trim();
     if (!trimmed) {
@@ -255,7 +273,7 @@ export function AssistantScreen() {
     }
 
     setSavedKind(null);
-    setDraftSaveError(null);
+    setDraftFeedback(null);
     setAssistantNote(null);
     setDraft(null);
     setMealSuggestions(null);
@@ -415,73 +433,24 @@ export function AssistantScreen() {
   }
 
   return (
-    <View>
-      <Text style={styles.title}>Assistant</Text>
-      <Text style={styles.subtitle}>Draft plans, lists, chores, and meals. Nothing saves until you approve.</Text>
+    <View style={styles.screen}>
+      <ScreenHeader
+        eyebrow="Assistant"
+        title="Ask HomeThread"
+        subtitle="Draft ideas here. Nothing saves until you approve."
+        icon="sparkles"
+        badgeLabel={syncSource === "api" ? (assistantStatus?.configured ? "Cloud AI" : "Local draft") : "Preview"}
+        badgeTone={syncSource === "api" ? (assistantStatus?.configured ? "mint" : "gold") : "neutral"}
+        density="compact"
+      />
 
-      <Card>
-        <View style={styles.guardrailTop}>
-          <Pill
-            label={
-              syncSource !== "api"
-                ? "Preview mode"
-                : assistantStatus?.configured
-                  ? "Cloud AI"
-                  : "Text parser"
-            }
-            tone={syncSource !== "api" ? "neutral" : assistantStatus?.configured ? "mint" : "gold"}
-            icon={syncSource !== "api" ? "information-circle" : "sparkles"}
-          />
-          <Pill label="You approve saves" tone="neutral" icon="shield-checkmark" />
-        </View>
-        {assistantStatusMessage ? <Text style={styles.statusNote}>{assistantStatusMessage}</Text> : null}
-        <TextInput
-          accessibilityLabel="Assistant message"
-          multiline
-          onChangeText={setPrompt}
-          placeholder="Paste family text or ask for help"
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-          value={prompt}
-        />
-        <View style={styles.sendRow}>
-          <PrimaryButton
-            label={isThinking ? "Thinking..." : "Ask assistant"}
-            icon="sparkles"
-            disabled={!canSend}
-            onPress={() => {
-              if (!canSend) return;
-              void runAssistant(prompt, "general");
-            }}
-          />
-        </View>
-        {latestAssistantMessage ? (
-          <View style={styles.latestReplyCard}>
-            <Text style={styles.latestReplyLabel}>Latest reply</Text>
-            <Text style={styles.latestReplyText}>{latestAssistantMessage.body}</Text>
-          </View>
-        ) : null}
-      </Card>
-
-      <SectionTitle title="Quick prompts" />
-      <View style={styles.promptRow}>
-        {quickPrompts.map((entry) => (
-          <Pressable
-            key={entry.label}
-            accessibilityRole="button"
-            onPress={() => {
-              setPrompt(entry.text);
-              void runAssistant(entry.text, entry.intent);
-            }}
-          >
-            <Pill label={entry.label} tone="neutral" />
-          </Pressable>
-        ))}
-      </View>
-
-      <SectionTitle title="Conversation" />
-      <Card>
-        <View style={styles.chatStack}>
+      <View style={styles.surface}>
+        <ScrollView
+          ref={conversationRef}
+          showsVerticalScrollIndicator={false}
+          style={styles.conversationScroll}
+          contentContainerStyle={styles.conversationContent}
+        >
           {messages.map((message) => (
             <View
               key={message.id}
@@ -500,31 +469,26 @@ export function AssistantScreen() {
               <Text style={styles.assistantBubbleText}>Thinking...</Text>
             </View>
           ) : null}
-        </View>
-      </Card>
 
-      {mealSuggestions && mealSuggestions.length > 0 ? (
-        <>
-          <SectionTitle title="Meal suggestions" />
-          <View style={styles.suggestionStack}>
-            {mealSuggestions.map((suggestion) => {
-              const key = mealSuggestionKey(suggestion);
-              const added = savedMealKeys.includes(key);
+          {mealSuggestions && mealSuggestions.length > 0 ? (
+            <View style={styles.resultBlock}>
+              <Text style={styles.resultLabel}>Meal suggestions</Text>
+              {mealSuggestions.map((suggestion) => {
+                const key = mealSuggestionKey(suggestion);
+                const added = savedMealKeys.includes(key);
 
-              return (
-                <Card key={key}>
-                  <View style={styles.suggestionTop}>
-                    <Pill label="Suggested meal" tone="mint" icon="sparkles" />
-                    <Pill label={dayLabels[suggestion.dayOfWeek] ?? "Day"} tone="primary" />
-                    <Pill label={suggestion.mealType} tone="neutral" />
-                  </View>
-                  <Text style={styles.draftTitle}>{suggestion.title}</Text>
-                  {suggestion.notes ? <Text style={styles.meta}>{suggestion.notes}</Text> : null}
-                  <Text style={styles.reviewNote}>Review before adding to meals.</Text>
-                  <View style={styles.saveRow}>
+                return (
+                  <View key={key} style={styles.resultCard}>
+                    <View style={styles.resultTop}>
+                      <Pill label={dayLabels[suggestion.dayOfWeek] ?? "Day"} tone="primary" />
+                      <Pill label={suggestion.mealType} tone="neutral" />
+                    </View>
+                    <Text style={styles.resultTitle}>{suggestion.title}</Text>
+                    {suggestion.notes ? <Text style={styles.resultMeta}>{suggestion.notes}</Text> : null}
                     <PrimaryButton
                       label={added ? "Added to meals" : isSaving ? "Saving..." : "Add to meals"}
                       icon={added ? "checkmark" : "restaurant"}
+                      tone={added ? "ghost" : "soft"}
                       onPress={() => {
                         if (added || isSaving) {
                           return;
@@ -538,79 +502,138 @@ export function AssistantScreen() {
                         }).then((outcome) => {
                           if (outcome.ok) {
                             setSavedMealKeys((current) => [...current, key]);
+                            setDraftFeedback({ message: "Meal added to your plan.", tone: "success" });
+                            return;
                           }
+
+                          setDraftFeedback({
+                            message: outcome.message ?? "Could not add that meal.",
+                            tone: "error"
+                          });
                         });
                       }}
                     />
                   </View>
-                </Card>
-              );
-            })}
-          </View>
-          {assistantNote ? <Text style={styles.note}>{assistantNote}</Text> : null}
-          <Text style={styles.saveStatus}>{saveMessage}</Text>
-        </>
-      ) : null}
-
-      {draft ? (
-        <>
-          <SectionTitle title="Draft to save" />
-          <Card>
-            <View style={styles.draftTop}>
-              <Pill label="Suggested draft" tone="mint" icon="sparkles" />
-              <Pill
-                label={draft.kind}
-                tone={draft.kind === "event" ? "primary" : draft.kind === "chore" ? "gold" : "mint"}
-              />
-              <Text style={styles.confidence}>{Math.round(draft.confidence * 100)}%</Text>
+                );
+              })}
+              {assistantNote ? <Text style={styles.resultNote}>{assistantNote}</Text> : null}
+              {saveMessage ? <Text style={styles.saveStatus}>{saveMessage}</Text> : null}
             </View>
-            <Text style={styles.draftTitle}>{draft.title}</Text>
-            <Text style={styles.meta}>{draft.detail}</Text>
-            <Text style={styles.reviewNote}>Review before saving.</Text>
-            {assistantNote ? <Text style={styles.note}>{assistantNote}</Text> : null}
-            {draftSaveError ? <Text style={styles.note}>{draftSaveError}</Text> : null}
-            <Text style={styles.saveStatus}>
-              {isSaving
-                ? "Saving..."
-                : savedKind === "saved"
-                  ? "Saved to your household."
-                  : savedKind === "local"
-                    ? "Saved on this device only. Pull to refresh when the connection is steady."
-                    : saveMessage}
-            </Text>
-            <View style={styles.saveRow}>
-              <PrimaryButton
-                label={
-                  isSaving
+          ) : null}
+
+          {draft ? (
+            <View style={styles.resultBlock}>
+              <Text style={styles.resultLabel}>Draft to review</Text>
+              <View style={styles.resultCard}>
+                <View style={styles.resultTop}>
+                  <Pill label="Suggested draft" tone="mint" icon="sparkles" />
+                  <Pill
+                    label={draft.kind}
+                    tone={draft.kind === "event" ? "primary" : draft.kind === "chore" ? "gold" : "mint"}
+                  />
+                  <Text style={styles.confidence}>{Math.round(draft.confidence * 100)}%</Text>
+                </View>
+                <Text style={styles.resultTitle}>{draft.title}</Text>
+                <Text style={styles.resultMeta}>{draft.detail}</Text>
+                {assistantNote ? <Text style={styles.resultNote}>{assistantNote}</Text> : null}
+                <ActionFeedback
+                  message={draftFeedback?.message ?? ""}
+                  tone={draftFeedback?.tone ?? "success"}
+                  visible={Boolean(draftFeedback?.message)}
+                />
+                <Text style={styles.saveStatus}>
+                  {isSaving
                     ? "Saving..."
                     : savedKind === "saved"
-                      ? "Saved"
+                      ? "Saved to your household."
                       : savedKind === "local"
-                        ? "Saved locally"
-                        : "Save to HomeThread"
-                }
-                icon={
-                  isSaving ? "sync" : savedKind === "saved" || savedKind === "local" ? "checkmark" : "add"
-                }
-                disabled={isSaving || savedKind !== null}
-                onPress={() => {
-                  if (isSaving || savedKind !== null) return;
-                  void commitDraft(draft).then((outcome) => {
-                    if (outcome.kind === "failed") {
-                      setDraftSaveError(outcome.message);
-                      setSavedKind(null);
-                      return;
-                    }
+                        ? "Saved on this device only. Pull to refresh when the connection is steady."
+                        : saveMessage}
+                </Text>
+                <PrimaryButton
+                  label={
+                    isSaving
+                      ? "Saving..."
+                      : savedKind === "saved"
+                        ? "Saved"
+                        : savedKind === "local"
+                          ? "Saved locally"
+                          : "Save to HomeThread"
+                  }
+                  icon={
+                    isSaving ? "sync" : savedKind === "saved" || savedKind === "local" ? "checkmark" : "add"
+                  }
+                  disabled={isSaving || savedKind !== null}
+                  onPress={() => {
+                    if (isSaving || savedKind !== null) return;
+                    void commitDraft(draft).then((outcome) => {
+                      if (outcome.kind === "failed") {
+                        setDraftFeedback({ message: outcome.message, tone: "error" });
+                        setSavedKind(null);
+                        return;
+                      }
 
-                    setDraftSaveError(null);
-                    setSavedKind(outcome.kind === "local" ? "local" : "saved");
-                  });
-                }}
-              />
+                      setDraftFeedback({
+                        message:
+                          outcome.kind === "local"
+                            ? "Saved on this device only. Pull to refresh when the connection is steady."
+                            : "Saved to your household.",
+                        tone: outcome.kind === "local" ? "info" : "success"
+                      });
+                      setSavedKind(outcome.kind === "local" ? "local" : "saved");
+                    });
+                  }}
+                />
+              </View>
             </View>
-          </Card>
-        </>
-      ) : null}
+          ) : null}
+        </ScrollView>
+
+        <View style={styles.composer}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setShowPrompts((value) => !value)}
+            style={styles.promptToggle}
+          >
+            <Text style={styles.promptToggleLabel}>{showPrompts ? "Hide suggestions" : "Try a suggestion"}</Text>
+          </Pressable>
+          {showPrompts ? (
+            <View style={styles.promptRow}>
+              {quickPrompts.map((entry) => (
+                <Pressable
+                  key={entry.label}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setPrompt(entry.text);
+                    void runAssistant(entry.text, entry.intent);
+                  }}
+                >
+                  <Pill label={entry.label} tone="neutral" />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          <TextInput
+            accessibilityLabel="Assistant message"
+            multiline
+            onChangeText={setPrompt}
+            placeholder="Paste family text or ask for help"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={prompt}
+          />
+          <PrimaryButton
+            label={isThinking ? "Thinking..." : "Ask assistant"}
+            icon="sparkles"
+            disabled={!canSend}
+            onPress={() => {
+              if (!canSend) return;
+              void runAssistant(prompt, "general");
+            }}
+          />
+          {assistantStatusMessage ? <Text style={styles.statusNote}>{assistantStatusMessage}</Text> : null}
+        </View>
+      </View>
     </View>
   );
 }
@@ -639,55 +662,22 @@ function buildLocalDaySummary(context: AssistantContext) {
 }
 
 const styles = StyleSheet.create({
-  title: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: 0,
-    lineHeight: 40
+  screen: {
+    gap: spacing.md
   },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22,
-    marginTop: spacing.sm
+  surface: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    overflow: "hidden"
   },
-  guardrailTop: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
+  conversationScroll: {
+    maxHeight: 520
   },
-  guardrailTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700",
-    lineHeight: 22,
-    marginTop: spacing.md
-  },
-  guardrailText: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: spacing.sm
-  },
-  statusNote: {
-    color: colors.tertiary,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19,
-    marginTop: spacing.md
-  },
-  promptRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  chatStack: {
-    gap: spacing.sm
+  conversationContent: {
+    gap: spacing.sm,
+    padding: spacing.md
   },
   bubble: {
     borderRadius: radii.md,
@@ -716,96 +706,98 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20
   },
-  input: {
-    backgroundColor: colors.surfaceRaised,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    color: colors.ink,
-    fontSize: 16,
-    marginTop: spacing.md,
-    minHeight: 88,
-    padding: spacing.md,
-    textAlignVertical: "top"
+  resultBlock: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm
   },
-  sendRow: {
-    marginTop: spacing.md
+  resultLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
   },
-  latestReplyCard: {
+  resultCard: {
     backgroundColor: colors.canvas,
     borderColor: colors.line,
     borderRadius: radii.md,
     borderWidth: 1,
     gap: spacing.sm,
-    marginTop: spacing.md,
     padding: spacing.md
   },
-  latestReplyLabel: {
-    color: colors.tertiary,
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase"
-  },
-  latestReplyText: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
-  },
-  draftTop: {
+  resultTop: {
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.lg
+    gap: spacing.sm
+  },
+  resultTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 24
+  },
+  resultMeta: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20
+  },
+  resultNote: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
   },
   confidence: {
     color: colors.muted,
     fontSize: 13,
     fontWeight: "900"
   },
-  draftTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 24,
-    fontWeight: "700",
-    lineHeight: 27
-  },
-  meta: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "700",
-    marginTop: spacing.sm
-  },
-  note: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.md
-  },
-  reviewNote: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 18,
-    marginTop: spacing.md
-  },
   saveStatus: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.md
+    fontWeight: "700"
   },
-  saveRow: {
-    marginTop: spacing.lg
+  composer: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.line,
+    borderTopWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md
   },
-  suggestionStack: {
-    gap: spacing.md
+  promptToggle: {
+    alignSelf: "flex-start",
+    minHeight: 32,
+    justifyContent: "center"
   },
-  suggestionTop: {
+  promptToggleLabel: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  promptRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.md
+    gap: spacing.sm
+  },
+  input: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 16,
+    minHeight: 72,
+    padding: spacing.md,
+    textAlignVertical: "top"
+  },
+  statusNote: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
   }
 });

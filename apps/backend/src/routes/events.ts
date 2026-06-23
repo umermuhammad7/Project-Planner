@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { db } from "../db/client.js";
 import { eventMembers, events } from "../db/schema.js";
+import { cancelEventReminderSchedule, syncEventReminderSchedule } from "../lib/reminderScheduling.js";
 import { getTravelReminderRecommendation } from "../lib/travelReminder.js";
 import { requireAuth } from "../plugins/auth.js";
 import { ensureFamilyMemberIds, requireFamilyMember } from "../plugins/familyAccess.js";
@@ -118,6 +119,14 @@ export async function eventsRoutes(app: FastifyInstance) {
       }
 
       return event;
+    });
+
+    await syncEventReminderSchedule({
+      id: result.id,
+      familyId: result.familyId,
+      startAt: result.startAt,
+      locationLat: result.locationLat,
+      locationLng: result.locationLng
     });
 
     return reply.status(201).send({ event: result });
@@ -251,6 +260,14 @@ export async function eventsRoutes(app: FastifyInstance) {
       }
     }
 
+    await syncEventReminderSchedule({
+      id: event.id,
+      familyId: event.familyId,
+      startAt: event.startAt,
+      locationLat: event.locationLat,
+      locationLng: event.locationLng
+    });
+
     return { event };
   });
 
@@ -279,6 +296,7 @@ export async function eventsRoutes(app: FastifyInstance) {
       });
     }
 
+    await cancelEventReminderSchedule(familyId, eventId);
     await db.delete(events).where(and(eq(events.familyId, familyId), eq(events.id, eventId)));
     return { deleted: true };
   });

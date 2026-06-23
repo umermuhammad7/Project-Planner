@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Keyboard, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { Card, FieldError, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
@@ -35,6 +36,9 @@ export function ListsScreen() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [listTitleError, setListTitleError] = useState<string | null>(null);
+  const [itemTitleError, setItemTitleError] = useState<string | null>(null);
+  const [showCreateListForm, setShowCreateListForm] = useState(false);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const checkedCount = shoppingItems.filter((item) => item.checked).length;
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
@@ -68,6 +72,12 @@ export function ListsScreen() {
     const timer = setTimeout(() => setErrorMessage(null), 5000);
     return () => clearTimeout(timer);
   }, [errorMessage]);
+
+  useEffect(() => {
+    if (lists.length === 0) {
+      setShowCreateListForm(true);
+    }
+  }, [lists.length]);
 
   function clearFeedback() {
     setSuccessMessage(null);
@@ -105,12 +115,14 @@ export function ListsScreen() {
     }
 
     if (!newListTitle.trim()) {
-      setErrorMessage("List name is required.");
+      setListTitleError("List name is required.");
+      setErrorMessage(null);
       setSuccessMessage(null);
       setInfoMessage(null);
       return;
     }
 
+    setListTitleError(null);
     clearFeedback();
     const outcome = await createList({ title: newListTitle, type: newListType });
     applyOutcome(outcome, () => {
@@ -118,6 +130,7 @@ export function ListsScreen() {
       scrollToTop();
       setNewListTitle("");
       setNewListType("grocery");
+      setShowCreateListForm(false);
     });
   }
 
@@ -127,12 +140,14 @@ export function ListsScreen() {
     }
 
     if (!newItem.trim()) {
-      setErrorMessage("Item name is required.");
+      setItemTitleError("Item name is required.");
+      setErrorMessage(null);
       setSuccessMessage(null);
       setInfoMessage(null);
       return;
     }
 
+    setItemTitleError(null);
     clearFeedback();
     const savedTitle = newItem.trim();
     const outcome = await createShoppingItem({ title: savedTitle });
@@ -170,8 +185,13 @@ export function ListsScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>Shared lists</Text>
-      <Text style={styles.subtitle}>Groceries and errands that survive the jump between the app, the store, and family texts.</Text>
+      <ScreenHeader
+        eyebrow="Lists"
+        title="Shared lists"
+        subtitle="Groceries, errands, and packing in one place."
+        icon="list"
+        density="compact"
+      />
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -209,99 +229,30 @@ export function ListsScreen() {
       <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
       <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
-      <Card>
-        <Text style={styles.formTitle}>Create list</Text>
-        <TextInput
-          accessibilityLabel="New list title"
-          placeholder="e.g. Camping weekend"
-          placeholderTextColor={colors.muted}
-          value={newListTitle}
-          onChangeText={setNewListTitle}
-          style={styles.input}
-          returnKeyType="done"
-          onSubmitEditing={() => {
-            void handleCreateList();
-          }}
-        />
-        <Text style={styles.pickerLabel}>Type</Text>
-        <View style={styles.pickerRow}>
-          {(["grocery", "todo", "packing", "custom"] as const).map((type) => {
-            const selected = type === newListType;
-            return (
-              <Pressable
-                key={type}
-                accessibilityRole="button"
-                accessibilityLabel={`${selected ? "Selected" : "Select"} ${type} list type`}
-                onPress={() => setNewListType(type)}
-              >
-                <Pill label={type === "todo" ? "to-do" : type} tone={selected ? "primary" : "neutral"} />
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={styles.formActions}>
-          <PrimaryButton
-            label={isSaving ? "Creating..." : "Create list"}
-            icon="add-circle"
-            loading={isSaving}
-            disabled={isSaving}
-            onPress={() => {
-              void handleCreateList();
-            }}
-          />
-        </View>
-      </Card>
-
-      {lists.length > 0 ? (
-        <>
-          <Card>
-            <Text style={styles.formTitle}>{activeList ? activeList.title : "Shared list"}</Text>
-            <Text style={styles.cardHint}>
-              {shoppingItems.length} items visible, {checkedCount} checked off. Keep the quick-add box live so the list stays useful in the aisle.
-            </Text>
-          </Card>
-          <Text style={styles.pickerLabel}>List</Text>
-          <View style={styles.pickerRow}>
-            {lists.map((list) => {
-              const selected = list.id === selectedListId;
-              return (
-                <Pressable
-                  key={list.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${selected ? "Selected" : "Select"} ${list.title} list`}
-                  onPress={() => selectList(list.id)}
-                >
-                  <Pill label={list.title} tone={selected ? "primary" : "neutral"} />
-                </Pressable>
-              );
-            })}
-          </View>
-          {activeList ? (
-            <Text style={styles.listHint}>
-              {activeList.type === "grocery" ? "Grocery list" : activeList.type} - {shoppingItems.length} items shown
-            </Text>
-          ) : null}
-        </>
-      ) : null}
-
       {activeList ? (
         <Card>
-          <Text style={styles.formTitle}>Add item to {activeList.title}</Text>
+          <Text style={styles.formTitle}>Add to {activeList.title}</Text>
           <TextInput
             accessibilityLabel="New list item"
             placeholder="e.g. Oat milk"
             placeholderTextColor={colors.muted}
             value={newItem}
-            onChangeText={setNewItem}
-            style={styles.input}
+            onChangeText={(value) => {
+              setNewItem(value);
+              if (itemTitleError) {
+                setItemTitleError(null);
+              }
+            }}
+            style={[styles.input, itemTitleError ? styles.inputInvalid : null]}
             returnKeyType="done"
             onSubmitEditing={() => {
               void handleAddItem();
             }}
           />
+          <FieldError message={itemTitleError} />
           <View style={styles.formActions}>
             <PrimaryButton
-              label={isSaving ? "Adding..." : "Add"}
+              label={isSaving ? "Adding..." : "Add item"}
               icon="add"
               loading={isSaving}
               disabled={isSaving}
@@ -319,6 +270,31 @@ export function ListsScreen() {
           </Text>
         </Card>
       )}
+
+      {lists.length > 0 ? (
+        <>
+          <SectionTitle
+            title={activeList ? activeList.title : "Shared list"}
+            action={`${shoppingItems.length} items · ${checkedCount} checked`}
+          />
+          <Text style={styles.pickerLabel}>Switch list</Text>
+          <View style={styles.pickerRow}>
+            {lists.map((list) => {
+              const selected = list.id === selectedListId;
+              return (
+                <Pressable
+                  key={list.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${selected ? "Selected" : "Select"} ${list.title} list`}
+                  onPress={() => selectList(list.id)}
+                >
+                  <Pill label={list.title} tone={selected ? "primary" : "neutral"} />
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
 
       {Object.entries(grouped).map(([category, items]) => (
         <View key={category}>
@@ -362,6 +338,68 @@ export function ListsScreen() {
           </Text>
         </Card>
       ) : null}
+
+      {lists.length > 0 ? (
+        <PrimaryButton
+          label={showCreateListForm ? "Hide new list form" : "Create another list"}
+          icon={showCreateListForm ? "chevron-up" : "add-circle"}
+          tone="ghost"
+          onPress={() => setShowCreateListForm((value) => !value)}
+        />
+      ) : null}
+
+      {showCreateListForm || lists.length === 0 ? (
+      <View style={styles.createListShell}>
+      <Card>
+        <Text style={styles.formTitle}>{lists.length === 0 ? "Create list" : "New list"}</Text>
+        <TextInput
+          accessibilityLabel="New list title"
+          placeholder="e.g. Camping weekend"
+          placeholderTextColor={colors.muted}
+          value={newListTitle}
+          onChangeText={(value) => {
+            setNewListTitle(value);
+            if (listTitleError) {
+              setListTitleError(null);
+            }
+          }}
+          style={[styles.input, listTitleError ? styles.inputInvalid : null]}
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            void handleCreateList();
+          }}
+        />
+        <FieldError message={listTitleError} />
+        <Text style={styles.pickerLabel}>Type</Text>
+        <View style={styles.pickerRow}>
+          {(["grocery", "todo", "packing", "custom"] as const).map((type) => {
+            const selected = type === newListType;
+            return (
+              <Pressable
+                key={type}
+                accessibilityRole="button"
+                accessibilityLabel={`${selected ? "Selected" : "Select"} ${type} list type`}
+                onPress={() => setNewListType(type)}
+              >
+                <Pill label={type === "todo" ? "to-do" : type} tone={selected ? "primary" : "neutral"} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.formActions}>
+          <PrimaryButton
+            label={isSaving ? "Creating..." : "Create list"}
+            icon="add-circle"
+            loading={isSaving}
+            disabled={isSaving}
+            onPress={() => {
+              void handleCreateList();
+            }}
+          />
+        </View>
+      </Card>
+      </View>
+      ) : null}
     </View>
   );
 }
@@ -394,6 +432,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: spacing.md
   },
+  createListShell: {
+    marginBottom: spacing.xl
+  },
   input: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.lineStrong,
@@ -403,6 +444,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     padding: spacing.md,
     marginTop: spacing.sm
+  },
+  inputInvalid: {
+    borderColor: colors.coral
   },
   formActions: {
     marginTop: spacing.lg

@@ -20,7 +20,7 @@ export function saveWidgetSnapshot(snapshot: WidgetSnapshot) {
   try {
     localStorage.setItem(storageKey, JSON.stringify(snapshot));
   } catch {
-    // No native widget extension reads this yet — snapshot is best-effort for future widget work.
+    // No native widget extension reads this yet - snapshot is best-effort for future widget work.
   }
 }
 

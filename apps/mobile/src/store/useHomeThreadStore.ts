@@ -62,6 +62,7 @@ function buildSignedOutHomeState(): Pick<
   | "listItemsByListId"
   | "familyName"
   | "inviteCode"
+  | "familyCreatedBy"
   | "isFamilyAdmin"
   | "members"
   | "events"
@@ -93,6 +94,7 @@ function buildSignedOutHomeState(): Pick<
     listItemsByListId: {},
     familyName: "HomeThread",
     inviteCode: null,
+    familyCreatedBy: null,
     isFamilyAdmin: false,
     members: [],
     events: [],
@@ -130,6 +132,7 @@ function buildAuthenticatedHydrateFailureShell(
   | "listItemsByListId"
   | "familyName"
   | "inviteCode"
+  | "familyCreatedBy"
   | "isFamilyAdmin"
   | "members"
   | "events"
@@ -157,6 +160,7 @@ function buildAuthenticatedHydrateFailureShell(
     listItemsByListId: {},
     familyName: "HomeThread",
     inviteCode: null,
+    familyCreatedBy: null,
     isFamilyAdmin: false,
     members: [],
     events: [],
@@ -250,6 +254,7 @@ type HomeThreadState = {
   listItemsByListId: Record<string, ShoppingItem[]>;
   familyName: string;
   inviteCode: string | null;
+  familyCreatedBy: string | null;
   isFamilyAdmin: boolean;
   members: FamilyMember[];
   events: PlanEvent[];
@@ -345,6 +350,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   listItemsByListId: initialMockListItemsByListId,
   familyName: "The Parker Home",
   inviteCode: null,
+  familyCreatedBy: null,
   isFamilyAdmin: false,
   members: initialMembers,
   events: initialEvents,
@@ -380,6 +386,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         listItemsByListId: {},
         familyName: "HomeThread",
         inviteCode: null,
+        familyCreatedBy: null,
         isFamilyAdmin: false,
         members: [],
         events: [],
@@ -501,6 +508,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       listItemsByListId,
       familyName: familyResult.data.family.name,
       inviteCode: familyResult.data.family.inviteCode,
+      familyCreatedBy: familyResult.data.family.createdBy ?? null,
       isFamilyAdmin: currentMember?.role === "admin",
       members: familyResult.data.members.map(mapMember),
       events: mappedEvents,
@@ -668,6 +676,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       listItemsByListId: {},
       familyName: "HomeThread",
       inviteCode: null,
+      familyCreatedBy: null,
       isFamilyAdmin: false,
         members: [],
         events: [],
@@ -732,11 +741,16 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       };
     }
 
-    await get().refreshFromBackend();
+    const successMessage =
+      role === "child"
+        ? `${trimmedName} added as a child profile. Open Kids mode from Home when you're ready.`
+        : `${trimmedName} added to your household.`;
+
     set({
       isSaving: false,
-      saveMessage: `${trimmedName} added to your household.`
+      saveMessage: successMessage
     });
+    void get().refreshFromBackend();
     return { ok: true };
   },
   updateVirtualMember: async ({ memberId, displayName }) => {
@@ -782,11 +796,11 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       };
     }
 
-    await get().refreshFromBackend();
     set({
       isSaving: false,
       saveMessage: `${trimmedName} updated.`
     });
+    void get().refreshFromBackend();
     return { ok: true };
   },
   removeVirtualMember: async (memberId) => {
@@ -822,11 +836,11 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       };
     }
 
-    await get().refreshFromBackend();
     set({
       isSaving: false,
       saveMessage: `${member.name} removed from your household.`
     });
+    void get().refreshFromBackend();
     return { ok: true };
   },
   createEvent: async ({ title, location, startDate, startTime, memberIds: rawMemberIds }) => {
@@ -2072,23 +2086,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }));
     return outcome;
   },
-  importText: (body) => {
-    const draft = parseFamilyText(body);
-    set((state) => ({
-      textUpdates: [
-        {
-          id: `text-${Date.now()}`,
-          direction: "inbound",
-          author: "Pasted text",
-          body,
-          createdAt: "Now",
-          convertedTo: draft.kind
-        },
-        ...state.textUpdates
-      ]
-    }));
-    return draft;
-  },
+  importText: (body) => parseFamilyText(body),
   commitDraft: async (draft) => {
     set({
       isSaving: true,
@@ -2100,7 +2098,24 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (persisted) {
       const applied = applyPersistedDraft(state, persisted, draft.kind);
-      set((current) => ({ ...current, ...applied }));
+      set((current) => ({
+        ...current,
+        ...applied,
+        isSaving: false,
+        textUpdates: draft.rawText
+          ? [
+              {
+                id: `text-${Date.now()}`,
+                direction: "inbound",
+                author: "Pasted text",
+                body: draft.rawText,
+                createdAt: "Now",
+                convertedTo: draft.kind
+              },
+              ...current.textUpdates
+            ]
+          : current.textUpdates
+      }));
       return makeSaveOutcome("saved", applied.saveMessage ?? "Saved to household.");
     }
 
@@ -2112,7 +2127,20 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     set((current) => ({
       ...applyLocalDraft(current, draft),
       isSaving: false,
-      saveMessage: localMessage
+      saveMessage: localMessage,
+      textUpdates: draft.rawText
+        ? [
+            {
+              id: `text-${Date.now()}`,
+              direction: "inbound",
+              author: "Pasted text",
+              body: draft.rawText,
+              createdAt: "Now",
+              convertedTo: draft.kind
+            },
+            ...current.textUpdates
+          ]
+        : current.textUpdates
     }));
     return makeSaveOutcome("local", localMessage);
   },
@@ -2152,6 +2180,7 @@ type BackendFamilyResponse = {
     id: string;
     name: string;
     inviteCode: string;
+    createdBy?: string;
   };
   members: BackendMemberRecord[];
 };

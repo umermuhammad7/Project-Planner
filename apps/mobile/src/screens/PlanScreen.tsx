@@ -3,7 +3,8 @@ import { Alert, Animated, LayoutAnimation, Platform, Pressable, StyleSheet, Text
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { DateField } from "../components/DateField";
-import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { Card, FieldError, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, spacing } from "../constants/theme";
@@ -32,6 +33,7 @@ export function PlanScreen() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [titleError, setTitleError] = useState<string | null>(null);
   const formOpacity = useRef(new Animated.Value(0)).current;
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
@@ -91,6 +93,7 @@ export function PlanScreen() {
     setStartTime("");
     setMemberIds([]);
     setEditingEventId(null);
+    setTitleError(null);
   }
 
   function populateForm(event: (typeof sortedEvents)[number]) {
@@ -102,6 +105,7 @@ export function PlanScreen() {
     setMemberIds(event.assignedTo);
     setEditingEventId(event.id);
     setErrorMessage(null);
+    setTitleError(null);
     setSuccessMessage(null);
     setInfoMessage(null);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -114,6 +118,7 @@ export function PlanScreen() {
     const next = !showForm;
     setShowForm(next);
     setErrorMessage(null);
+    setTitleError(null);
     if (!next) {
       resetForm();
     }
@@ -131,9 +136,10 @@ export function PlanScreen() {
     setErrorMessage(null);
     setSuccessMessage(null);
     setInfoMessage(null);
+    setTitleError(null);
 
     if (!title.trim()) {
-      setErrorMessage("Event title is required.");
+      setTitleError("Event title is required.");
       return;
     }
 
@@ -142,12 +148,13 @@ export function PlanScreen() {
       : await createEvent({ title, location, startDate, startTime, memberIds });
     if (outcome.kind === "saved") {
       const savedTitle = title.trim();
+      const wasEditing = Boolean(editingEventId);
       resetForm();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setShowForm(false);
       scrollToTop();
       setSuccessMessage(
-        editingEventId ? `"${savedTitle}" was updated.` : `"${savedTitle}" is now on the family plan.`
+        wasEditing ? `"${savedTitle}" was updated.` : `"${savedTitle}" is now on the family plan.`
       );
       return;
     }
@@ -228,10 +235,15 @@ export function PlanScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>This week</Text>
-      <Text style={styles.subtitle}>
-        Plans you add here are saved to your household and stay visible for everyone signed in to HomeThread.
-      </Text>
+      <ScreenHeader
+        eyebrow="Plan"
+        title="This week"
+        subtitle="Add and edit plans for the household."
+        icon="calendar-clear"
+        badgeLabel={`${upcomingCount} upcoming`}
+        badgeTone={upcomingCount > 0 ? "mint" : "neutral"}
+        density="compact"
+      />
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -251,37 +263,34 @@ export function PlanScreen() {
         />
       </View>
 
-      <View style={styles.utilityRow}>
-        <PrimaryButton
-          label={isHydrating ? "Refreshing..." : "Refresh"}
-          icon="sync"
-          tone="ghost"
-          loading={isHydrating}
-          disabled={isHydrating}
-          onPress={() => void refreshFromBackend()}
-        />
-        <PrimaryButton label="Google Calendar" icon="calendar" tone="soft" onPress={() => setShowCalendarSync(true)} />
-      </View>
-
       <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
-      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
-      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+      {!showForm ? (
+        <>
+          <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+          <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+        </>
+      ) : null}
 
       {showForm ? (
         <Animated.View style={{ opacity: formOpacity }}>
           <Card>
             <Text style={styles.formTitle}>{editingEventId ? "Edit event" : "Create event"}</Text>
-            <Text style={styles.formHint}>
-              Pick the day first, then a time if you need one. This saves to your shared household calendar for everyone in HomeThread.
-            </Text>
+            <Text style={styles.formHint}>Pick the day, add a time if needed, then save.</Text>
+            <Text style={styles.fieldLabel}>Title</Text>
             <TextInput
               accessibilityLabel="Event title"
               placeholder="Title"
               placeholderTextColor={colors.muted}
               value={title}
-              onChangeText={setTitle}
-              style={styles.input}
+              onChangeText={(value) => {
+                setTitle(value);
+                if (titleError) {
+                  setTitleError(null);
+                }
+              }}
+              style={[styles.input, titleError ? styles.inputInvalid : null]}
             />
+            <FieldError message={titleError} />
             <TextInput
               accessibilityLabel="Event location"
               placeholder="Location (optional)"
@@ -313,7 +322,7 @@ export function PlanScreen() {
                 label={isSaving ? (editingEventId ? "Saving..." : "Creating...") : editingEventId ? "Save changes" : "Create event"}
                 icon="checkmark"
                 loading={isSaving}
-                disabled={isSaving}
+                disabled={isSaving || !canSubmit}
                 onPress={() => {
                   void handleCreateEvent();
                 }}
@@ -333,9 +342,23 @@ export function PlanScreen() {
                 />
               ) : null}
             </View>
+            <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+            <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
           </Card>
         </Animated.View>
       ) : null}
+
+      <View style={styles.utilityRow}>
+        <PrimaryButton
+          label={isHydrating ? "Refreshing..." : "Refresh"}
+          icon="sync"
+          tone="ghost"
+          loading={isHydrating}
+          disabled={isHydrating}
+          onPress={() => void refreshFromBackend()}
+        />
+        <PrimaryButton label="Google Calendar" icon="calendar" tone="ghost" onPress={() => setShowCalendarSync(true)} />
+      </View>
 
       <Card>
         <View style={styles.snapshotRow}>
@@ -422,18 +445,8 @@ export function PlanScreen() {
                     {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
                     <View style={styles.eventActionRow}>
                       <PrimaryButton
-                        label={isExpanded ? "Hide details" : "Details"}
-                        icon={isExpanded ? "chevron-up" : "chevron-down"}
-                        tone="ghost"
-                        onPress={() => {
-                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                          setExpandedEventId((current) => (current === event.id ? null : event.id));
-                        }}
-                      />
-                      <PrimaryButton
                         label="Edit"
                         icon="create"
-                        tone="soft"
                         disabled={isSaving}
                         onPress={() => populateForm(event)}
                       />
@@ -444,6 +457,15 @@ export function PlanScreen() {
                         disabled={isSaving}
                         onPress={() => {
                           void handleDeleteEvent(event.id, event.title);
+                        }}
+                      />
+                      <PrimaryButton
+                        label={isExpanded ? "Hide details" : "Details"}
+                        icon={isExpanded ? "chevron-up" : "chevron-down"}
+                        tone="ghost"
+                        onPress={() => {
+                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                          setExpandedEventId((current) => (current === event.id ? null : event.id));
                         }}
                       />
                     </View>
@@ -582,6 +604,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: spacing.md
   },
+  fieldLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: spacing.sm
+  },
   input: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.lineStrong,
@@ -590,7 +618,10 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 16,
     padding: spacing.md,
-    marginTop: spacing.sm
+    marginTop: spacing.xs
+  },
+  inputInvalid: {
+    borderColor: colors.coral
   },
   formActions: {
     gap: spacing.md,
@@ -689,7 +720,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
-    marginTop: spacing.xs
+    marginTop: spacing.sm
   },
   expandedMeta: {
     backgroundColor: colors.surfaceRaised,

@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "rea
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { pickAndUploadAvatar } from "../services/avatarUpload";
@@ -38,10 +39,12 @@ function feedbackTone(message: string): "success" | "error" | "info" {
 
 export function SettingsScreen({
   onClose,
-  onOpenFamilySettings
+  onOpenFamilySettings,
+  onOpenInsights
 }: {
   onClose: () => void;
   onOpenFamilySettings: () => void;
+  onOpenInsights?: () => void;
 }) {
   const authMode = useAuthStore((state) => state.mode);
   const userId = useAuthStore((state) => state.userId);
@@ -65,6 +68,7 @@ export function SettingsScreen({
 
   const [editedDisplayName, setEditedDisplayName] = useState(displayName ?? "");
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
   const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
@@ -77,14 +81,34 @@ export function SettingsScreen({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [cloudAiReady, setCloudAiReady] = useState<boolean | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(avatarUrl);
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
 
   const backendConnected = syncSource === "api";
   const initials = useMemo(() => buildInitials(displayName, email), [displayName, email]);
   const buildReadiness = useMemo(() => getClientBuildReadiness(), []);
+  const avatarSource = useMemo(
+    () => (avatarPreviewUrl ? { uri: avatarPreviewUrl, cache: "reload" as const } : null),
+    [avatarPreviewUrl]
+  );
 
   useEffect(() => {
     setEditedDisplayName(displayName ?? "");
   }, [displayName]);
+
+  useEffect(() => {
+    if (!profileMessage) {
+      return;
+    }
+
+    const timer = setTimeout(() => setProfileMessage(null), 4000);
+    return () => clearTimeout(timer);
+  }, [profileMessage]);
+
+  useEffect(() => {
+    setAvatarPreviewUrl(avatarUrl ?? null);
+    setAvatarImageFailed(false);
+  }, [avatarUrl]);
 
   useEffect(() => {
     void (async () => {
@@ -108,16 +132,17 @@ export function SettingsScreen({
 
   async function handleSaveProfile() {
     setFormMessage(null);
+    setProfileMessage(null);
     setIsSavingProfile(true);
     try {
       const result = await updateProfile({ displayName: editedDisplayName });
       if (!result.ok) {
-        setFormMessage(result.message ?? "Could not update your profile.");
+        setProfileMessage(result.message ?? "Could not update your profile.");
         return;
       }
 
       setEditedDisplayName(useAuthStore.getState().displayName ?? editedDisplayName.trim());
-      setFormMessage("Profile saved.");
+      setProfileMessage("Profile saved.");
     } finally {
       setIsSavingProfile(false);
     }
@@ -125,21 +150,25 @@ export function SettingsScreen({
 
   async function handleUploadPhoto() {
     if (!userId || authMode !== "supabase") {
-      setFormMessage("Profile photo upload is only available for signed-in accounts.");
+      setProfileMessage("Profile photo upload is only available for signed-in accounts.");
       return;
     }
 
     setFormMessage(null);
+    setProfileMessage(null);
     setIsUploadingPhoto(true);
 
     try {
       const upload = await pickAndUploadAvatar(userId);
       if (!upload.ok) {
         if (!upload.cancelled) {
-          setFormMessage(upload.message ?? "Could not upload that photo.");
+          setProfileMessage(upload.message ?? "Could not upload that photo.");
         }
         return;
       }
+
+      setAvatarPreviewUrl(upload.localPreviewUrl ?? upload.avatarUrl);
+      setAvatarImageFailed(false);
 
       const result = await updateProfile({
         displayName: editedDisplayName || displayName || "HomeThread member",
@@ -147,11 +176,12 @@ export function SettingsScreen({
       });
 
       if (!result.ok) {
-        setFormMessage(result.message ?? "Photo uploaded, but the profile could not be updated.");
+        setProfileMessage(result.message ?? "Photo uploaded, but the profile could not be updated.");
         return;
       }
 
-      setFormMessage("Profile photo updated.");
+      setAvatarPreviewUrl(useAuthStore.getState().avatarUrl ?? upload.avatarUrl);
+      setProfileMessage("Profile photo updated.");
     } finally {
       setIsUploadingPhoto(false);
     }
@@ -256,22 +286,26 @@ export function SettingsScreen({
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.kicker}>Settings</Text>
-          <Text style={styles.title}>Your account</Text>
-        </View>
-        <Pressable onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeLabel}>Close</Text>
-        </Pressable>
-      </View>
+      <ScreenHeader
+        eyebrow="Settings"
+        title="Your account"
+        subtitle="Profile, notifications, and sign-in."
+        icon="person-circle"
+        variant="admin"
+        actionLabel="Back"
+        onActionPress={onClose}
+      />
 
       <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
 
       <Card>
         <View style={styles.profileSummary}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          {avatarSource && !avatarImageFailed ? (
+            <Image
+              source={avatarSource}
+              style={styles.avatarImage}
+              onError={() => setAvatarImageFailed(true)}
+            />
           ) : (
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{initials}</Text>
@@ -284,9 +318,11 @@ export function SettingsScreen({
         </View>
         <View style={styles.summaryActions}>
           <PrimaryButton
-            label={isUploadingPhoto ? "Uploading..." : avatarUrl ? "Change photo" : "Add photo"}
+            label={isUploadingPhoto ? "Uploading..." : avatarSource ? "Change photo" : "Add photo"}
             icon="image"
             tone="ghost"
+            loading={isUploadingPhoto}
+            disabled={isUploadingPhoto}
             onPress={() => {
               if (isUploadingPhoto) return;
               void handleUploadPhoto();
@@ -308,19 +344,24 @@ export function SettingsScreen({
         <View style={styles.cardActions}>
           <PrimaryButton
             label={isSavingProfile ? "Saving..." : "Save profile"}
-            icon="person-circle"
+            icon="checkmark"
             loading={isSavingProfile}
             disabled={isSaving || isSavingProfile || !backendConnected}
             onPress={() => {
               if (isSaving || isSavingProfile) return;
               if (!backendConnected) {
-                setFormMessage("Profile changes need a connected household. Refresh and try again.");
+                setProfileMessage("Profile changes need a connected household. Refresh and try again.");
                 return;
               }
               void handleSaveProfile();
             }}
           />
         </View>
+        <ActionFeedback
+          message={profileMessage ?? ""}
+          tone={feedbackTone(profileMessage ?? "")}
+          visible={Boolean(profileMessage)}
+        />
       </Card>
 
       <SectionTitle title="Security" />
@@ -398,7 +439,11 @@ export function SettingsScreen({
           {pushToken ? "This device is registered." : "Enable notifications to register this device."}
         </Text>
         {notificationCapabilityMessage ? <Text style={styles.helperText}>{notificationCapabilityMessage}</Text> : null}
-        {notificationMessage ? <Text style={styles.saveMessage}>{notificationMessage}</Text> : null}
+        <ActionFeedback
+          message={notificationMessage ?? ""}
+          tone={feedbackTone(notificationMessage ?? "")}
+          visible={Boolean(notificationMessage)}
+        />
         <View style={styles.cardActions}>
           <PrimaryButton
             label={isRegisteringNotifications ? "Working..." : pushToken ? "Refresh notification setup" : "Enable notifications"}
@@ -442,6 +487,9 @@ export function SettingsScreen({
         <Text style={styles.cardTitle}>Household</Text>
         <View style={styles.cardActions}>
           <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
+          {onOpenInsights ? (
+            <PrimaryButton label="Household insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
+          ) : null}
         </View>
       </Card>
 
@@ -619,7 +667,8 @@ const styles = StyleSheet.create({
   },
   profileCopy: {
     flex: 1,
-    gap: 2
+    gap: 2,
+    minWidth: 0
   },
   profileName: {
     color: colors.ink,

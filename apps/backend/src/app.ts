@@ -18,6 +18,8 @@ import { listsRoutes } from "./routes/lists.js";
 import { mealsRoutes } from "./routes/meals.js";
 import { membersRoutes } from "./routes/members.js";
 import { calendarSyncRoutes } from "./routes/calendarSync.js";
+import { childDeviceAdminRoutes } from "./routes/childDeviceAdmin.js";
+import { childDevicesRoutes } from "./routes/childDevices.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { recipesRoutes } from "./routes/recipes.js";
 import { subscriptionsRoutes } from "./routes/subscriptions.js";
@@ -26,7 +28,8 @@ import { webhookRoutes } from "./routes/webhooks.js";
 export function buildApp() {
   const app = Fastify({
     logger: env.NODE_ENV !== "test",
-    bodyLimit: 1_048_576
+    bodyLimit: 1_048_576,
+    trustProxy: true
   });
 
   const allowedOrigins = new Set(getAllowedFrontendOrigins());
@@ -77,6 +80,7 @@ export function buildApp() {
   app.register(aiRoutes, { prefix: "/api/v1/ai" });
   app.register(authRoutes, { prefix: "/api/v1/auth" });
   app.register(familiesRoutes, { prefix: "/api/v1/families" });
+  app.register(childDeviceAdminRoutes, { prefix: "/api/v1/families/:familyId" });
   app.register(membersRoutes, { prefix: "/api/v1/families/:familyId/members" });
   app.register(eventsRoutes, { prefix: "/api/v1/families/:familyId/events" });
   app.register(choresRoutes, { prefix: "/api/v1/families/:familyId/chores" });
@@ -85,6 +89,7 @@ export function buildApp() {
   app.register(recipesRoutes, { prefix: "/api/v1/families/:familyId/recipes" });
   app.register(insightsRoutes, { prefix: "/api/v1/families/:familyId/insights" });
   app.register(calendarSyncRoutes, { prefix: "/api/v1/calendar-sync" });
+  app.register(childDevicesRoutes, { prefix: "/api/v1/child-devices" });
   app.register(notificationsRoutes, { prefix: "/api/v1/notifications" });
   app.register(subscriptionsRoutes, { prefix: "/api/v1/subscriptions" });
   app.register(webhookRoutes, { prefix: "/api/v1/webhooks" });

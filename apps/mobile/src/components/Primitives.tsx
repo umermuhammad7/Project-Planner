@@ -27,6 +27,31 @@ export function SectionTitle({ title, action }: { title: string; action?: string
   );
 }
 
+export function FieldError({ message }: { message?: string | null }) {
+  if (!message) {
+    return null;
+  }
+
+  return <Text style={styles.fieldError}>{message}</Text>;
+}
+
+export function ConceptStrip({
+  title,
+  body,
+  tone = "neutral"
+}: {
+  title: string;
+  body: string;
+  tone?: "neutral" | "primary" | "mint";
+}) {
+  return (
+    <View style={[styles.conceptStrip, styles[`${tone}ConceptStrip`]]}>
+      <Text style={styles.conceptTitle}>{title}</Text>
+      <Text style={styles.conceptBody}>{body}</Text>
+    </View>
+  );
+}
+
 export function Pill({
   label,
   tone = "neutral",
@@ -204,6 +229,44 @@ const styles = StyleSheet.create({
     color: colors.tertiary,
     fontSize: 12,
     fontWeight: "700"
+  },
+  fieldError: {
+    color: colors.coral,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: spacing.xs
+  },
+  conceptStrip: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  neutralConceptStrip: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line
+  },
+  primaryConceptStrip: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "rgba(139,107,74,0.16)"
+  },
+  mintConceptStrip: {
+    backgroundColor: colors.mintSoft,
+    borderColor: "rgba(92,122,90,0.16)"
+  },
+  conceptTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  conceptBody: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
   },
   pill: {
     alignItems: "center",

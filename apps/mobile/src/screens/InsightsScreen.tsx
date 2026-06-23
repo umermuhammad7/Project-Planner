@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card, Pill, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
@@ -68,16 +69,15 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.kicker}>Insights</Text>
-          <Text style={styles.title}>How the family is doing</Text>
-          <Text style={styles.subtitle}>A compact weekly read on plans, chores, and household load.</Text>
-        </View>
-        <Pressable onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeLabel}>Close</Text>
-        </Pressable>
-      </View>
+      <ScreenHeader
+        eyebrow="Insights"
+        title="How the family is doing"
+        subtitle="A compact weekly read on plans, chores, and household load."
+        icon="stats-chart"
+        variant="admin"
+        actionLabel="Back"
+        onActionPress={onClose}
+      />
 
       {isLoading ? (
         <Card>

@@ -10,6 +10,18 @@ declare const process: {
 
 const avatarBucket = process.env.EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET?.trim() || "avatars";
 
+type AvatarUploadFailure = {
+  ok: false;
+  message: string;
+  cancelled?: boolean;
+};
+
+type AvatarUploadSuccess = {
+  ok: true;
+  avatarUrl: string;
+  localPreviewUrl: string | null;
+};
+
 async function loadImagePicker() {
   return import("expo-image-picker");
 }
@@ -20,7 +32,12 @@ function extensionFromMimeType(mimeType: string | null | undefined) {
   return "jpg";
 }
 
-export async function pickAndUploadAvatar(userId: string) {
+function withCacheBust(url: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${Date.now()}`;
+}
+
+export async function pickAndUploadAvatar(userId: string): Promise<AvatarUploadFailure | AvatarUploadSuccess> {
   if (!supabaseClient) {
     return {
       ok: false as const,
@@ -84,6 +101,7 @@ export async function pickAndUploadAvatar(userId: string) {
 
   return {
     ok: true as const,
-    avatarUrl: resolvedUrl
+    avatarUrl: withCacheBust(resolvedUrl),
+    localPreviewUrl: asset.uri
   };
 }

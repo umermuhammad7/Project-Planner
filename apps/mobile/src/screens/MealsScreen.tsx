@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { Card, FieldError, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
@@ -130,9 +131,13 @@ export function MealsScreen() {
   const [activeView, setActiveView] = useState<MealsView>("plan");
   const [showImportForm, setShowImportForm] = useState(false);
   const [showManualRecipeForm, setShowManualRecipeForm] = useState(false);
+  const [showMealForm, setShowMealForm] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [mealTitleError, setMealTitleError] = useState<string | null>(null);
+  const [recipeTitleError, setRecipeTitleError] = useState<string | null>(null);
+  const [importInputError, setImportInputError] = useState<string | null>(null);
 
   const plannedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === plannedRecipeId) ?? null,
@@ -193,6 +198,14 @@ export function MealsScreen() {
   }, [errorMessage, infoMessage, successMessage]);
 
   async function savePlannedMeal() {
+    if (!plannedRecipe && !title.trim()) {
+      setMealTitleError("Meal title is required.");
+      setErrorMessage(null);
+      scrollToTop();
+      return;
+    }
+
+    setMealTitleError(null);
     const outcome = await createMeal({
       dayOfWeek,
       mealType,
@@ -203,15 +216,18 @@ export function MealsScreen() {
     if (accepted) {
       setTitle("");
       setPlannedRecipeId(null);
+      setShowMealForm(false);
     }
   }
 
   async function parseRecipeImport() {
     const trimmed = importInput.trim();
     if (!trimmed) {
+      setImportInputError("Paste recipe text or a URL first.");
       return;
     }
 
+    setImportInputError(null);
     setIsParsingImport(true);
     setImportPreview(null);
     setImportNote(null);
@@ -281,8 +297,13 @@ export function MealsScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>This week's meals</Text>
-      <Text style={styles.subtitle}>Keep the week visible so dinner stops becoming a five o'clock problem.</Text>
+      <ScreenHeader
+        eyebrow="Meals"
+        title="This week's meals"
+        subtitle="Plan dinners and keep recipes handy."
+        icon="restaurant"
+        density="compact"
+      />
 
       <SyncStatusRow syncSource={syncSource} syncMessage={syncMessage} isHydrating={isHydrating} />
       <Text style={styles.weekNote}>Meal plan week starting {mealWeekStart}</Text>
@@ -290,27 +311,20 @@ export function MealsScreen() {
       <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
       <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
-      <Card>
+      <View style={styles.overviewShell}>
         <View style={styles.summaryRow}>
           <View style={styles.summaryBlock}>
             <Text style={styles.summaryLabel}>Dinner coverage</Text>
             <Text style={styles.summaryValue}>{plannedDinnerCount}</Text>
-            <Text style={styles.summaryMeta}>planned dinners this week</Text>
+            <Text style={styles.summaryMeta}>planned dinners</Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryBlock}>
             <Text style={styles.summaryLabel}>Recipe shelf</Text>
             <Text style={styles.summaryValue}>{recipes.length}</Text>
-            <Text style={styles.summaryMeta}>saved recipes ready to reuse</Text>
+            <Text style={styles.summaryMeta}>saved recipes</Text>
           </View>
         </View>
-      </Card>
-
-      <Card>
-        <Text style={styles.formTitle}>Meals and recipes</Text>
-        <Text style={styles.helperText}>
-          Keep planning and recipe storage separate so the screen stays calmer and easier to scan.
-        </Text>
         <View style={styles.viewSwitch}>
           <Pressable
             accessibilityRole="button"
@@ -339,10 +353,19 @@ export function MealsScreen() {
             </Text>
           </Pressable>
         </View>
-      </Card>
+      </View>
 
       {activeView === "plan" ? (
         <>
+          <View style={styles.primaryActionWrap}>
+            <PrimaryButton
+              label={showMealForm ? "Close meal form" : "Plan a meal"}
+              icon={showMealForm ? "close" : "add"}
+              tone={showMealForm ? "soft" : "primary"}
+              onPress={() => setShowMealForm((value) => !value)}
+            />
+          </View>
+
           {meals.length > 0 ? (
             <View style={styles.weekGroceryRow}>
               <PrimaryButton
@@ -361,6 +384,7 @@ export function MealsScreen() {
             </View>
           ) : null}
 
+          {showMealForm ? (
           <Card>
             <Text style={styles.formTitle}>Plan a meal</Text>
             {recipes.length > 0 ? (
@@ -396,8 +420,13 @@ export function MealsScreen() {
                 placeholder="e.g. Turkey tacos"
                 placeholderTextColor={colors.muted}
                 value={title}
-                onChangeText={setTitle}
-                style={styles.input}
+                onChangeText={(value) => {
+                  setTitle(value);
+                  if (mealTitleError) {
+                    setMealTitleError(null);
+                  }
+                }}
+                style={[styles.input, mealTitleError ? styles.inputInvalid : null]}
                 returnKeyType="done"
                 onSubmitEditing={() => {
                   if (isSaving) return;
@@ -405,6 +434,7 @@ export function MealsScreen() {
                 }}
               />
             )}
+            <FieldError message={mealTitleError} />
             <Text style={styles.pickerLabel}>Day</Text>
             <View style={styles.pickerRow}>
               {dayLabels.map((label, index) => {
@@ -445,13 +475,17 @@ export function MealsScreen() {
               </Pressable>
             ) : null}
           </Card>
+          ) : null}
 
-          {meals.length === 0 ? (
+          {meals.length === 0 && !showMealForm ? (
             <Card>
               <Text style={styles.emptyTitle}>No meals planned yet.</Text>
               <Text style={styles.emptyText}>
                 Start with the busiest dinner night this week. A small plan beats waiting for the perfect one.
               </Text>
+              <View style={styles.formActions}>
+                <PrimaryButton label="Plan a meal" icon="add" onPress={() => setShowMealForm(true)} />
+              </View>
             </Card>
           ) : null}
 
@@ -516,38 +550,32 @@ export function MealsScreen() {
         </>
       ) : (
         <>
-          <Card>
-            <Text style={styles.formTitle}>Recipe shelf</Text>
-            <Text style={styles.helperText}>
-              Save the meals your household repeats so planning and grocery building get faster each week.
-            </Text>
-            <View style={styles.recipeToolsRow}>
-              <PrimaryButton
-                label={showImportForm ? "Hide import" : "Import recipe"}
-                icon="sparkles"
-                tone={showImportForm ? "ghost" : "soft"}
-                onPress={() => {
-                  const next = !showImportForm;
-                  setShowImportForm(next);
-                  if (next) {
-                    setShowManualRecipeForm(false);
-                  }
-                }}
-              />
-              <PrimaryButton
-                label={showManualRecipeForm ? "Hide editor" : "Save manually"}
-                icon="create"
-                tone={showManualRecipeForm ? "ghost" : "soft"}
-                onPress={() => {
-                  const next = !showManualRecipeForm;
-                  setShowManualRecipeForm(next);
-                  if (next) {
-                    setShowImportForm(false);
-                  }
-                }}
-              />
-            </View>
-          </Card>
+          <View style={styles.recipeToolsRow}>
+            <PrimaryButton
+              label={showImportForm ? "Hide import" : "Import recipe"}
+              icon="sparkles"
+              tone={showImportForm ? "ghost" : "primary"}
+              onPress={() => {
+                const next = !showImportForm;
+                setShowImportForm(next);
+                if (next) {
+                  setShowManualRecipeForm(false);
+                }
+              }}
+            />
+            <PrimaryButton
+              label={showManualRecipeForm ? "Hide editor" : "Save manually"}
+              icon="create"
+              tone={showManualRecipeForm ? "ghost" : "soft"}
+              onPress={() => {
+                const next = !showManualRecipeForm;
+                setShowManualRecipeForm(next);
+                if (next) {
+                  setShowImportForm(false);
+                }
+              }}
+            />
+          </View>
 
           {showImportForm ? (
             <Card>
@@ -570,11 +598,22 @@ export function MealsScreen() {
                 }
                 placeholderTextColor={colors.muted}
                 value={importInput}
-                onChangeText={setImportInput}
-                style={[styles.input, importSource === "text" ? styles.multilineInput : null]}
+                onChangeText={(value) => {
+                  setImportInput(value);
+                  if (importInputError) {
+                    setImportInputError(null);
+                  }
+                }}
+                style={[
+                  styles.input,
+                  styles.importInput,
+                  importSource === "text" ? styles.multilineInput : null,
+                  importInputError ? styles.inputInvalid : null
+                ]}
                 multiline={importSource === "text"}
                 autoCapitalize={importSource === "url" ? "none" : "sentences"}
               />
+              <FieldError message={importInputError} />
               <View style={styles.formActions}>
                 <PrimaryButton
                   label={isParsingImport ? "Parsing..." : "Parse recipe"}
@@ -638,9 +677,15 @@ export function MealsScreen() {
                 placeholder="e.g. Sheet-pan chicken fajitas"
                 placeholderTextColor={colors.muted}
                 value={recipeTitle}
-                onChangeText={setRecipeTitle}
-                style={styles.input}
+                onChangeText={(value) => {
+                  setRecipeTitle(value);
+                  if (recipeTitleError) {
+                    setRecipeTitleError(null);
+                  }
+                }}
+                style={[styles.input, recipeTitleError ? styles.inputInvalid : null]}
               />
+              <FieldError message={recipeTitleError} />
               <TextInput
                 accessibilityLabel="Recipe ingredients"
                 placeholder="Ingredients, one per line or comma-separated"
@@ -658,6 +703,11 @@ export function MealsScreen() {
                   disabled={isSaving}
                   onPress={() => {
                     if (isSaving) return;
+                    if (!recipeTitle.trim()) {
+                      setRecipeTitleError("Recipe title is required.");
+                      return;
+                    }
+                    setRecipeTitleError(null);
                     void createRecipe({
                       title: recipeTitle,
                       ingredientNames: parseIngredientNames(recipeIngredients)
@@ -736,10 +786,23 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontWeight: "700",
+    marginBottom: spacing.sm,
     marginTop: spacing.xs
   },
+  overviewShell: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.md
+  },
+  primaryActionWrap: {
+    marginBottom: spacing.md
+  },
   weekGroceryRow: {
-    marginTop: spacing.md
+    marginBottom: spacing.md
   },
   summaryRow: {
     flexDirection: "row",
@@ -774,8 +837,7 @@ const styles = StyleSheet.create({
   },
   viewSwitch: {
     flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.md
+    gap: spacing.sm
   },
   viewTab: {
     backgroundColor: colors.surfaceRaised,
@@ -823,9 +885,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     padding: spacing.md
   },
+  inputInvalid: {
+    borderColor: colors.coral
+  },
+  importInput: {
+    marginTop: spacing.md
+  },
   multilineInput: {
     minHeight: 96,
-    marginTop: spacing.md,
     textAlignVertical: "top"
   },
   pickerLabel: {
@@ -855,7 +922,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
-    marginTop: spacing.md
+    marginBottom: spacing.md
   },
   recipeList: {
     gap: spacing.md

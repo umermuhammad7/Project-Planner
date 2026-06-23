@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Linking, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
@@ -159,13 +160,15 @@ export function CalendarSyncScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <View>
-      <PrimaryButton label="Back to plan" icon="arrow-back" tone="dark" onPress={onBack} />
-
-      <Text style={styles.title}>Google Calendar</Text>
-      <Text style={styles.subtitle}>
-        Connect Google Calendar when you want to pull outside events into HomeThread. Plans you create in HomeThread
-        still stay inside your shared household even without a connected calendar.
-      </Text>
+      <ScreenHeader
+        eyebrow="Calendar"
+        title="Google Calendar"
+        subtitle="Connect Google Calendar when you want to pull outside events into HomeThread. Plans you create in HomeThread still stay inside your shared household even without a connected calendar."
+        icon="calendar"
+        actionLabel="Back"
+        actionIcon="arrow-back"
+        onActionPress={onBack}
+      />
 
       {isLoading ? <Text style={styles.note}>Loading calendar status...</Text> : null}
       {note ? <Text style={styles.note}>{note}</Text> : null}

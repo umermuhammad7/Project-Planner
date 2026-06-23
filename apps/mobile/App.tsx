@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Image,
@@ -20,10 +20,13 @@ import { colors, fonts, radii, spacing } from "./src/constants/theme";
 import { ScrollAssistContext } from "./src/context/ScrollAssistContext";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
+import { ChildDeviceSetupScreen } from "./src/screens/ChildDeviceSetupScreen";
+import { ChildDeviceShellScreen } from "./src/screens/ChildDeviceShellScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
 import { FamilyScreen } from "./src/screens/FamilyScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { InsightsScreen } from "./src/screens/InsightsScreen";
+import { KidsModePickerScreen } from "./src/screens/KidsModePickerScreen";
 import { KidsModeScreen } from "./src/screens/KidsModeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
 import { MealsScreen } from "./src/screens/MealsScreen";
@@ -35,6 +38,7 @@ import { getApiConfigurationStatus, isProductionApiMisconfigured } from "./src/s
 import { initMobileSentry } from "./src/services/sentry";
 import { refreshPushTokenIfAvailable } from "./src/services/notifications";
 import { useAuthStore } from "./src/store/useAuthStore";
+import { useChildDeviceStore } from "./src/store/useChildDeviceStore";
 import { useHomeThreadStore, resetHomeThreadStoreForSignedOut } from "./src/store/useHomeThreadStore";
 import { startFamilyRealtimeSync, stopFamilyRealtimeSync } from "./src/services/familyRealtimeSync";
 import { isSupabaseConfigured, supabaseClient } from "./src/services/supabase";
@@ -56,9 +60,12 @@ function AppShell() {
   const [enteredApp, setEnteredApp] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [kidsMode, setKidsMode] = useState(false);
+  const [kidsModeMemberId, setKidsModeMemberId] = useState<string | null>(null);
+  const [showKidsModePicker, setShowKidsModePicker] = useState(false);
   const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showChildDeviceSetup, setShowChildDeviceSetup] = useState(false);
   const { width: viewportWidth } = useWindowDimensions();
   const screenWidth = Math.max(288, Math.min(viewportWidth - spacing.lg * 2, 520));
   const screenOpacity = useRef(new Animated.Value(1)).current;
@@ -75,6 +82,8 @@ function AppShell() {
   const authFamilyId = useAuthStore((state) => state.familyId);
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
   const savePushToken = useAuthStore((state) => state.savePushToken);
+  const childDeviceMode = useChildDeviceStore((state) => state.mode);
+  const bootstrapChildDevice = useChildDeviceStore((state) => state.bootstrap);
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
@@ -93,13 +102,15 @@ function AppShell() {
   const failedOfflineCount = useHomeThreadStore((state) =>
     state.offlineQueue.filter((item) => item.status === "failed").length
   );
+  const kidMembers = useHomeThreadStore((state) => state.members.filter((member) => member.role === "kid"));
   const offlineReplayMessage = useHomeThreadStore((state) => state.offlineReplayMessage);
   const isReplayingOffline = useHomeThreadStore((state) => state.isReplayingOffline);
   const replayPendingOfflineMutations = useHomeThreadStore((state) => state.replayPendingOfflineMutations);
 
   useEffect(() => {
     void bootstrapAuth();
-  }, [bootstrapAuth]);
+    void bootstrapChildDevice();
+  }, [bootstrapAuth, bootstrapChildDevice]);
 
   useEffect(() => {
     initMobileSentry();
@@ -139,6 +150,8 @@ function AppShell() {
     } else if (authMode === "signed_out") {
       setEnteredApp(false);
       setKidsMode(false);
+      setKidsModeMemberId(null);
+      setShowKidsModePicker(false);
       setFamilySettingsOpen(false);
       setInsightsOpen(false);
       setSettingsOpen(false);
@@ -195,6 +208,27 @@ function AppShell() {
     };
   }, [authMode, enteredApp, familyId, listIdsKey, syncSource]);
 
+  const handleEnterKidsMode = useCallback(() => {
+    if (kidMembers.length === 0) {
+      return;
+    }
+
+    if (kidMembers.length === 1) {
+      setKidsModeMemberId(kidMembers[0]!.id);
+      setShowKidsModePicker(false);
+      setKidsMode(true);
+      return;
+    }
+
+    setShowKidsModePicker(true);
+  }, [kidMembers]);
+
+  const handleExitKidsMode = useCallback(() => {
+    setKidsMode(false);
+    setKidsModeMemberId(null);
+    setShowKidsModePicker(false);
+  }, []);
+
   const content = useMemo(() => {
     if (activeTab === "plan") return <PlanScreen />;
     if (activeTab === "chores") return <ChoresScreen />;
@@ -205,19 +239,21 @@ function AppShell() {
     return (
       <HomeScreen
         goTo={setActiveTab}
-        onEnterKidsMode={() => setKidsMode(true)}
+        onEnterKidsMode={handleEnterKidsMode}
         onOpenFamilySettings={() => setFamilySettingsOpen(true)}
         onOpenInsights={() => setInsightsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
     );
-  }, [activeTab]);
+  }, [activeTab, handleEnterKidsMode]);
 
   const showConnecting = enteredApp && authMode !== "loading" && authMode !== "signed_out" && isHydrating;
   const showWelcome = authMode === "loading" || authMode === "signed_out" || !enteredApp;
   const screenKey = [
     activeTab,
     kidsMode ? "kids" : "adult",
+    showKidsModePicker ? "kids-picker" : "kids-picker-closed",
+    kidsModeMemberId ?? "no-kid",
     familySettingsOpen ? "family" : "family-closed",
     insightsOpen ? "insights" : "insights-closed",
     settingsOpen ? "settings" : "settings-closed",
@@ -227,7 +263,7 @@ function AppShell() {
 
   useEffect(() => {
     scrollAssist.scrollToTop();
-  }, [activeTab, familySettingsOpen, insightsOpen, settingsOpen, kidsMode, scrollAssist]);
+  }, [activeTab, familySettingsOpen, insightsOpen, settingsOpen, kidsMode, showKidsModePicker, scrollAssist]);
 
   useEffect(() => {
     screenOpacity.setValue(0.9);
@@ -265,6 +301,35 @@ function AppShell() {
             </View>
           </View>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (childDeviceMode === "paired") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={[styles.screenContainer, { width: screenWidth, alignSelf: "center" }]}>
+            <ChildDeviceShellScreen />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (showChildDeviceSetup) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <View style={[styles.screenContainer, { width: screenWidth, alignSelf: "center" }]}>
+            <ChildDeviceSetupScreen
+              onBack={() => setShowChildDeviceSetup(false)}
+              onPaired={() => setShowChildDeviceSetup(false)}
+            />
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -323,6 +388,7 @@ function AppShell() {
                   onSignedIn={() => {
                     setEnteredApp(true);
                   }}
+                  onSetupChildDevice={() => setShowChildDeviceSetup(true)}
                 />
               )
             ) : showConnecting ? (
@@ -336,8 +402,18 @@ function AppShell() {
                   <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
                 </View>
               </View>
-            ) : kidsMode ? (
-              <KidsModeScreen onExit={() => setKidsMode(false)} />
+            ) : showKidsModePicker ? (
+              <KidsModePickerScreen
+                kidMembers={kidMembers}
+                onSelect={(memberId) => {
+                  setKidsModeMemberId(memberId);
+                  setShowKidsModePicker(false);
+                  setKidsMode(true);
+                }}
+                onCancel={handleExitKidsMode}
+              />
+            ) : kidsMode && kidsModeMemberId ? (
+              <KidsModeScreen activeKidMemberId={kidsModeMemberId} onExit={handleExitKidsMode} />
             ) : insightsOpen ? (
               <InsightsScreen onClose={() => setInsightsOpen(false)} />
             ) : settingsOpen ? (
@@ -346,6 +422,10 @@ function AppShell() {
                 onOpenFamilySettings={() => {
                   setSettingsOpen(false);
                   setFamilySettingsOpen(true);
+                }}
+                onOpenInsights={() => {
+                  setSettingsOpen(false);
+                  setInsightsOpen(true);
                 }}
               />
             ) : familySettingsOpen ? (
@@ -356,7 +436,7 @@ function AppShell() {
           </Animated.View>
           </ScrollAssistContext.Provider>
         </ScrollView>
-        {enteredApp && authMode !== "signed_out" && !kidsMode && !familySettingsOpen && !insightsOpen && !settingsOpen ? (
+        {enteredApp && authMode !== "signed_out" && !kidsMode && !showKidsModePicker && !familySettingsOpen && !insightsOpen && !settingsOpen ? (
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
               <IconButton

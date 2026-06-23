@@ -12,6 +12,7 @@ import { db } from "../db/client.js";
 import { families, familyMembers, rewards, users } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
 import { ensureUserProfile } from "../lib/userProvisioning.js";
+import { isChildPairingCode } from "../lib/childPairing.js";
 import { requireAuth } from "../plugins/auth.js";
 import { requireFamilyAdmin, requireFamilyMember } from "../plugins/familyAccess.js";
 
@@ -116,6 +117,15 @@ export async function familiesRoutes(app: FastifyInstance) {
           : (request.body as { inviteCode?: unknown })?.inviteCode
     });
     await ensureUserProfile(currentUser.id, currentUser.email);
+
+    if (isChildPairingCode(body.inviteCode)) {
+      return sendError(
+        reply,
+        400,
+        "That is a child pairing code. Adults join with the adult invite code from the household owner.",
+        "ADULT_INVITE_REQUIRED"
+      );
+    }
 
     const family = await db.query.families.findFirst({
       where: eq(families.inviteCode, body.inviteCode)

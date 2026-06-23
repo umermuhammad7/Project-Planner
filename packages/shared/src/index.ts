@@ -194,6 +194,84 @@ export const joinFamilySchema = z.object({
   inviteCode: z.string().min(4).max(12)
 });
 
+export const childPairingCodeSchema = z.object({
+  pairingCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^KC-[A-Z0-9]{6}$/u, "Expected a child pairing code like KC-ABC123")
+});
+
+export const childDevicePushTokenSchema = z.object({
+  pushToken: z.string().min(8).max(256)
+});
+
+export const childPairingCodeResponseSchema = z.object({
+  pairingCode: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+  memberId: uuidSchema,
+  memberName: z.string().min(1)
+});
+
+export const childDeviceRecordSchema = z.object({
+  id: uuidSchema,
+  familyId: uuidSchema,
+  memberId: uuidSchema,
+  memberName: z.string().min(1),
+  deviceLabel: z.string().nullable().optional(),
+  pushToken: z.string().nullable().optional(),
+  pairedAt: z.iso.datetime(),
+  revokedAt: z.iso.datetime().nullable().optional(),
+  lastSeenAt: z.iso.datetime().nullable().optional()
+});
+
+export const childDevicesListResponseSchema = z.object({
+  devices: z.array(childDeviceRecordSchema)
+});
+
+export const pairChildDeviceResponseSchema = z.object({
+  deviceToken: z.string().min(1),
+  family: z.object({
+    id: uuidSchema,
+    name: z.string().min(1)
+  }),
+  member: z.object({
+    id: uuidSchema,
+    displayName: z.string().min(1),
+    starBalance: z.number().int().nonnegative()
+  })
+});
+
+export const childDeviceMeResponseSchema = z.object({
+  device: childDeviceRecordSchema,
+  family: z.object({
+    id: uuidSchema,
+    name: z.string().min(1)
+  }),
+  member: z.object({
+    id: uuidSchema,
+    displayName: z.string().min(1),
+    starBalance: z.number().int().nonnegative()
+  })
+});
+
+export const childDeviceChoreSchema = z.object({
+  id: uuidSchema,
+  title: z.string().min(1),
+  dueTime: z.string().nullable().optional(),
+  starsValue: z.number().int().nonnegative(),
+  completedToday: z.boolean()
+});
+
+export const childDeviceChoresResponseSchema = z.object({
+  chores: z.array(childDeviceChoreSchema),
+  member: z.object({
+    id: uuidSchema,
+    displayName: z.string().min(1),
+    starBalance: z.number().int().nonnegative()
+  })
+});
+
 export const createMemberSchema = z.object({
   displayName: z.string().min(1).max(80),
   avatarUrl: z.url().optional().nullable(),
@@ -487,6 +565,15 @@ export type MarkNotificationsReadInput = z.infer<typeof markNotificationsReadSch
 export type MarkNotificationsReadResponse = z.infer<typeof markNotificationsReadResponseSchema>;
 export type CreateFamilyInput = z.infer<typeof createFamilySchema>;
 export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
+export type JoinFamilyInput = z.infer<typeof joinFamilySchema>;
+export type ChildPairingCodeInput = z.infer<typeof childPairingCodeSchema>;
+export type ChildDevicePushTokenInput = z.infer<typeof childDevicePushTokenSchema>;
+export type ChildPairingCodeResponse = z.infer<typeof childPairingCodeResponseSchema>;
+export type ChildDeviceRecord = z.infer<typeof childDeviceRecordSchema>;
+export type ChildDevicesListResponse = z.infer<typeof childDevicesListResponseSchema>;
+export type PairChildDeviceResponse = z.infer<typeof pairChildDeviceResponseSchema>;
+export type ChildDeviceMeResponse = z.infer<typeof childDeviceMeResponseSchema>;
+export type ChildDeviceChoresResponse = z.infer<typeof childDeviceChoresResponseSchema>;
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 export type CreateEventInput = z.infer<typeof createEventSchema>;

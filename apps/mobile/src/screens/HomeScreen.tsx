@@ -18,6 +18,7 @@ type HomeHighlight = {
   label: string;
   value: string;
   tone: "primary" | "mint" | "gold" | "coral" | "neutral";
+  tab?: TabKey;
 };
 
 export function HomeScreen({
@@ -95,7 +96,7 @@ export function HomeScreen({
     [kidMembers, openChores]
   );
   const recentNotifications = useMemo(() => notifications.slice(0, 3), [notifications]);
-  const profileLabel = useMemo(() => displayName?.trim() || email?.split("@")[0] || "Settings", [displayName, email]);
+  const profileLabel = useMemo(() => displayName?.trim() || email?.split("@")[0] || "there", [displayName, email]);
   const profileInitials = useMemo(
     () =>
       profileLabel
@@ -105,6 +106,10 @@ export function HomeScreen({
         .slice(0, 2)
         .toUpperCase(),
     [profileLabel]
+  );
+  const avatarSource = useMemo(
+    () => (avatarUrl ? { uri: avatarUrl, cache: "reload" as const } : null),
+    [avatarUrl]
   );
   const householdSummaryLabel = useMemo(() => {
     const adults = adultMembers.length;
@@ -134,7 +139,8 @@ export function HomeScreen({
         icon: "calendar-outline",
         label: "Next plan",
         value: `${nextEvent.title} at ${nextEvent.time}`,
-        tone: nextUrgency?.tone ?? "primary"
+        tone: nextUrgency?.tone ?? "primary",
+        tab: "plan"
       });
     }
 
@@ -144,7 +150,8 @@ export function HomeScreen({
         icon: "checkmark-done-outline",
         label: "Open chores",
         value: `${openChores.length} open`,
-        tone: "gold"
+        tone: "gold",
+        tab: "chores"
       });
     }
 
@@ -154,7 +161,8 @@ export function HomeScreen({
         icon: "restaurant-outline",
         label: "Tonight",
         value: todayDinner.title,
-        tone: "coral"
+        tone: "coral",
+        tab: "meals"
       });
     }
 
@@ -164,7 +172,8 @@ export function HomeScreen({
         icon: "bag-handle-outline",
         label: "Shopping",
         value: `${openItems.length} to pick up`,
-        tone: "mint"
+        tone: "mint",
+        tab: "lists"
       });
     }
 
@@ -174,7 +183,8 @@ export function HomeScreen({
         icon: "notifications-outline",
         label: "Unread",
         value: `${unreadNotifications.length} waiting`,
-        tone: "primary"
+        tone: "primary",
+        tab: "thread"
       });
     }
 
@@ -193,6 +203,7 @@ export function HomeScreen({
     <View>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
+          <Text style={styles.greeting}>Good day, {profileLabel}</Text>
           <Text style={styles.kicker}>{familyName}</Text>
           <View style={styles.dateBadge}>
             <Text style={styles.dateBadgeText}>Today - {todayDateParts.compact}</Text>
@@ -209,8 +220,8 @@ export function HomeScreen({
               onPress={onOpenSettings}
               style={styles.profileButton}
             >
-              {avatarUrl ? (
-                <Image accessibilityLabel={`${profileLabel} profile photo`} source={{ uri: avatarUrl }} style={styles.profileImage} />
+              {avatarSource ? (
+                <Image accessibilityLabel={`${profileLabel} profile photo`} source={avatarSource} style={styles.profileImage} />
               ) : (
                 <Text style={styles.profileInitials}>{profileInitials}</Text>
               )}
@@ -219,7 +230,7 @@ export function HomeScreen({
         </View>
       </View>
 
-      <Card>
+      <View style={styles.heroShell}>
         <LinearGradient
           colors={[colors.surface, "#F4EEE6"]}
           start={{ x: 0, y: 0 }}
@@ -244,17 +255,51 @@ export function HomeScreen({
             </View>
           </View>
 
+          <View style={styles.heroActions}>
+            <PrimaryButton label="Ask assistant" icon="sparkles" onPress={() => goTo("add")} />
+            <PrimaryButton label="Family board" icon="chatbubbles" tone="ghost" onPress={() => goTo("thread")} />
+            {onEnterKidsMode && kidMembers.length > 0 ? (
+              <PrimaryButton label="Kids mode" icon="happy" tone="ghost" onPress={onEnterKidsMode} />
+            ) : onEnterKidsMode ? (
+              <Text style={styles.kidsHint}>Add a child profile in Household to use Kids mode on this phone.</Text>
+            ) : null}
+          </View>
+
           {homeHighlights.length > 0 ? (
             <View style={styles.highlightGrid}>
-              {homeHighlights.map((item) => (
-                <View key={item.key} style={styles.highlightCard}>
-                  <View style={[styles.highlightIcon, highlightToneStyles[item.tone]]}>
-                    <Ionicons name={item.icon} size={18} color={highlightToneColors[item.tone]} />
-                  </View>
-                  <Text style={styles.highlightLabel}>{item.label}</Text>
-                  <Text style={styles.highlightValue}>{item.value}</Text>
-                </View>
-              ))}
+              {homeHighlights.map((item) => {
+                const content = (
+                  <>
+                    <View style={[styles.highlightIcon, highlightToneStyles[item.tone]]}>
+                      <Ionicons name={item.icon} size={18} color={highlightToneColors[item.tone]} />
+                    </View>
+                    <Text style={styles.highlightLabel}>{item.label}</Text>
+                    <Text style={styles.highlightValue} numberOfLines={2}>
+                      {item.value}
+                    </Text>
+                  </>
+                );
+
+                if (!item.tab) {
+                  return (
+                    <View key={item.key} style={styles.highlightCard}>
+                      {content}
+                    </View>
+                  );
+                }
+
+                return (
+                  <Pressable
+                    key={item.key}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${item.label}: ${item.value}`}
+                    onPress={() => goTo(item.tab!)}
+                    style={({ pressed }) => [styles.highlightCard, styles.highlightCardPressable, pressed && styles.highlightCardPressed]}
+                  >
+                    {content}
+                  </Pressable>
+                );
+              })}
             </View>
           ) : (
             <View style={styles.emptyPanel}>
@@ -265,13 +310,6 @@ export function HomeScreen({
             </View>
           )}
 
-          <View style={styles.heroActions}>
-            <PrimaryButton label="Ask assistant" icon="sparkles" onPress={() => goTo("add")} />
-            <PrimaryButton label="Family board" icon="chatbubbles" tone="soft" onPress={() => goTo("thread")} />
-            {onEnterKidsMode && kidMembers.length > 0 ? (
-              <PrimaryButton label="Kids mode" icon="happy" tone="ghost" onPress={onEnterKidsMode} />
-            ) : null}
-          </View>
           <View style={styles.syncRow}>
             <Text style={styles.syncText}>
               {isHydrating
@@ -296,40 +334,32 @@ export function HomeScreen({
             </Pressable>
           </View>
         </LinearGradient>
-      </Card>
-
-      {onOpenFamilySettings || onOpenInsights ? (
-        <Card>
-          <Text style={styles.shortcutTitle}>Household tools</Text>
-          <Text style={styles.shortcutMeta}>Open the home details or weekly insights without hunting through the screen.</Text>
-          <View style={styles.shortcutRow}>
-            {onOpenFamilySettings ? (
-              <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
-            ) : null}
-            {onOpenInsights ? (
-              <PrimaryButton label="See insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
-            ) : null}
-          </View>
-        </Card>
-      ) : null}
+      </View>
 
       {kidsWithOpenChores.length > 0 ? (
         <>
           <SectionTitle title="Kids who need a nudge" action={`${kidStarTotal} stars saved`} />
           <View style={styles.stack}>
             {kidsWithOpenChores.map(({ member, openCount }) => (
-              <Card key={member.id}>
-                <Row>
-                  <MemberAvatar member={member} size={40} />
-                  <View style={styles.fill}>
-                    <Text style={styles.itemTitle}>{member.name}</Text>
-                    <Text style={styles.itemMeta}>
-                      {openCount} chore{openCount === 1 ? "" : "s"} open - {member.starBalance} stars waiting
-                    </Text>
-                  </View>
-                  <Pill label={`${member.starBalance} stars`} tone="gold" icon="star" />
-                </Row>
-              </Card>
+              <Pressable
+                key={member.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open chores for ${member.name}`}
+                onPress={() => goTo("chores")}
+              >
+                <Card>
+                  <Row>
+                    <MemberAvatar member={member} size={40} />
+                    <View style={styles.fill}>
+                      <Text style={styles.itemTitle}>{member.name}</Text>
+                      <Text style={styles.itemMeta}>
+                        {openCount} chore{openCount === 1 ? "" : "s"} open - {member.starBalance} stars waiting
+                      </Text>
+                    </View>
+                    <Pill label={`${member.starBalance} stars`} tone="gold" icon="star" />
+                  </Row>
+                </Card>
+              </Pressable>
             ))}
           </View>
         </>
@@ -342,8 +372,13 @@ export function HomeScreen({
       <View style={styles.stack}>
         {recentNotifications.length > 0 ? (
           recentNotifications.map((notification) => (
-            <Card key={notification.id}>
-              <Row align="flex-start">
+            <View key={notification.id} style={styles.boardRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open board update: ${notification.title}`}
+                onPress={() => goTo("thread")}
+                style={({ pressed }) => [styles.boardRowMain, pressed && styles.boardRowPressed]}
+              >
                 <View
                   style={[
                     styles.notificationIcon,
@@ -357,34 +392,61 @@ export function HomeScreen({
                   />
                 </View>
                 <View style={styles.fill}>
-                  <Row>
-                    <Pill label={formatNotificationType(notification.type)} tone="neutral" />
-                    {!notification.readAt ? <Pill label="Unread" tone="primary" /> : null}
-                  </Row>
-                  <Text style={styles.itemTitle}>{notification.title}</Text>
-                  <Text style={styles.itemMeta}>{notification.body}</Text>
-                  <Text style={styles.notificationMeta}>{new Date(notification.sentAt).toLocaleString()}</Text>
+                  <View style={styles.boardMetaRow}>
+                    <Text style={styles.boardTypeCue}>{formatNotificationType(notification.type)}</Text>
+                    {!notification.readAt ? (
+                      <View style={styles.boardUnreadCue}>
+                        <Text style={styles.boardUnreadCueText}>Unread</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.itemTitle} numberOfLines={1}>
+                    {notification.title}
+                  </Text>
+                  <Text style={styles.itemMeta} numberOfLines={2}>
+                    {notification.body}
+                  </Text>
                 </View>
-                {!notification.readAt ? (
-                  <PrimaryButton
-                    label="Mark read"
-                    icon="checkmark"
-                    tone="ghost"
-                    onPress={() => {
-                      void markNotificationsRead([notification.id]);
-                    }}
-                  />
-                ) : null}
-              </Row>
-            </Card>
+              </Pressable>
+              {!notification.readAt ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark notification read"
+                  hitSlop={8}
+                  onPress={() => {
+                    void markNotificationsRead([notification.id]);
+                  }}
+                  style={styles.markReadButton}
+                >
+                  <Text style={styles.markReadLabel}>Read</Text>
+                </Pressable>
+              ) : null}
+            </View>
           ))
         ) : (
-          <Card>
-            <Text style={styles.emptyPanelTitle}>No updates are waiting.</Text>
-            <Text style={styles.emptyPanelText}>Family updates and reminders will show up here.</Text>
-          </Card>
+          <View style={styles.boardEmpty}>
+            <Text style={styles.emptyPanelText}>No updates yet.</Text>
+            <Pressable accessibilityRole="button" onPress={() => goTo("thread")} style={styles.boardLink}>
+              <Text style={styles.boardLinkText}>Open family board</Text>
+            </Pressable>
+          </View>
         )}
       </View>
+
+      {onOpenFamilySettings || onOpenInsights ? (
+        <View style={styles.adminLinks}>
+          {onOpenFamilySettings ? (
+            <Pressable accessibilityRole="button" onPress={onOpenFamilySettings} style={styles.adminLink}>
+              <Text style={styles.adminLinkText}>Household</Text>
+            </Pressable>
+          ) : null}
+          {onOpenInsights ? (
+            <Pressable accessibilityRole="button" onPress={onOpenInsights} style={styles.adminLink}>
+              <Text style={styles.adminLinkText}>Insights</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
     </View>
   );
@@ -434,6 +496,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.xs
   },
+  greeting: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 34
+  },
   kicker: {
     color: colors.primary,
     fontSize: 13,
@@ -465,6 +534,13 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingTop: spacing.xs
   },
+  kidsHint: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.xs
+  },
   profileButton: {
     alignItems: "center",
     backgroundColor: colors.primarySoft,
@@ -485,10 +561,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900"
   },
+  heroShell: {
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    overflow: "hidden"
+  },
   heroPanel: {
     borderRadius: radii.md,
     gap: spacing.lg,
-    padding: spacing.md
+    padding: spacing.lg
   },
   heroTop: {
     gap: spacing.md
@@ -571,6 +654,10 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.md
   },
+  highlightCardPressable: {},
+  highlightCardPressed: {
+    opacity: 0.88
+  },
   syncText: {
     color: colors.muted,
     fontSize: 12,
@@ -629,24 +716,89 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 19
   },
-  shortcutRow: {
+  adminLinks: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md
+    gap: spacing.md,
+    marginBottom: spacing.sm
   },
-  shortcutTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: spacing.xs
+  adminLink: {
+    minHeight: 36,
+    justifyContent: "center",
+    paddingVertical: spacing.xs
   },
-  shortcutMeta: {
-    color: colors.muted,
+  adminLinkText: {
+    color: colors.tertiary,
     fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19,
-    marginBottom: spacing.md
+    fontWeight: "700"
+  },
+  boardRow: {
+    alignItems: "center",
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  boardRowMain: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minWidth: 0
+  },
+  boardRowPressed: {
+    opacity: 0.84
+  },
+  boardMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginBottom: 2
+  },
+  boardTypeCue: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase"
+  },
+  boardUnreadCue: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2
+  },
+  boardUnreadCueText: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase"
+  },
+  boardEmpty: {
+    gap: spacing.xs,
+    paddingVertical: spacing.sm
+  },
+  boardLink: {
+    alignSelf: "flex-start",
+    minHeight: 36,
+    justifyContent: "center"
+  },
+  boardLinkText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  markReadButton: {
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs
+  },
+  markReadLabel: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800"
   },
   fill: {
     flex: 1
@@ -682,6 +834,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     marginTop: spacing.sm
+  },
+  boardActionRow: {
+    marginBottom: spacing.sm
+  },
+  notificationTapArea: {
+    alignItems: "flex-start",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.md
   },
 
 });

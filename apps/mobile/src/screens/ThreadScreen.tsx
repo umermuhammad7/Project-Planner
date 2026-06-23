@@ -3,17 +3,26 @@ import { Linking, Platform, StyleSheet, Text, TextInput, View } from "react-nati
 import { useEffect, useMemo, useState } from "react";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { Card, FieldError, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { AssistantDraft, TextUpdate } from "../types";
+import { parseFamilyText } from "../utils/textParser";
 import { formatThreadConversion, formatThreadDirection } from "../utils/threadLabels";
+
+function formatDraftKind(kind: AssistantDraft["kind"]) {
+  if (kind === "event") return "Plan event";
+  if (kind === "chore") return "Chore";
+  if (kind === "list") return "List item";
+  if (kind === "meal") return "Meal";
+  return kind;
+}
 
 export function ThreadScreen() {
   const {
     textUpdates,
-    importText,
     commitDraft,
     sendDigestToThread,
     isSaving,
@@ -74,10 +83,13 @@ export function ThreadScreen() {
 
   return (
     <View>
-      <Text style={styles.title}>Family board</Text>
-      <Text style={styles.subtitle}>
-        Shared updates, saved digests, and converted family texts live here. This is the household board, not a live chat yet.
-      </Text>
+      <ScreenHeader
+        eyebrow="Board"
+        title="Family board"
+        subtitle="Post summaries or import a family text."
+        icon="chatbubble-ellipses"
+        density="compact"
+      />
 
       <SyncStatusRow
         syncSource={syncSource}
@@ -87,16 +99,15 @@ export function ThreadScreen() {
         realtimeMessage={realtimeMessage}
       />
 
-      <SectionTitle title="Share an update" />
+      <SectionTitle title="Post for the household" />
       <Card>
-        <Text style={styles.label}>Share a clean summary</Text>
+        <Text style={styles.jobLabel}>Share a summary</Text>
         <Text style={styles.meta}>
-          Save a readable household summary to the board below. Send with SMS only pre-fills your phone's message app -
-          nothing sends automatically.
+          Save a readable digest to the board. SMS only pre-fills your phone - nothing sends automatically.
         </Text>
         <View style={styles.actions}>
           <PrimaryButton
-            label="Add summary to family board"
+            label="Add summary to board"
             icon="bookmark"
             onPress={() => {
               const digest = sendDigestToThread();
@@ -128,11 +139,11 @@ export function ThreadScreen() {
         ) : null}
       </Card>
 
-      <SectionTitle title="Import a message" />
+      <SectionTitle title="Import a family text" />
       <Card>
-        <Text style={styles.label}>Paste a family text</Text>
+        <Text style={styles.jobLabel}>Convert a message</Text>
         <Text style={styles.meta}>
-          Paste a family message and HomeThread will suggest an event, chore, or list item before anything is saved.
+          Paste a family text. HomeThread suggests an event, chore, or list item before anything is saved.
         </Text>
         <TextInput
           accessibilityLabel="Paste a family text"
@@ -140,12 +151,16 @@ export function ThreadScreen() {
           onChangeText={(value) => {
             setBody(value);
             setImportError(null);
+            if (lastDraft) {
+              setLastDraft(null);
+            }
           }}
           placeholder="Paste the group text here..."
           placeholderTextColor={colors.muted}
-          style={styles.input}
+          style={[styles.input, importError && !lastDraft ? styles.inputInvalid : null]}
           value={body}
         />
+        <FieldError message={importError && !lastDraft ? importError : null} />
         <View style={styles.actions}>
           <PrimaryButton
             label="Review suggestion"
@@ -162,11 +177,12 @@ export function ThreadScreen() {
               setImportError(null);
               setImportSuccess(null);
               setImportInfo(null);
-              setLastDraft(importText(body.trim()));
+              setLastDraft(parseFamilyText(body.trim()));
+              setImportInfo("Review the suggestion below, then save to your household.");
             }}
           />
           <PrimaryButton
-            label={isSaving ? "Saving..." : "Save suggestion"}
+            label={isSaving ? "Saving..." : "Save to household"}
             icon="checkmark"
             loading={isSaving}
             disabled={!lastDraft || isSaving}
@@ -208,11 +224,13 @@ export function ThreadScreen() {
         <ActionFeedback message={importError ?? ""} tone="error" visible={Boolean(importError)} />
         {lastDraft ? (
           <View style={styles.result}>
-            <Pill label={lastDraft.kind} tone="mint" />
+            <Pill label={formatDraftKind(lastDraft.kind)} tone="mint" />
             <Text style={styles.resultText}>{lastDraft.title}</Text>
-            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% confidence - review this suggestion, then save it if it looks right.</Text>
+            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% confidence - tap Save to household when it looks right.</Text>
           </View>
-        ) : null}
+        ) : (
+          <Text style={styles.stepHint}>Step 1: Review suggestion. Step 2: Save to household.</Text>
+        )}
       </Card>
 
       <SectionTitle title="Board history" action={`${textUpdates.length} entries`} />
@@ -252,28 +270,26 @@ function ThreadEntry({ update, highlighted }: { update: TextUpdate; highlighted?
   const directionLabel = formatThreadDirection(update.direction);
 
   return (
-    <Card>
-      <View style={highlighted ? styles.highlightedEntry : undefined}>
-        <Row align="flex-start">
-          <View style={[styles.bubbleIcon, update.direction === "outbound" && styles.bubbleIconOutbound]}>
-            <Ionicons
-              name={update.direction === "outbound" ? "send" : "chatbubble-ellipses"}
-              size={18}
-              color={update.direction === "outbound" ? colors.primary : colors.coral}
-            />
-          </View>
-          <View style={styles.fill}>
-            <Row>
-              <Text style={styles.author}>{update.author}</Text>
-              <Text style={styles.time}>{update.createdAt}</Text>
-            </Row>
-            <Pill label={directionLabel} tone={update.direction === "outbound" ? "primary" : "neutral"} />
-            <Text style={styles.body}>{update.body}</Text>
-            {conversion ? <Pill label={conversion} tone="mint" /> : null}
-          </View>
-        </Row>
+    <View style={[styles.entryRow, highlighted && styles.highlightedEntry]}>
+      <View style={[styles.bubbleIcon, update.direction === "outbound" && styles.bubbleIconOutbound]}>
+        <Ionicons
+          name={update.direction === "outbound" ? "send" : "chatbubble-ellipses"}
+          size={18}
+          color={update.direction === "outbound" ? colors.primary : colors.coral}
+        />
       </View>
-    </Card>
+      <View style={styles.fill}>
+        <View style={styles.entryMetaRow}>
+          <Text style={styles.author}>{update.author}</Text>
+          <Text style={styles.time}>{update.createdAt}</Text>
+        </View>
+        <View style={styles.entryPills}>
+          <Pill label={directionLabel} tone={update.direction === "outbound" ? "primary" : "neutral"} />
+          {conversion ? <Pill label={conversion} tone="mint" /> : null}
+        </View>
+        <Text style={styles.body}>{update.body}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -299,6 +315,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: spacing.sm
   },
+  jobLabel: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: spacing.xs
+  },
+  stepHint: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: spacing.md
+  },
   input: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.lineStrong,
@@ -309,6 +339,9 @@ const styles = StyleSheet.create({
     minHeight: 92,
     padding: spacing.md,
     textAlignVertical: "top"
+  },
+  inputInvalid: {
+    borderColor: colors.coral
   },
   actions: {
     flexDirection: "row",
@@ -364,13 +397,31 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   stack: {
-    gap: spacing.md
+    gap: spacing.sm
+  },
+  entryRow: {
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  entryMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between"
+  },
+  entryPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs
   },
   highlightedEntry: {
     backgroundColor: colors.mintSoft,
     borderRadius: radii.md,
-    margin: -spacing.xs,
-    padding: spacing.xs
+    marginHorizontal: -spacing.xs,
+    paddingHorizontal: spacing.xs
   },
   bubbleIcon: {
     alignItems: "center",
