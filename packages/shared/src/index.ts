@@ -199,7 +199,8 @@ export const childPairingCodeSchema = z.object({
     .string()
     .trim()
     .toUpperCase()
-    .regex(/^KC-[A-Z0-9]{6}$/u, "Expected a child pairing code like KC-ABC123")
+    .min(4, "Enter the child pairing code from a parent.")
+    .max(16, "Child pairing codes are short codes like KC-ABC123.")
 });
 
 export const childDevicePushTokenSchema = z.object({
