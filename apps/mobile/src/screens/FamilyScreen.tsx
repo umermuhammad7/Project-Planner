@@ -1,6 +1,6 @@
 import type { ChildDeviceRecord } from "@homethread/shared";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PurchasesPackage } from "react-native-purchases";
 
 import { ActionFeedback } from "../components/ActionFeedback";
@@ -485,59 +485,22 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         title={familyName}
         subtitle={
           backendConnected
-            ? "Share the adult invite code, manage kids, and keep the home organized."
-            : "Sign in to manage the household from one shared place."
+            ? "Invite adults, pair child devices, manage profiles."
+            : "Sign in to manage the household."
         }
         icon="home"
         variant="admin"
         onActionPress={onClose}
       />
 
-      <View style={styles.summaryStrip}>
-        <View style={styles.summaryTop}>
-          <Pill label={`${currentAccessLabel} access`} tone={accessPillTone(
-            currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
-          )} />
-          <Pill label={backendConnected ? "Connected" : "Local-only"} tone={backendConnected ? "mint" : "neutral"} />
-        </View>
-        <View style={styles.summaryGrid}>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-              {adultMembers.length}
-            </Text>
-            <Text style={styles.summaryLabel} numberOfLines={1}>
-              Adults
-            </Text>
-          </View>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-              {childProfiles.length}
-            </Text>
-            <Text style={styles.summaryLabel} numberOfLines={1}>
-              Kids
-            </Text>
-          </View>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-              {inviteCode ? "Set" : "None"}
-            </Text>
-            <Text style={styles.summaryLabel} numberOfLines={1}>
-              Adult code
-            </Text>
-          </View>
-        </View>
-      </View>
-
       <View style={styles.inviteHero}>
-        <Text style={styles.inviteHeroTitle}>Adult invite code</Text>
-        <Text style={styles.inviteHeroText}>
-          For a second parent only. Share after they sign in. Kids never use this code.
-        </Text>
+        <View style={styles.inviteHeroHeader}>
+          <Text style={styles.inviteHeroTitle}>Adult invite code</Text>
+          <Pill label="Adults only" tone="primary" />
+        </View>
+        <Text style={styles.inviteHeroText}>Second parent signs in, then joins with this code. Kids never use it.</Text>
         <Text selectable style={styles.inviteCode} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
           {inviteCode ?? "Unavailable"}
-        </Text>
-        <Text style={styles.inviteCodeHint}>
-          Their path: Welcome → Join with adult invite code → sign in → enter code.
         </Text>
         <View style={styles.inviteActionRow}>
           <PrimaryButton
@@ -563,31 +526,17 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           ) : null}
         </View>
         {inviteFeedback ? <Text style={styles.inviteFeedback}>{inviteFeedback}</Text> : null}
-        {!isFamilyAdmin ? (
-          <Text style={styles.helperTextCompact}>Only the household admin can regenerate the adult invite code.</Text>
-        ) : null}
-      </View>
-
-      <View style={styles.secondaryPanel}>
-        <Text style={styles.secondaryTitle}>Kids on this device</Text>
-        <Text style={styles.secondaryText}>
-          Add child profiles below. A signed-in parent opens Kids mode from Home and picks who is using this phone.
-        </Text>
       </View>
 
       <View style={styles.futurePairingPanel}>
         <View style={styles.futurePairingHeader}>
-          <Text style={styles.futurePairingTitle}>Pair child device</Text>
+          <Text style={styles.futurePairingTitle}>Child device pairing</Text>
           <Pill label="KC- codes" tone="gold" icon="key" />
         </View>
         <Text style={styles.futurePairingText}>
-          One active phone per child. A new KC- code replaces the previous device. Revoke here to sign a phone out immediately.
+          Each child gets a KC- code on their own phone or tablet. One active device per child - a new code replaces the old phone.
         </Text>
         <View style={styles.futurePairingPlaceholders}>
-          <View style={styles.futurePairingSlot}>
-            <Text style={styles.futurePairingSlotLabel}>QR scan</Text>
-            <Text style={styles.futurePairingSlotValue}>Planned</Text>
-          </View>
           <View style={styles.futurePairingSlot}>
             <Text style={styles.futurePairingSlotLabel}>Paired devices</Text>
             <Text style={styles.futurePairingSlotValue}>
@@ -620,6 +569,33 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
             ))}
           </View>
         ) : null}
+      </View>
+
+      <View style={styles.summaryStrip}>
+        <View style={styles.summaryTop}>
+          <Pill label={`${currentAccessLabel} access`} tone={accessPillTone(
+            currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
+          )} />
+          <Pill label={backendConnected ? "Connected" : "Local-only"} tone={backendConnected ? "mint" : "neutral"} />
+        </View>
+        <View style={styles.summaryGrid}>
+          <View style={styles.summaryStat}>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {adultMembers.length}
+            </Text>
+            <Text style={styles.summaryLabel} numberOfLines={1}>
+              Adults
+            </Text>
+          </View>
+          <View style={styles.summaryStat}>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {childProfiles.length}
+            </Text>
+            <Text style={styles.summaryLabel} numberOfLines={1}>
+              Child profiles
+            </Text>
+          </View>
+        </View>
       </View>
 
       {isFamilyAdmin ? (
@@ -828,7 +804,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                       {activePairingCodes[member.id]?.code}
                     </Text>
                     <Text style={styles.pairingCodeHint}>
-                      Child enters this on Welcome → Set up a child's device. Pairing again replaces the old phone.
+                      Child enters this on Welcome → Set up child's device. One phone per child.
                     </Text>
                     <PrimaryButton
                       label="Copy pairing code"
@@ -849,29 +825,26 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         ))}
       </View>
 
-      <SectionTitle title="Household plan" action="Billing" />
+      <SectionTitle title="Future plans" action="Preview" />
       <Card>
-        <Text style={styles.cardTitle}>Plan and billing</Text>
-        <Text style={styles.cardText}>One plan covers the home. The admin handles billing; other adults join with the adult invite code.</Text>
+        <View style={styles.previewBillingHeader}>
+          <Text style={styles.cardTitle}>Plan and billing</Text>
+          <Pill label="Preview" tone="gold" icon="card" />
+        </View>
+        <Text style={styles.cardText}>
+          Preview build - billing coming soon. No payment is required or collected in this build.
+        </Text>
         <Text style={styles.helperText}>
-          Plan: {subscriptionStatus?.subscriptionStatus ?? "free"}
-          {subscriptionStatus?.subscriptionExpiresAt
-            ? ` - expires ${new Date(subscriptionStatus.subscriptionExpiresAt).toLocaleDateString()}`
-            : ""}
+          Current plan: {subscriptionStatus?.subscriptionStatus ?? "free preview"}
         </Text>
         <ActionFeedback
           message={subscriptionMessage ?? ""}
           tone={feedbackTone(subscriptionMessage ?? "")}
           visible={Boolean(subscriptionMessage)}
         />
-        <ActionFeedback
-          message={(billingMessage ?? (!billingStatus.keyPresent ? billingStatus.message : "")) || ""}
-          tone={feedbackTone((billingMessage ?? (!billingStatus.keyPresent ? billingStatus.message : "")) || "")}
-          visible={Boolean(billingMessage || !billingStatus.keyPresent)}
-        />
         <View style={styles.cardActions}>
           <PrimaryButton
-            label={showBillingPlans ? "Hide plans" : "View plans and billing"}
+            label={showBillingPlans ? "Hide planned tiers" : "View planned tiers"}
             icon="card"
             tone="soft"
             onPress={() => setShowBillingPlans((value) => !value)}
@@ -879,32 +852,6 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         </View>
         {showBillingPlans ? (
           <>
-            <View style={styles.planToolbar}>
-              <PrimaryButton
-                label="Refresh plans"
-                icon="refresh"
-                tone="ghost"
-                loading={isLoadingBilling}
-                disabled={isLoadingBilling}
-                onPress={() => {
-                  if (isLoadingBilling) return;
-                  void loadBillingOptions();
-                }}
-              />
-              {isFamilyAdmin ? (
-                <PrimaryButton
-                  label="Restore purchases"
-                  icon="download"
-                  tone="soft"
-                  loading={isRestoringPurchases}
-                  disabled={isRestoringPurchases}
-                  onPress={() => {
-                    if (isRestoringPurchases) return;
-                    void handleRestorePurchases();
-                  }}
-                />
-              ) : null}
-            </View>
             <View style={styles.planStack}>
               {planRows.map((plan) => (
                 <View key={plan.name} style={styles.planRow}>
@@ -917,52 +864,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                 </View>
               ))}
             </View>
-            <View style={styles.inlineSectionHeader}>
-              <Text style={styles.inlineSectionTitle}>Store checkout</Text>
-              <Text style={styles.inlineSectionMeta}>{billingStatus.platform}</Text>
-            </View>
-
-            {billingSummaries.length > 0 ? (
-              <View style={styles.storePlanStack}>
-                {billingSummaries.map((summary, index) => (
-                  <View key={summary.id} style={styles.storePlanRow}>
-                    <View style={styles.planCopy}>
-                      <Text style={styles.planName}>{summary.title}</Text>
-                      <Text style={styles.planDetail}>{summary.description || "Household subscription"}</Text>
-                      {summary.periodLabel ? <Text style={styles.planNote}>Billed {summary.periodLabel}</Text> : null}
-                    </View>
-                    <View style={styles.storePlanAside}>
-                      <Text style={styles.planPrice}>{summary.priceLabel}</Text>
-                      {isFamilyAdmin ? (
-                        <PrimaryButton
-                          label="Choose"
-                          icon="card"
-                          loading={activePurchaseId === summary.id}
-                          disabled={Boolean(activePurchaseId)}
-                          onPress={() => {
-                            if (activePurchaseId) return;
-                            void handlePurchasePlan(billingPackages[index]!);
-                          }}
-                        />
-                      ) : null}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            {billingManagementUrl ? (
-              <View style={styles.cardActions}>
-                <PrimaryButton
-                  label="Manage in store"
-                  icon="open-outline"
-                  tone="ghost"
-                  onPress={() => {
-                    void Linking.openURL(billingManagementUrl);
-                  }}
-                />
-              </View>
-            ) : null}
+            <Text style={styles.previewBillingNote}>
+              Store checkout and subscriptions are not live in this preview. Purchases and restore are disabled.
+            </Text>
           </>
         ) : null}
       </Card>
@@ -1101,6 +1005,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.xs,
     padding: spacing.lg
+  },
+  inviteHeroHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "space-between"
+  },
+  previewBillingHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    marginBottom: spacing.xs
+  },
+  previewBillingNote: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginTop: spacing.md
   },
   inviteHeroTitle: {
     color: colors.ink,

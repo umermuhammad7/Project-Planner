@@ -14,6 +14,35 @@ import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { TravelReminderStatus } from "../types";
 import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } from "../utils/eventUrgency";
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
+import type { PlanEvent } from "../types";
+
+function eventStatusLabel(
+  event: PlanEvent,
+  urgency: ReturnType<typeof getEventUrgency>,
+  importedSource: string | null
+) {
+  if (urgency?.label && urgency.label !== "Past") {
+    return urgency.label;
+  }
+
+  if (event.countdownLabel) {
+    return event.countdownLabel;
+  }
+
+  if (importedSource) {
+    return importedSource;
+  }
+
+  if (event.source === "assistant") {
+    return "Assistant";
+  }
+
+  if (event.source === "text") {
+    return "From text";
+  }
+
+  return null;
+}
 
 export function PlanScreen() {
   const { events, members, createEvent, updateEvent, deleteEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
@@ -421,6 +450,7 @@ export function PlanScreen() {
               members.find((member) => member.id === event.assignedTo[0])?.color ?? colors.primary;
             const isExpanded = expandedEventId === event.id;
             const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${event.time}` : event.time;
+            const statusLabel = eventStatusLabel(event, urgency, importedSource);
 
             return (
               <Card key={event.id}>
@@ -430,44 +460,48 @@ export function PlanScreen() {
                     <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
                   </View>
                   <View style={styles.fill}>
-                    <Row>
+                    <View style={styles.eventTopRow}>
                       <Text style={styles.time}>{event.time}</Text>
-                      {urgency ? <Pill label={urgency.label} tone={urgency.tone} /> : null}
-                      {event.countdownLabel ? <Pill label={event.countdownLabel} tone="gold" /> : null}
-                      {importedSource ? <Pill label={importedSource} tone="mint" /> : null}
-                      {!importedSource ? (
-                        <Pill label={event.source} tone={event.source === "assistant" ? "mint" : "primary"} />
-                      ) : null}
-                    </Row>
+                      {statusLabel ? <Pill label={statusLabel} tone={urgency?.tone ?? "neutral"} /> : null}
+                    </View>
                     <Text style={styles.eventTitle}>{event.title}</Text>
                     <Text style={styles.schedule}>{scheduleLabel}</Text>
                     {assigned ? <Text style={styles.meta}>{assigned}</Text> : null}
                     {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
                     <View style={styles.eventActionRow}>
-                      <PrimaryButton
-                        label="Edit"
-                        icon="create"
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Edit ${event.title}`}
                         disabled={isSaving}
                         onPress={() => populateForm(event)}
-                      />
-                      <PrimaryButton
-                        label="Delete"
-                        icon="trash"
-                        tone="ghost"
+                        style={styles.eventActionLink}
+                      >
+                        <Text style={styles.eventActionLinkText}>Edit</Text>
+                      </Pressable>
+                      <Text style={styles.eventActionDivider}>·</Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${event.title}`}
                         disabled={isSaving}
                         onPress={() => {
                           void handleDeleteEvent(event.id, event.title);
                         }}
-                      />
-                      <PrimaryButton
-                        label={isExpanded ? "Hide details" : "Details"}
-                        icon={isExpanded ? "chevron-up" : "chevron-down"}
-                        tone="ghost"
+                        style={styles.eventActionLink}
+                      >
+                        <Text style={[styles.eventActionLinkText, styles.eventActionLinkDanger]}>Delete</Text>
+                      </Pressable>
+                      <Text style={styles.eventActionDivider}>·</Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={isExpanded ? "Hide event details" : "Show event details"}
                         onPress={() => {
                           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                           setExpandedEventId((current) => (current === event.id ? null : event.id));
                         }}
-                      />
+                        style={styles.eventActionLink}
+                      >
+                        <Text style={styles.eventActionLinkText}>{isExpanded ? "Hide" : "Details"}</Text>
+                      </Pressable>
                     </View>
                     {isExpanded ? (
                       <View style={styles.expandedMeta}>
@@ -717,10 +751,35 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   eventActionRow: {
+    alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
+    gap: spacing.xs,
     marginTop: spacing.sm
+  },
+  eventTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  eventActionLink: {
+    minHeight: 36,
+    justifyContent: "center",
+    paddingVertical: spacing.xs
+  },
+  eventActionLinkText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  eventActionLinkDanger: {
+    color: colors.coral
+  },
+  eventActionDivider: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700"
   },
   expandedMeta: {
     backgroundColor: colors.surfaceRaised,

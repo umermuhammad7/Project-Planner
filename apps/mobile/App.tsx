@@ -74,7 +74,8 @@ function AppShell() {
   const scrollAssist = useMemo(
     () => ({
       scrollToTop: () => scrollRef.current?.scrollTo({ y: 0, animated: true }),
-      scrollToOffset: (offset: number) => scrollRef.current?.scrollTo({ y: offset, animated: true })
+      scrollToOffset: (offset: number) => scrollRef.current?.scrollTo({ y: offset, animated: true }),
+      scrollToBottom: () => scrollRef.current?.scrollToEnd({ animated: true })
     }),
     []
   );

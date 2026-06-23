@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Pill, PrimaryButton } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
+import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import {
@@ -174,7 +175,7 @@ export function AssistantScreen() {
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus | null>(null);
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
   const [showPrompts, setShowPrompts] = useState(false);
-  const conversationRef = useRef<ScrollView | null>(null);
+  const { scrollToBottom } = useScrollAssist();
 
   const canSend = useMemo(() => prompt.trim().length > 0 && !isThinking, [isThinking, prompt]);
   const assistantContext = useMemo<AssistantContext>(() => {
@@ -252,10 +253,10 @@ export function AssistantScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      conversationRef.current?.scrollToEnd({ animated: true });
-    }, 40);
+      scrollToBottom();
+    }, 80);
     return () => clearTimeout(timer);
-  }, [isThinking, messages, draft, mealSuggestions]);
+  }, [draft, isThinking, mealSuggestions, messages, scrollToBottom]);
 
   useEffect(() => {
     if (!draftFeedback) {
@@ -445,12 +446,7 @@ export function AssistantScreen() {
       />
 
       <View style={styles.surface}>
-        <ScrollView
-          ref={conversationRef}
-          showsVerticalScrollIndicator={false}
-          style={styles.conversationScroll}
-          contentContainerStyle={styles.conversationContent}
-        >
+        <View style={styles.conversationContent}>
           {messages.map((message) => (
             <View
               key={message.id}
@@ -587,7 +583,7 @@ export function AssistantScreen() {
               </View>
             </View>
           ) : null}
-        </ScrollView>
+        </View>
 
         <View style={styles.composer}>
           <Pressable
@@ -671,9 +667,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     overflow: "hidden"
-  },
-  conversationScroll: {
-    maxHeight: 520
   },
   conversationContent: {
     gap: spacing.sm,

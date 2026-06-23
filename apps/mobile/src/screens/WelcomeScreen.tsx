@@ -353,7 +353,7 @@ export function WelcomeScreen({
               style={[styles.setupTab, setupTab === "join" ? styles.setupTabActive : null]}
             >
               <Text style={[styles.setupTabLabel, setupTab === "join" ? styles.setupTabLabelActive : null]}>
-                Join with adult invite code
+                Join household
               </Text>
             </Pressable>
           </View>
@@ -426,13 +426,7 @@ export function WelcomeScreen({
     const isRegister = mode === "register";
     const joiningHousehold = preferredSetupTab === "join";
     const creatingHousehold = preferredSetupTab === "create";
-    const googleLabel = isSubmitting
-      ? "Working..."
-      : joiningHousehold
-        ? "Continue with Google to join"
-        : creatingHousehold && isRegister
-          ? "Continue with Google to create"
-          : "Continue with Google";
+    const googleLabel = isSubmitting ? "Working..." : "Continue with Google";
 
     return (
       <View style={styles.screen}>
@@ -565,53 +559,27 @@ export function WelcomeScreen({
       {welcomeMessage ? <Text style={styles.formMessage}>{welcomeMessage}</Text> : null}
 
       <Card>
+        <Text style={styles.cardTitle}>Get started</Text>
         <View style={styles.entryStack}>
           {supabaseConfiguredOnClient && authMode !== "supabase" ? (
             <>
-              <View style={styles.pathBlock}>
-                <Text style={styles.pathLabel}>Start a new household</Text>
-                <PrimaryButton label="Create household" icon="home" tone="soft" onPress={beginCreateJourney} />
+              <PrimaryButton label="Create household" icon="home" tone="primary" onPress={beginCreateJourney} />
+              <PrimaryButton label="Join household" icon="key" tone="soft" onPress={beginJoinJourney} />
+              {onSetupChildDevice ? (
                 <PrimaryButton
-                  label={isSubmitting ? "Working..." : "Continue with Google to create"}
-                  icon="logo-google"
+                  label="Set up child's device"
+                  icon="phone-portrait"
                   tone="ghost"
-                  onPress={() => {
-                    if (isSubmitting) return;
-                    void handleGoogleSignIn("create");
-                  }}
+                  onPress={onSetupChildDevice}
                 />
-              </View>
-              <View style={styles.pathBlock}>
-                <Text style={styles.pathLabel}>Second adult joining</Text>
-                <PrimaryButton label="Join with adult invite code" icon="key" tone="soft" onPress={beginJoinJourney} />
-                <PrimaryButton
-                  label={isSubmitting ? "Working..." : "Continue with Google to join"}
-                  icon="logo-google"
-                  tone="ghost"
-                  onPress={() => {
-                    if (isSubmitting) return;
-                    void handleGoogleSignIn("join");
-                  }}
-                />
-              </View>
+              ) : null}
+              <Text style={styles.helperTextCompact}>
+                Adults join with an invite code. Children pair with a KC- code on their own phone - never the adult code.
+              </Text>
               <Pressable onPress={beginLogin} style={styles.loginLinkButton}>
                 <Text style={styles.loginLead}>Already have an account?</Text>
                 <Text style={styles.loginLink}>Log in</Text>
               </Pressable>
-              {onSetupChildDevice ? (
-                <View style={styles.pathBlock}>
-                  <Text style={styles.pathLabel}>Child's own phone or tablet</Text>
-                  <PrimaryButton
-                    label="Set up a child's device"
-                    icon="phone-portrait"
-                    tone="ghost"
-                    onPress={onSetupChildDevice}
-                  />
-                  <Text style={styles.helperTextCompact}>
-                    KC- pairing code from Household. One phone per child - not the adult invite code.
-                  </Text>
-                </View>
-              ) : null}
             </>
           ) : null}
           {devTokenAvailable ? (
@@ -637,7 +605,7 @@ export function WelcomeScreen({
         style={styles.detailsToggle}
       >
         <Text style={styles.detailsToggleLabel}>
-          {showWelcomeDetails ? "Hide details" : "How it works and pricing"}
+          {showWelcomeDetails ? "Hide details" : "How it works"}
         </Text>
       </Pressable>
 
@@ -665,9 +633,12 @@ export function WelcomeScreen({
 
           <Card>
             <View style={styles.pricingHeader}>
-              <Text style={styles.cardTitle}>Household pricing</Text>
-              <Pill label="Draft" tone="gold" icon="card" />
+              <Text style={styles.cardTitle}>Future household plans</Text>
+              <Pill label="Preview" tone="gold" icon="card" />
             </View>
+            <Text style={styles.helperTextCompact}>
+              Preview build - billing coming soon. No payment is required or collected in this build.
+            </Text>
             <View style={styles.planStack}>
               {planRows.map((plan) => (
                 <View key={plan.name} style={styles.planRow}>
@@ -679,7 +650,7 @@ export function WelcomeScreen({
                 </View>
               ))}
             </View>
-            <Text style={styles.helperFootnote}>One adult manages billing. Purchases are not live yet.</Text>
+            <Text style={styles.helperFootnote}>Planned tiers for launch. Purchases are not live in this preview.</Text>
           </Card>
         </>
       ) : null}
