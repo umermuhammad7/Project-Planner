@@ -183,15 +183,20 @@ export function AssistantScreen() {
       .sort(compareEventsByStartAt)
       .filter((event) => getEventUrgency(event)?.label !== "Past")
       .slice(0, 5)
-      .map((event) => ({
-        title: event.title,
-        time: event.time,
-        dateLabel: event.dateLabel,
-        location: event.location ?? null,
-        assignedTo: event.assignedTo
+      .map((event) => {
+        const assignedTo = Array.isArray(event.assignedTo) ? event.assignedTo : [];
+        const assignedMemberNames = assignedTo
           .map((id) => members.find((member) => member.id === id)?.name)
-          .filter((name): name is string => Boolean(name))
-      }));
+          .filter((name): name is string => Boolean(name));
+
+        return {
+          title: event.title,
+          time: event.time,
+          dateLabel: event.dateLabel,
+          location: event.location ?? null,
+          assignedTo: assignedMemberNames
+        };
+      });
 
     const openChores = chores
       .filter((chore) => !chore.completed)

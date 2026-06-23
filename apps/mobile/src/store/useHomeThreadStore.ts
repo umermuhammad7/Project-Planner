@@ -2621,15 +2621,18 @@ function mapEvent(
   source: PlanEvent["source"] = "manual"
 ): PlanEvent {
   const startAt = new Date(event.startAt);
+  const validStartAt = Number.isNaN(startAt.getTime()) ? new Date() : startAt;
+  const safeAssignedTo = Array.isArray(assignedTo) ? assignedTo.filter((id) => typeof id === "string") : [];
+
   return {
     id: event.id,
     title: event.title,
-    time: format(startAt, "h:mm a"),
-    dateLabel: format(startAt, "EEE, MMM d"),
-    startAt: event.startAt,
+    time: format(validStartAt, "h:mm a"),
+    dateLabel: format(validStartAt, "EEE, MMM d"),
+    startAt: Number.isNaN(startAt.getTime()) ? validStartAt.toISOString() : event.startAt,
     location: event.location ?? undefined,
     countdownLabel: event.countdownLabel ?? null,
-    assignedTo,
+    assignedTo: safeAssignedTo,
     source,
     externalSource: event.externalSource ?? null,
     importedFrom: event.importedFrom ?? null,

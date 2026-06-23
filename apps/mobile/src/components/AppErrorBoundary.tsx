@@ -9,15 +9,21 @@ type Props = {
 
 type State = {
   hasError: boolean;
+  errorMessage: string | null;
 };
 
 export class AppErrorBoundary extends Component<Props, State> {
   state: State = {
-    hasError: false
+    hasError: false,
+    errorMessage: null
   };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: unknown) {
+    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    return {
+      hasError: true,
+      errorMessage: message.slice(0, 220)
+    };
   }
 
   componentDidCatch(error: unknown) {
@@ -36,9 +42,14 @@ export class AppErrorBoundary extends Component<Props, State> {
           <Text style={styles.body}>
             Your household data is still safe. Try reopening this screen or restarting the app.
           </Text>
+          {this.state.errorMessage ? (
+            <Text selectable style={styles.detail}>
+              {this.state.errorMessage}
+            </Text>
+          ) : null}
           <Pressable
             accessibilityLabel="Try HomeThread again"
-            onPress={() => this.setState({ hasError: false })}
+            onPress={() => this.setState({ hasError: false, errorMessage: null })}
             style={styles.button}
           >
             <Text style={styles.buttonLabel}>Try again</Text>
@@ -77,6 +88,17 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 15,
     lineHeight: 22
+  },
+  detail: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    padding: spacing.sm
   },
   button: {
     alignItems: "center",

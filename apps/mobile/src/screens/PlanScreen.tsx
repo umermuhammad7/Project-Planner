@@ -131,7 +131,7 @@ export function PlanScreen() {
     const sourceDate = event.startAt ? new Date(event.startAt) : new Date();
     setStartDate(formatDateInput(sourceDate));
     setStartTime(formatTimeInput(sourceDate));
-    setMemberIds(event.assignedTo);
+    setMemberIds(Array.isArray(event.assignedTo) ? event.assignedTo : []);
     setEditingEventId(event.id);
     setErrorMessage(null);
     setTitleError(null);
@@ -440,14 +440,15 @@ export function PlanScreen() {
       <View style={styles.stack}>
         {sortedEvents.length > 0 ? (
           sortedEvents.map((event) => {
-            const assigned = event.assignedTo
+            const assignedTo = Array.isArray(event.assignedTo) ? event.assignedTo : [];
+            const assigned = assignedTo
               .map((id) => members.find((member) => member.id === id)?.name)
               .filter(Boolean)
               .join(", ");
             const urgency = getEventUrgency(event);
             const importedSource = describeImportedEventSource(event);
             const eventColor =
-              members.find((member) => member.id === event.assignedTo[0])?.color ?? colors.primary;
+              members.find((member) => member.id === assignedTo[0])?.color ?? colors.primary;
             const isExpanded = expandedEventId === event.id;
             const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${event.time}` : event.time;
             const statusLabel = eventStatusLabel(event, urgency, importedSource);
