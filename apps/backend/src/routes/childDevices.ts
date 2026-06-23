@@ -24,6 +24,7 @@ import {
 import { isChildPairingCode, generateChildDeviceToken, clearFailedChildPairAttempts, isChildPairAttemptBlocked, recordFailedChildPairAttempt } from "../lib/childPairing.js";
 import { sendError } from "../lib/http.js";
 import { clearChildDevicePushToken } from "../lib/pushNotifications.js";
+import { logSafeError, redactForLog } from "../lib/redactLog.js";
 import { cancelChoreReminderForDate } from "../lib/reminderScheduling.js";
 import { requireChildDeviceAuth } from "../plugins/childDeviceAuth.js";
 
@@ -62,6 +63,15 @@ async function revokeActiveChildDevicesForMember(
   return activeDevices.length;
 }
 
+function getDatabaseErrorCode(error: unknown) {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" ? code : null;
+  }
+
+  return null;
+}
+
 export async function childDevicesRoutes(app: FastifyInstance) {
   const childPairRateLimit = {
     max: 8,
@@ -93,78 +103,113 @@ export async function childDevicesRoutes(app: FastifyInstance) {
       );
     }
 
-    const pairingCode = await db.query.childPairingCodes.findFirst({
-      where: and(eq(childPairingCodes.code, normalizedCode), isNull(childPairingCodes.revokedAt))
-    });
+    let stage = "lookup_pairing_code";
 
-    if (!pairingCode || pairingCode.redeemedAt || pairingCode.expiresAt.getTime() < Date.now()) {
-      recordFailedChildPairAttempt(clientKey);
-      return sendError(reply, 400, "That child pairing code is invalid or expired.", "CHILD_PAIRING_CODE_INVALID");
-    }
+    try {
+      const pairingCode = await db.query.childPairingCodes.findFirst({
+        where: and(eq(childPairingCodes.code, normalizedCode), isNull(childPairingCodes.revokedAt))
+      });
 
-    const member = await db.query.familyMembers.findFirst({
-      where: and(
-        eq(familyMembers.id, pairingCode.memberId),
-        eq(familyMembers.familyId, pairingCode.familyId),
-        eq(familyMembers.role, "child")
-      )
-    });
-
-    if (!member) {
-      recordFailedChildPairAttempt(clientKey);
-      return sendError(reply, 400, "That pairing code is not linked to a child profile.", "CHILD_PAIRING_MEMBER_INVALID");
-    }
-
-    const family = await db.query.families.findFirst({
-      where: eq(families.id, pairingCode.familyId)
-    });
-
-    if (!family) {
-      recordFailedChildPairAttempt(clientKey);
-      return sendError(reply, 404, "Household not found for that pairing code.", "FAMILY_NOT_FOUND");
-    }
-
-    const deviceToken = generateChildDeviceToken();
-
-    const result = await db.transaction(async (tx) => {
-      await revokeActiveChildDevicesForMember(pairingCode.familyId, pairingCode.memberId, tx);
-
-      const [device] = await tx
-        .insert(childDevices)
-        .values({
-          familyId: pairingCode.familyId,
-          memberId: pairingCode.memberId,
-          pairingCodeId: pairingCode.id,
-          deviceToken
-        })
-        .returning();
-
-      await tx
-        .update(childPairingCodes)
-        .set({ redeemedAt: new Date() })
-        .where(eq(childPairingCodes.id, pairingCode.id));
-
-      return device;
-    });
-
-    clearFailedChildPairAttempts(clientKey);
-
-    const starBalance = await getMemberStarBalance(member.familyId, member.id);
-
-    const payload = pairChildDeviceResponseSchema.parse({
-      deviceToken: result.deviceToken,
-      family: {
-        id: family.id,
-        name: family.name
-      },
-      member: {
-        id: member.id,
-        displayName: member.displayName,
-        starBalance
+      if (!pairingCode || pairingCode.redeemedAt || pairingCode.expiresAt.getTime() < Date.now()) {
+        recordFailedChildPairAttempt(clientKey);
+        return sendError(reply, 400, "That child pairing code is invalid or expired.", "CHILD_PAIRING_CODE_INVALID");
       }
-    });
 
-    return reply.status(201).send(payload);
+      stage = "lookup_member";
+      const member = await db.query.familyMembers.findFirst({
+        where: and(
+          eq(familyMembers.id, pairingCode.memberId),
+          eq(familyMembers.familyId, pairingCode.familyId),
+          eq(familyMembers.role, "child")
+        )
+      });
+
+      if (!member) {
+        recordFailedChildPairAttempt(clientKey);
+        return sendError(reply, 400, "That pairing code is not linked to a child profile.", "CHILD_PAIRING_MEMBER_INVALID");
+      }
+
+      stage = "lookup_family";
+      const family = await db.query.families.findFirst({
+        where: eq(families.id, pairingCode.familyId)
+      });
+
+      if (!family) {
+        recordFailedChildPairAttempt(clientKey);
+        return sendError(reply, 404, "Household not found for that pairing code.", "FAMILY_NOT_FOUND");
+      }
+
+      const deviceToken = generateChildDeviceToken();
+
+      stage = "pair_device_transaction";
+      const result = await db.transaction(async (tx) => {
+        await revokeActiveChildDevicesForMember(pairingCode.familyId, pairingCode.memberId, tx);
+
+        const [device] = await tx
+          .insert(childDevices)
+          .values({
+            familyId: pairingCode.familyId,
+            memberId: pairingCode.memberId,
+            pairingCodeId: pairingCode.id,
+            deviceToken
+          })
+          .returning();
+
+        await tx
+          .update(childPairingCodes)
+          .set({ redeemedAt: new Date() })
+          .where(eq(childPairingCodes.id, pairingCode.id));
+
+        return device;
+      });
+
+      clearFailedChildPairAttempts(clientKey);
+
+      stage = "load_star_balance";
+      const starBalance = await getMemberStarBalance(member.familyId, member.id);
+
+      const payload = pairChildDeviceResponseSchema.parse({
+        deviceToken: result.deviceToken,
+        family: {
+          id: family.id,
+          name: family.name
+        },
+        member: {
+          id: member.id,
+          displayName: member.displayName,
+          starBalance
+        }
+      });
+
+      return reply.status(201).send(payload);
+    } catch (error) {
+      console.error(
+        redactForLog({
+          scope: "child_device_pair",
+          stage,
+          pairingCode: normalizedCode,
+          clientKey
+        })
+      );
+      logSafeError(error);
+
+      const databaseCode = getDatabaseErrorCode(error);
+      if (databaseCode === "42P01" || databaseCode === "42703") {
+        return sendError(
+          reply,
+          503,
+          "Child device pairing is not ready on this server yet.",
+          "CHILD_PAIRING_NOT_READY"
+        );
+      }
+
+      return sendError(
+        reply,
+        500,
+        "Child device pairing is temporarily unavailable.",
+        "CHILD_PAIRING_UNAVAILABLE"
+      );
+    }
   });
 
   app.register(async (scoped) => {

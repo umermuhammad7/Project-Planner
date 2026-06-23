@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
-import Fastify from "fastify";
+import Fastify, { FastifyError } from "fastify";
 import { ZodError } from "zod";
 
 import { env, getAllowedFrontendOrigins } from "./env.js";
@@ -70,6 +70,16 @@ export function buildApp() {
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) {
       return sendZodError(reply, error);
+    }
+
+    const fastifyError = error as Partial<FastifyError>;
+    if (typeof fastifyError.statusCode === "number" && fastifyError.statusCode >= 400 && fastifyError.statusCode < 500) {
+      return sendError(
+        reply,
+        fastifyError.statusCode,
+        fastifyError.message || "Request could not be processed.",
+        fastifyError.code || "BAD_REQUEST"
+      );
     }
 
     logSafeError(error);

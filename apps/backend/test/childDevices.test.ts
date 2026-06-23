@@ -71,6 +71,28 @@ describe("child device routes", () => {
     expect(response.json().code).toMatch(/CHILD_PAIRING_CODE_REQUIRED|VALIDATION_ERROR/u);
   });
 
+  it("returns a specific readiness error when child pairing tables are unavailable", async () => {
+    const app = buildApp();
+    const querySpy = vi
+      .spyOn(db.query.childPairingCodes, "findFirst")
+      .mockRejectedValueOnce(Object.assign(new Error('relation "child_pairing_codes" does not exist'), { code: "42P01" }));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/child-devices/pair",
+      payload: {
+        pairingCode: "KC-ABC123"
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      code: "CHILD_PAIRING_NOT_READY"
+    });
+
+    querySpy.mockRestore();
+  });
+
   it("rejects adult bearer tokens on child device routes", async () => {
     const pairingCode = await createPairingCode();
     const pairResponse = await pairDevice(pairingCode);
