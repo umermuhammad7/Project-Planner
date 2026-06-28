@@ -214,6 +214,23 @@ export const childPairingCodeResponseSchema = z.object({
   memberName: z.string().min(1)
 });
 
+export const childPairingCodesListResponseSchema = z.object({
+  pairingCodes: z.array(childPairingCodeResponseSchema)
+});
+
+export const childPairPreviewResponseSchema = z.object({
+  pairingCode: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+  family: z.object({
+    id: uuidSchema,
+    name: z.string().min(1)
+  }),
+  member: z.object({
+    id: uuidSchema,
+    displayName: z.string().min(1)
+  })
+});
+
 export const childDeviceRecordSchema = z.object({
   id: uuidSchema,
   familyId: uuidSchema,
@@ -570,6 +587,8 @@ export type JoinFamilyInput = z.infer<typeof joinFamilySchema>;
 export type ChildPairingCodeInput = z.infer<typeof childPairingCodeSchema>;
 export type ChildDevicePushTokenInput = z.infer<typeof childDevicePushTokenSchema>;
 export type ChildPairingCodeResponse = z.infer<typeof childPairingCodeResponseSchema>;
+export type ChildPairingCodesListResponse = z.infer<typeof childPairingCodesListResponseSchema>;
+export type ChildPairPreviewResponse = z.infer<typeof childPairPreviewResponseSchema>;
 export type ChildDeviceRecord = z.infer<typeof childDeviceRecordSchema>;
 export type ChildDevicesListResponse = z.infer<typeof childDevicesListResponseSchema>;
 export type PairChildDeviceResponse = z.infer<typeof pairChildDeviceResponseSchema>;

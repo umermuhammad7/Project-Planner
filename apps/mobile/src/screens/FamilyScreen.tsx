@@ -8,7 +8,7 @@ import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../c
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
-import { createChildPairingCode, listChildDevices, revokeChildDevice } from "../services/childDeviceApi";
+import { createChildPairingCode, listActiveChildPairingCodes, listChildDevices, revokeChildDevice } from "../services/childDeviceApi";
 import {
   type BillingPackageSummary,
   getBillingCustomerInfo,
@@ -17,14 +17,37 @@ import {
   purchaseBillingPackage,
   restoreBillingPurchases
 } from "../services/billing";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
+import { safeText } from "../utils/safeRender";
 import { MobileSubscriptionStatus, FamilyMember } from "../types";
-import { getCurrentUserAccessLabel, getMemberAccessKind, getMemberAccessLabel } from "../utils/memberAccessLabel";
+import { getAdultMemberAccountLabel, getCurrentUserAccessLabel, getEffectiveFamilyCreatorId, getMemberAccessKind, getMemberAccessLabel } from "../utils/memberAccessLabel";
 import { copyText } from "../utils/copyText";
 import { useAuthStore } from "../store/useAuthStore";
 
-function roleLabel(member: Pick<FamilyMember, "role" | "userId">, familyCreatedBy: string | null | undefined) {
-  return getMemberAccessLabel(member, familyCreatedBy);
+function formatPairingExpiry(expiresAt: string) {
+  const expiry = new Date(expiresAt);
+  if (Number.isNaN(expiry.getTime())) {
+    return "Expiry unknown";
+  }
+
+  const minutesLeft = Math.max(0, Math.round((expiry.getTime() - Date.now()) / 60000));
+  if (minutesLeft <= 0) {
+    return "Expired";
+  }
+
+  const timeLabel = expiry.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (minutesLeft < 60) {
+    return `Expires in about ${minutesLeft} min (${timeLabel})`;
+  }
+
+  return `Expires ${expiry.toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`;
+}
+
+function roleLabel(
+  member: Pick<FamilyMember, "role" | "userId">,
+  effectiveFamilyCreatedBy: string | null
+) {
+  return getMemberAccessLabel(member, effectiveFamilyCreatedBy);
 }
 
 function formatChildDeviceStatus(device: ChildDeviceRecord) {
@@ -58,7 +81,13 @@ function feedbackTone(message: string): "success" | "error" | "info" {
   return "success";
 }
 
-export function FamilyScreen({ onClose }: { onClose: () => void }) {
+export function FamilyScreen({
+  onClose,
+  onLeaveComplete
+}: {
+  onClose: () => void;
+  onLeaveComplete?: (result: { needsFamilySetup: boolean }) => void;
+}) {
   const {
     familyId,
     familyName,
@@ -67,15 +96,16 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     isFamilyAdmin,
     members,
     syncSource,
-    isSaving,
     saveMessage,
     regenerateInviteCode,
     updateFamilyName,
     leaveFamily,
     createVirtualMember,
     updateVirtualMember,
-    removeVirtualMember
+    removeVirtualMember,
+    promoteMemberToAdmin
   } = useHomeThreadStore();
+  const isSavingFamily = useHomeThreadStore(isHomeThreadSavingScope("family"));
   const currentUserId = useAuthStore((state) => state.userId);
   const [childName, setChildName] = useState("");
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
@@ -96,6 +126,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
   const [showAddChildForm, setShowAddChildForm] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [pendingRemoveMemberId, setPendingRemoveMemberId] = useState<string | null>(null);
+  const [promotingMemberId, setPromotingMemberId] = useState<string | null>(null);
   const [activePairingCodes, setActivePairingCodes] = useState<
     Record<string, { code: string; expiresAt: string; memberName: string }>
   >({});
@@ -137,10 +170,18 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
   const billingStatus = getBillingStatus();
   const adultMembers = members.filter((member) => member.role !== "kid");
   const childProfiles = members.filter((member) => member.role === "kid");
+  const effectiveFamilyCreatedBy = getEffectiveFamilyCreatorId(familyCreatedBy, members);
+  const householdAdminCount = members.filter((member) => member.role === "parent").length;
+  const isSoleAdmin = isFamilyAdmin && householdAdminCount <= 1;
+  const pendingRemoveDeviceCount = pendingRemoveMemberId
+    ? childDevices.filter(
+        (device) => device.memberId === pendingRemoveMemberId && !device.revokedAt
+      ).length
+    : 0;
   const currentAccessLabel = getCurrentUserAccessLabel({
     isFamilyAdmin,
     currentUserId,
-    familyCreatedBy
+    familyCreatedBy: effectiveFamilyCreatedBy
   });
 
   async function handleSaveFamilyName() {
@@ -157,8 +198,17 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     setFormMessage(null);
     const result = await leaveFamily();
     if (!result.ok) {
+      setFormMessage(result.message ?? "Could not leave this household.");
+      setShowLeaveConfirm(false);
       return;
     }
+
+    setShowLeaveConfirm(false);
+    if (onLeaveComplete) {
+      onLeaveComplete({ needsFamilySetup: result.needsFamilySetup ?? false });
+      return;
+    }
+
     onClose();
   }
 
@@ -168,6 +218,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     setIsRegeneratingInvite(true);
     const result = await regenerateInviteCode();
     setIsRegeneratingInvite(false);
+    setShowRegenerateConfirm(false);
     if (!result.ok) {
       setInviteFeedback(result.message ?? "Could not regenerate invite code.");
       return;
@@ -175,6 +226,38 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
     const updatedCode = useHomeThreadStore.getState().inviteCode;
     setInviteFeedback(updatedCode ? `New adult code ready: ${updatedCode}` : "Adult invite code updated.");
+  }
+
+  async function handlePromoteMember(memberId: string) {
+    setFormMessage(null);
+    setPromotingMemberId(memberId);
+    const result = await promoteMemberToAdmin(memberId);
+    setPromotingMemberId(null);
+    if (!result.ok) {
+      setFormMessage(result.message ?? "Could not promote that adult.");
+    }
+  }
+
+  async function loadActivePairingCodes() {
+    if (!familyId || !backendConnected) {
+      setActivePairingCodes({});
+      return;
+    }
+
+    const result = await listActiveChildPairingCodes(familyId);
+    if (!result.data) {
+      return;
+    }
+
+    const next: Record<string, { code: string; expiresAt: string; memberName: string }> = {};
+    for (const entry of result.data.pairingCodes) {
+      next[entry.memberId] = {
+        code: entry.pairingCode,
+        expiresAt: entry.expiresAt,
+        memberName: entry.memberName
+      };
+    }
+    setActivePairingCodes(next);
   }
 
   async function loadChildDevices() {
@@ -217,6 +300,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     }));
     setPairingFeedback(`Pairing code ready for ${memberName}. One phone per child - a new pairing replaces the old device.`);
     void loadChildDevices();
+    void loadActivePairingCodes();
   }
 
   async function handleCopyPairingCode(code: string) {
@@ -299,6 +383,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
       return;
     }
 
+    setPendingRemoveMemberId(null);
     if (editingMemberId === memberId) {
       setEditingMemberId(null);
       setEditingMemberName("");
@@ -460,6 +545,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     void loadChildDevices();
+    void loadActivePairingCodes();
   }, [familyId, backendConnected]);
 
   useEffect(() => {
@@ -482,14 +568,14 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
     <View style={styles.screen}>
       <ScreenHeader
         eyebrow="Household"
-        title={familyName}
+        title={safeText(familyName, "Your household")}
         subtitle={
           backendConnected
             ? "Invite adults, pair child devices, manage profiles."
             : "Sign in to manage the household."
         }
-        icon="home"
         variant="admin"
+        actionLabel="Close"
         onActionPress={onClose}
       />
 
@@ -499,6 +585,9 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
           <Pill label="Adults only" tone="primary" />
         </View>
         <Text style={styles.inviteHeroText}>Second parent signs in, then joins with this code. Kids never use it.</Text>
+        <Text style={styles.inviteHeroText}>
+          Regenerating creates a new code immediately. Any older adult code that is still being shared stops working.
+        </Text>
         <Text selectable style={styles.inviteCode} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
           {inviteCode ?? "Unavailable"}
         </Text>
@@ -512,7 +601,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
               void handleCopyInvite();
             }}
           />
-          {isFamilyAdmin ? (
+          {isFamilyAdmin && !showRegenerateConfirm ? (
             <PrimaryButton
               label="Regenerate"
               icon="refresh"
@@ -520,11 +609,37 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
               disabled={isRegeneratingInvite || !backendConnected}
               onPress={() => {
                 if (isRegeneratingInvite || !backendConnected) return;
-                void handleRegenerateInvite();
+                setShowRegenerateConfirm(true);
               }}
             />
           ) : null}
         </View>
+        {isFamilyAdmin && showRegenerateConfirm ? (
+          <View style={styles.inlineConfirm}>
+            <Text style={styles.warningText}>
+              This replaces the current adult invite code. Anyone still trying the old code will not be able to join.
+            </Text>
+            <View style={styles.memberButtonRow}>
+              <PrimaryButton
+                label="Keep current code"
+                icon="close"
+                tone="soft"
+                onPress={() => setShowRegenerateConfirm(false)}
+              />
+              <PrimaryButton
+                label="Regenerate now"
+                icon="refresh"
+                tone="dark"
+                loading={isRegeneratingInvite}
+                disabled={isRegeneratingInvite || !backendConnected}
+                onPress={() => {
+                  if (isRegeneratingInvite || !backendConnected) return;
+                  void handleRegenerateInvite();
+                }}
+              />
+            </View>
+          </View>
+        ) : null}
         {inviteFeedback ? <Text style={styles.inviteFeedback}>{inviteFeedback}</Text> : null}
       </View>
 
@@ -624,10 +739,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                 <PrimaryButton
                   label="Save name"
                   icon="checkmark"
-                  loading={isSaving}
-                  disabled={isSaving || !backendConnected}
+                  loading={isSavingFamily}
+                  disabled={isSavingFamily || !backendConnected}
                   onPress={() => {
-                    if (isSaving || !backendConnected) return;
+                    if (isSavingFamily || !backendConnected) return;
                     void handleSaveFamilyName();
                   }}
                 />
@@ -652,17 +767,34 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
               <View style={styles.memberCopy}>
                 <Text style={styles.memberName}>{member.name}</Text>
                 <Text style={styles.memberMeta}>
-                  {roleLabel(member, familyCreatedBy)}
-                  {member.userId ? " - signed in" : " - invite pending"}
+                  {roleLabel(member, effectiveFamilyCreatedBy)} · {getAdultMemberAccountLabel(member)}
                 </Text>
               </View>
               <View style={styles.accessPillWrap}>
                 <Pill
-                  label={getMemberAccessLabel(member, familyCreatedBy)}
-                  tone={accessPillTone(getMemberAccessKind(member, familyCreatedBy))}
+                  label={getMemberAccessLabel(member, effectiveFamilyCreatedBy)}
+                  tone={accessPillTone(getMemberAccessKind(member, effectiveFamilyCreatedBy))}
                 />
               </View>
             </Row>
+            {isFamilyAdmin &&
+            member.role === "caregiver" &&
+            member.userId &&
+            !member.isVirtual ? (
+              <View style={styles.memberActions}>
+                <PrimaryButton
+                  label={promotingMemberId === member.id ? "Promoting..." : "Make admin"}
+                  icon="shield"
+                  tone="soft"
+                  loading={promotingMemberId === member.id}
+                  disabled={isSavingFamily || promotingMemberId === member.id || !backendConnected}
+                  onPress={() => {
+                    if (isSavingFamily || promotingMemberId === member.id || !backendConnected) return;
+                    void handlePromoteMember(member.id);
+                  }}
+                />
+              </View>
+            ) : null}
           </View>
         ))}
       </View>
@@ -723,8 +855,7 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
               <View style={styles.memberCopy}>
                 <Text style={styles.memberName}>{member.name}</Text>
                 <Text style={styles.memberMeta}>
-                  {roleLabel(member, familyCreatedBy)}
-                  {member.userId ? " - signed-in account" : " - profile only"}
+                  {roleLabel(member, effectiveFamilyCreatedBy)} · {member.userId ? "Signed in" : "Profile only"}
                 </Text>
               </View>
               <View style={styles.accessPillWrap}>
@@ -746,10 +877,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                       <PrimaryButton
                         label="Save child"
                         icon="checkmark"
-                        loading={isSaving}
-                        disabled={isSaving || !backendConnected}
+                        loading={isSavingFamily}
+                        disabled={isSavingFamily || !backendConnected}
                         onPress={() => {
-                          if (isSaving || !backendConnected) return;
+                          if (isSavingFamily || !backendConnected) return;
                           void handleSaveMember();
                         }}
                       />
@@ -788,20 +919,53 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                       label="Remove"
                       icon="trash"
                       tone="dark"
-                      loading={isSaving}
-                      disabled={isSaving || !backendConnected}
+                      loading={isSavingFamily}
+                      disabled={isSavingFamily || !backendConnected}
                       onPress={() => {
-                        if (isSaving || !backendConnected) return;
-                        void handleRemoveMember(member.id);
+                        if (isSavingFamily || !backendConnected) return;
+                        setPendingRemoveMemberId(member.id);
                       }}
                     />
                   </View>
                 )}
+                {pendingRemoveMemberId === member.id ? (
+                  <View style={styles.inlineConfirm}>
+                    <Text style={styles.warningText}>
+                      Removing {member.name} deletes this child profile. Any paired phone for this child loses access on
+                      its next use
+                      {pendingRemoveDeviceCount > 0
+                        ? ` (${pendingRemoveDeviceCount} active device${pendingRemoveDeviceCount === 1 ? "" : "s"} paired now).`
+                        : "."}
+                    </Text>
+                    <View style={styles.memberButtonRow}>
+                      <PrimaryButton
+                        label="Keep profile"
+                        icon="close"
+                        tone="soft"
+                        onPress={() => setPendingRemoveMemberId(null)}
+                      />
+                      <PrimaryButton
+                        label="Remove profile"
+                        icon="trash"
+                        tone="dark"
+                        loading={isSavingFamily}
+                        disabled={isSavingFamily || !backendConnected}
+                        onPress={() => {
+                          if (isSavingFamily || !backendConnected) return;
+                          void handleRemoveMember(member.id);
+                        }}
+                      />
+                    </View>
+                  </View>
+                ) : null}
                 {activePairingCodes[member.id] ? (
                   <View style={styles.pairingCodeCard}>
                     <Text style={styles.pairingCodeLabel}>Child pairing code for {member.name}</Text>
                     <Text selectable style={styles.pairingCodeValue}>
                       {activePairingCodes[member.id]?.code}
+                    </Text>
+                    <Text style={styles.pairingCodeHint}>
+                      {formatPairingExpiry(activePairingCodes[member.id]?.expiresAt ?? "")}
                     </Text>
                     <Text style={styles.pairingCodeHint}>
                       Child enters this on Welcome → Set up child's device. One phone per child.
@@ -877,16 +1041,22 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
         <Text style={styles.cardText}>
           Leaving removes your membership from this household. You can rejoin later with an adult invite code.
         </Text>
+        {isSoleAdmin ? (
+          <Text style={styles.warningText}>
+            You are the only admin right now. Promote another signed-in adult to admin before leaving, or the household
+            would lose admin access.
+          </Text>
+        ) : null}
         {!showLeaveConfirm ? (
           <View style={styles.cardActions}>
             <PrimaryButton
               label="Leave household"
               icon="exit"
               tone="ghost"
-              loading={isSaving}
-              disabled={isSaving || !backendConnected}
+              loading={isSavingFamily}
+              disabled={isSavingFamily || !backendConnected || isSoleAdmin}
               onPress={() => {
-                if (isSaving || !backendConnected) return;
+                if (isSavingFamily || !backendConnected || isSoleAdmin) return;
                 setShowLeaveConfirm(true);
               }}
             />
@@ -907,10 +1077,10 @@ export function FamilyScreen({ onClose }: { onClose: () => void }) {
                 label="Confirm leave"
                 icon="exit"
                 tone="dark"
-                loading={isSaving}
-                disabled={isSaving || !backendConnected}
+                loading={isSavingFamily}
+                disabled={isSavingFamily || !backendConnected}
                 onPress={() => {
-                  if (isSaving || !backendConnected) return;
+                  if (isSavingFamily || !backendConnected) return;
                   void handleLeaveFamily();
                 }}
               />
@@ -1424,6 +1594,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19,
+    marginTop: spacing.md
+  },
+  inlineConfirm: {
+    gap: spacing.sm,
     marginTop: spacing.md
   },
   formMessage: {

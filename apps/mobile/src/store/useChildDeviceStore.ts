@@ -8,6 +8,7 @@ import {
   fetchChildDeviceChores,
   fetchChildDeviceSession,
   pairChildDevice,
+  previewChildPairingCode,
   saveChildDevicePushToken,
   setChildDeviceTokenProvider,
   setChildDeviceUnauthorizedHandler,
@@ -39,7 +40,20 @@ type ChildDeviceState = {
   statusMessage: string | null;
   isLoading: boolean;
   isSaving: boolean;
+  bootstrapComplete: boolean;
   bootstrap: () => Promise<void>;
+  previewPairingCode: (
+    pairingCode: string
+  ) => Promise<{
+    ok: boolean;
+    preview?: {
+      pairingCode: string;
+      expiresAt: string;
+      family: { id: string; name: string };
+      member: { id: string; displayName: string };
+    };
+    message?: string;
+  }>;
   pairWithCode: (pairingCode: string) => Promise<{ ok: boolean; message?: string }>;
   refresh: () => Promise<void>;
   completeChore: (choreId: string) => Promise<{ ok: boolean; message: string }>;
@@ -93,8 +107,10 @@ function mapChores(response: Awaited<ReturnType<typeof fetchChildDeviceChores>>[
   }));
 }
 
+let validatingDeviceToken: string | null = null;
+
 export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
-  setChildDeviceTokenProvider(() => get().session?.deviceToken ?? null);
+  setChildDeviceTokenProvider(() => get().session?.deviceToken ?? validatingDeviceToken);
   setChildDeviceUnauthorizedHandler(async () => {
     await writeStoredDeviceToken(null);
     set({
@@ -112,28 +128,32 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
     statusMessage: null,
     isLoading: false,
     isSaving: false,
+    bootstrapComplete: false,
     bootstrap: async () => {
-      set({ isLoading: true, statusMessage: null });
+      set({
+        isLoading: true,
+        statusMessage: null,
+        mode: "unknown",
+        session: null,
+        chores: []
+      });
       const storedToken = await readStoredDeviceToken();
 
       if (!storedToken) {
-        set({ mode: "unpaired", session: null, chores: [], isLoading: false });
+        set({
+          mode: "unpaired",
+          session: null,
+          chores: [],
+          isLoading: false,
+          bootstrapComplete: true
+        });
         return;
       }
 
-      set({
-        mode: "paired",
-        session: {
-          deviceToken: storedToken,
-          familyId: "",
-          familyName: "",
-          memberId: "",
-          memberName: "",
-          starBalance: 0
-        }
-      });
-
+      validatingDeviceToken = storedToken;
       const result = await fetchChildDeviceSession();
+      validatingDeviceToken = null;
+
       if (!result.data) {
         await writeStoredDeviceToken(null);
         set({
@@ -141,6 +161,7 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
           session: null,
           chores: [],
           isLoading: false,
+          bootstrapComplete: true,
           statusMessage: result.error?.message ?? "Child device session expired."
         });
         return;
@@ -160,10 +181,25 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
         mode: "paired",
         session,
         chores: mapChores(choresResult.data),
-        isLoading: false
+        isLoading: false,
+        bootstrapComplete: true
       });
 
       await get().registerPushToken();
+    },
+    previewPairingCode: async (pairingCode) => {
+      set({ isSaving: true, statusMessage: null });
+      const result = await previewChildPairingCode(pairingCode);
+      set({ isSaving: false });
+
+      if (!result.data) {
+        return {
+          ok: false,
+          message: result.error?.message ?? "Could not look up that pairing code."
+        };
+      }
+
+      return { ok: true, preview: result.data };
     },
     pairWithCode: async (pairingCode) => {
       set({ isSaving: true, statusMessage: null });

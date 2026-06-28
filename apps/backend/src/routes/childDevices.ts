@@ -3,6 +3,7 @@ import {
   childDeviceMeResponseSchema,
   childDevicePushTokenSchema,
   childPairingCodeSchema,
+  childPairPreviewResponseSchema,
   completeChoreSchema,
   pairChildDeviceResponseSchema,
   uuidSchema
@@ -72,16 +73,57 @@ function getDatabaseErrorCode(error: unknown) {
   return null;
 }
 
+async function resolveActiveChildPairingCode(normalizedCode: string) {
+  const pairingCode = await db.query.childPairingCodes.findFirst({
+    where: and(eq(childPairingCodes.code, normalizedCode), isNull(childPairingCodes.revokedAt))
+  });
+
+  if (!pairingCode || pairingCode.redeemedAt || pairingCode.expiresAt.getTime() < Date.now()) {
+    return { ok: false as const, code: "CHILD_PAIRING_CODE_INVALID" as const };
+  }
+
+  const member = await db.query.familyMembers.findFirst({
+    where: and(
+      eq(familyMembers.id, pairingCode.memberId),
+      eq(familyMembers.familyId, pairingCode.familyId),
+      eq(familyMembers.role, "child")
+    )
+  });
+
+  if (!member) {
+    return { ok: false as const, code: "CHILD_PAIRING_MEMBER_INVALID" as const };
+  }
+
+  const family = await db.query.families.findFirst({
+    where: eq(families.id, pairingCode.familyId)
+  });
+
+  if (!family) {
+    return { ok: false as const, code: "FAMILY_NOT_FOUND" as const };
+  }
+
+  return {
+    ok: true as const,
+    pairingCode,
+    member,
+    family
+  };
+}
+
+function getChildPairClientKey(request: { headers: Record<string, unknown>; ip?: string }) {
+  const forwardedFor = request.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim();
+  return forwardedFor || request.ip || "unknown";
+}
+
 export async function childDevicesRoutes(app: FastifyInstance) {
   const childPairRateLimit = {
     max: 8,
     timeWindow: "1 minute"
   } as const;
 
-  app.post("/pair", { config: { rateLimit: childPairRateLimit } }, async (request, reply) => {
-    const forwardedFor = request.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim();
-    const clientKey = forwardedFor || request.ip || "unknown";
-    if (isChildPairAttemptBlocked(clientKey)) {
+  app.post("/pair/preview", { config: { rateLimit: childPairRateLimit } }, async (request, reply) => {
+    const clientKey = getChildPairClientKey(request);
+    if (await isChildPairAttemptBlocked(clientKey)) {
       return sendError(
         reply,
         429,
@@ -94,7 +136,61 @@ export async function childDevicesRoutes(app: FastifyInstance) {
     const normalizedCode = body.pairingCode.trim().toUpperCase();
 
     if (!isChildPairingCode(normalizedCode)) {
-      recordFailedChildPairAttempt(clientKey);
+      await recordFailedChildPairAttempt(clientKey);
+      return sendError(
+        reply,
+        400,
+        "Child devices pair with a KC- code from a parent. Adult invite codes do not work here.",
+        "CHILD_PAIRING_CODE_REQUIRED"
+      );
+    }
+
+    const resolved = await resolveActiveChildPairingCode(normalizedCode);
+    if (!resolved.ok) {
+      await recordFailedChildPairAttempt(clientKey);
+      if (resolved.code === "FAMILY_NOT_FOUND") {
+        return sendError(reply, 404, "Household not found for that pairing code.", resolved.code);
+      }
+      if (resolved.code === "CHILD_PAIRING_MEMBER_INVALID") {
+        return sendError(reply, 400, "That pairing code is not linked to a child profile.", resolved.code);
+      }
+      return sendError(reply, 400, "That child pairing code is invalid or expired.", resolved.code);
+    }
+
+    await clearFailedChildPairAttempts(clientKey);
+
+    return reply.send(
+      childPairPreviewResponseSchema.parse({
+        pairingCode: normalizedCode,
+        expiresAt: resolved.pairingCode.expiresAt.toISOString(),
+        family: {
+          id: resolved.family.id,
+          name: resolved.family.name
+        },
+        member: {
+          id: resolved.member.id,
+          displayName: resolved.member.displayName
+        }
+      })
+    );
+  });
+
+  app.post("/pair", { config: { rateLimit: childPairRateLimit } }, async (request, reply) => {
+    const clientKey = getChildPairClientKey(request);
+    if (await isChildPairAttemptBlocked(clientKey)) {
+      return sendError(
+        reply,
+        429,
+        "Too many failed pairing attempts. Wait a few minutes and try again.",
+        "CHILD_PAIRING_RATE_LIMITED"
+      );
+    }
+
+    const body = childPairingCodeSchema.parse(request.body);
+    const normalizedCode = body.pairingCode.trim().toUpperCase();
+
+    if (!isChildPairingCode(normalizedCode)) {
+      await recordFailedChildPairAttempt(clientKey);
       return sendError(
         reply,
         400,
@@ -106,39 +202,19 @@ export async function childDevicesRoutes(app: FastifyInstance) {
     let stage = "lookup_pairing_code";
 
     try {
-      const pairingCode = await db.query.childPairingCodes.findFirst({
-        where: and(eq(childPairingCodes.code, normalizedCode), isNull(childPairingCodes.revokedAt))
-      });
-
-      if (!pairingCode || pairingCode.redeemedAt || pairingCode.expiresAt.getTime() < Date.now()) {
-        recordFailedChildPairAttempt(clientKey);
-        return sendError(reply, 400, "That child pairing code is invalid or expired.", "CHILD_PAIRING_CODE_INVALID");
+      const resolved = await resolveActiveChildPairingCode(normalizedCode);
+      if (!resolved.ok) {
+        await recordFailedChildPairAttempt(clientKey);
+        if (resolved.code === "FAMILY_NOT_FOUND") {
+          return sendError(reply, 404, "Household not found for that pairing code.", resolved.code);
+        }
+        if (resolved.code === "CHILD_PAIRING_MEMBER_INVALID") {
+          return sendError(reply, 400, "That pairing code is not linked to a child profile.", resolved.code);
+        }
+        return sendError(reply, 400, "That child pairing code is invalid or expired.", resolved.code);
       }
 
-      stage = "lookup_member";
-      const member = await db.query.familyMembers.findFirst({
-        where: and(
-          eq(familyMembers.id, pairingCode.memberId),
-          eq(familyMembers.familyId, pairingCode.familyId),
-          eq(familyMembers.role, "child")
-        )
-      });
-
-      if (!member) {
-        recordFailedChildPairAttempt(clientKey);
-        return sendError(reply, 400, "That pairing code is not linked to a child profile.", "CHILD_PAIRING_MEMBER_INVALID");
-      }
-
-      stage = "lookup_family";
-      const family = await db.query.families.findFirst({
-        where: eq(families.id, pairingCode.familyId)
-      });
-
-      if (!family) {
-        recordFailedChildPairAttempt(clientKey);
-        return sendError(reply, 404, "Household not found for that pairing code.", "FAMILY_NOT_FOUND");
-      }
-
+      const { pairingCode, member, family } = resolved;
       const deviceToken = generateChildDeviceToken();
 
       stage = "pair_device_transaction";
@@ -163,7 +239,7 @@ export async function childDevicesRoutes(app: FastifyInstance) {
         return device;
       });
 
-      clearFailedChildPairAttempts(clientKey);
+      await clearFailedChildPairAttempts(clientKey);
 
       stage = "load_star_balance";
       const starBalance = await getMemberStarBalance(member.familyId, member.id);

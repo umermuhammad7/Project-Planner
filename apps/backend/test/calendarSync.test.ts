@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "../src/db/client.js";
 import { calendarConnections, events } from "../src/db/schema.js";
@@ -11,6 +11,7 @@ const originalGoogleClientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET;
 const originalGoogleRedirectUri = env.GOOGLE_OAUTH_REDIRECT_URI;
 const originalGoogleScopes = env.GOOGLE_CALENDAR_SCOPES;
 const originalCalendarTokenEncryptionKey = env.CALENDAR_TOKEN_ENCRYPTION_KEY;
+const TEST_FAMILY_ID = "00000000-0000-4000-8000-000000000201";
 
 describe("calendar-sync routes", () => {
   beforeEach(() => {
@@ -28,8 +29,8 @@ describe("calendar-sync routes", () => {
     env.GOOGLE_OAUTH_REDIRECT_URI = originalGoogleRedirectUri;
     env.GOOGLE_CALENDAR_SCOPES = originalGoogleScopes;
     env.CALENDAR_TOKEN_ENCRYPTION_KEY = originalCalendarTokenEncryptionKey;
-    await db.delete(calendarConnections);
-    await db.delete(events).where(eq(events.externalSource, "ical"));
+    await db.delete(calendarConnections).where(eq(calendarConnections.familyId, TEST_FAMILY_ID));
+    await db.delete(events).where(and(eq(events.familyId, TEST_FAMILY_ID), eq(events.externalSource, "ical")));
   });
 
   it("requires bearer tokens", async () => {
@@ -63,7 +64,7 @@ describe("calendar-sync routes", () => {
     const app = buildApp();
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/calendar-sync/connections?familyId=00000000-0000-4000-8000-000000000201",
+      url: `/api/v1/calendar-sync/connections?familyId=${TEST_FAMILY_ID}`,
       headers: {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       }
@@ -86,7 +87,7 @@ describe("calendar-sync routes", () => {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       },
       payload: {
-        familyId: "00000000-0000-4000-8000-000000000201"
+        familyId: TEST_FAMILY_ID
       }
     });
 
@@ -111,7 +112,7 @@ describe("calendar-sync routes", () => {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       },
       payload: {
-        familyId: "00000000-0000-4000-8000-000000000201"
+        familyId: TEST_FAMILY_ID
       }
     });
 
@@ -149,7 +150,7 @@ describe("calendar-sync routes", () => {
 
     const connectionsResponse = await app.inject({
       method: "GET",
-      url: "/api/v1/calendar-sync/connections?familyId=00000000-0000-4000-8000-000000000201",
+      url: `/api/v1/calendar-sync/connections?familyId=${TEST_FAMILY_ID}`,
       headers: {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       }
@@ -195,7 +196,7 @@ describe("calendar-sync routes", () => {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       },
       payload: {
-        familyId: "00000000-0000-4000-8000-000000000201",
+        familyId: TEST_FAMILY_ID,
         icalUrl: "https://example.com/family.ics"
       }
     });
@@ -208,7 +209,7 @@ describe("calendar-sync routes", () => {
 
     const connectionsResponse = await app.inject({
       method: "GET",
-      url: "/api/v1/calendar-sync/connections?familyId=00000000-0000-4000-8000-000000000201",
+      url: `/api/v1/calendar-sync/connections?familyId=${TEST_FAMILY_ID}`,
       headers: {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       }
@@ -238,7 +239,7 @@ describe("calendar-sync routes", () => {
         Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
       },
       payload: {
-        familyId: "00000000-0000-4000-8000-000000000201",
+        familyId: TEST_FAMILY_ID,
         icalUrl: "http://example.com/family.ics"
       }
     });
@@ -253,7 +254,7 @@ describe("calendar-sync routes", () => {
 
   it("imports future iCal events on manual sync and skips duplicates", async () => {
     const app = buildApp();
-    const familyId = "00000000-0000-4000-8000-000000000201";
+    const familyId = TEST_FAMILY_ID;
     const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     const stamp = future.toISOString().replace(/[-:]/gu, "").replace(/\.\d{3}Z$/u, "Z");
     const feed = `BEGIN:VCALENDAR

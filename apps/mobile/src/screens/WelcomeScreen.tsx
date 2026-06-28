@@ -49,6 +49,7 @@ export function WelcomeScreen({
   const [createdInviteFeedback, setCreatedInviteFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showWelcomeDetails, setShowWelcomeDetails] = useState(false);
+  const [hasLeftFamilySetup, setHasLeftFamilySetup] = useState(false);
   const howItWorks = [
     {
       step: "1",
@@ -110,13 +111,14 @@ export function WelcomeScreen({
   }, []);
 
   useEffect(() => {
-    if (authMode === "supabase" && !familyId && mode === "welcome") {
+    const needsHousehold = authMode === "supabase" || authMode === "dev_token";
+    if (needsHousehold && !familyId && mode === "welcome" && !hasLeftFamilySetup) {
       setMode("family-setup");
       if (preferredSetupTab) {
         setSetupTab(preferredSetupTab);
       }
     }
-  }, [authMode, familyId, mode, preferredSetupTab]);
+  }, [authMode, familyId, hasLeftFamilySetup, mode, preferredSetupTab]);
 
   async function applySetupIntent(intent: HouseholdSetupIntent) {
     setPreferredSetupTab(intent);
@@ -132,6 +134,7 @@ export function WelcomeScreen({
       return;
     }
 
+    setHasLeftFamilySetup(false);
     setMode("family-setup");
     if (preferredSetupTab) {
       setSetupTab(preferredSetupTab);
@@ -180,7 +183,7 @@ export function WelcomeScreen({
       return;
     }
 
-    onSignedIn();
+    await completeAuthFlow();
   }
 
   async function handleGoogleSignIn(intent?: HouseholdSetupIntent) {
@@ -210,12 +213,24 @@ export function WelcomeScreen({
   function beginJoinJourney() {
     setFormMessage(null);
     void applySetupIntent("join");
+    if ((authMode === "supabase" || authMode === "dev_token") && !familyId) {
+      setHasLeftFamilySetup(false);
+      setSetupTab("join");
+      setMode("family-setup");
+      return;
+    }
     setMode("login");
   }
 
   function beginCreateJourney() {
     setFormMessage(null);
     void applySetupIntent("create");
+    if ((authMode === "supabase" || authMode === "dev_token") && !familyId) {
+      setHasLeftFamilySetup(false);
+      setSetupTab("create");
+      setMode("family-setup");
+      return;
+    }
     setMode("register");
   }
 
@@ -319,7 +334,13 @@ export function WelcomeScreen({
     return (
       <View style={styles.screen}>
         <View style={styles.topBar}>
-          <Pressable onPress={() => setMode("welcome")} style={styles.backButton}>
+          <Pressable
+            onPress={() => {
+              setHasLeftFamilySetup(true);
+              setMode("welcome");
+            }}
+            style={styles.backButton}
+          >
             <Text style={styles.backLabel}>Back</Text>
           </Pressable>
         </View>
@@ -405,6 +426,7 @@ export function WelcomeScreen({
             if (isSubmitting) return;
             void signOut().then(() => {
               void clearHouseholdSetupIntent();
+              setHasLeftFamilySetup(false);
               setMode("welcome");
               setPreferredSetupTab(null);
               setSetupTab("create");

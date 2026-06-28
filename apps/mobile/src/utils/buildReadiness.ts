@@ -1,10 +1,15 @@
 import { getApiConfigurationStatus } from "../services/api";
 
+function hasSentryDsn() {
+  return Boolean(process.env.EXPO_PUBLIC_SENTRY_DSN?.trim());
+}
+
 declare const process: {
   env: {
     EXPO_PUBLIC_EAS_PROJECT_ID?: string;
     EXPO_PUBLIC_SUPABASE_URL?: string;
     EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
+    EXPO_PUBLIC_SENTRY_DSN?: string;
     EXPO_PUBLIC_REVENUECAT_API_KEY?: string;
     EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?: string;
     EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?: string;
@@ -71,6 +76,21 @@ export function getClientBuildReadiness(): BuildReadinessItem[] {
       detail: billingConfigured
         ? "Billing SDK key is set. Store products still need to be configured before checkout works."
         : "Store billing is not configured in this build yet."
+    },
+    {
+      key: "apple-sign-in",
+      label: "Sign in with Apple",
+      ready: false,
+      detail:
+        "Required for App Store when Google sign-in is offered. Needs Apple Developer account and auth provider setup before code can ship."
+    },
+    {
+      key: "sentry",
+      label: "Crash reporting",
+      ready: hasSentryDsn(),
+      detail: hasSentryDsn()
+        ? "Sentry DSN is set for this build. Confirm events arrive after installing on a device."
+        : "Set the Sentry DSN in EAS build settings before relying on crash reports from TestFlight."
     }
   ];
 }

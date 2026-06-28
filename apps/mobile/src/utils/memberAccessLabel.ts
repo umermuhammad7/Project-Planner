@@ -2,6 +2,17 @@ import { FamilyMember } from "../types";
 
 export type MemberAccessKind = "owner" | "admin" | "member" | "child";
 
+export function getEffectiveFamilyCreatorId(
+  familyCreatedBy: string | null | undefined,
+  members: ReadonlyArray<Pick<FamilyMember, "userId">>
+): string | null {
+  if (!familyCreatedBy) {
+    return null;
+  }
+
+  return members.some((member) => member.userId === familyCreatedBy) ? familyCreatedBy : null;
+}
+
 export function getMemberAccessKind(
   member: Pick<FamilyMember, "role" | "userId">,
   familyCreatedBy: string | null | undefined
@@ -47,4 +58,28 @@ export function getCurrentUserAccessLabel(input: {
   }
 
   return "Member";
+}
+
+export function getAdultMemberAccountLabel(member: Pick<FamilyMember, "userId" | "isVirtual">) {
+  if (member.userId) {
+    return "Signed in";
+  }
+
+  if (member.isVirtual) {
+    return "Profile only";
+  }
+
+  return "No linked account";
+}
+
+export function getMemberProfileLabel(member: Pick<FamilyMember, "role">) {
+  if (member.role === "kid") {
+    return "Child";
+  }
+
+  if (member.role === "parent") {
+    return "Adult admin";
+  }
+
+  return "Adult";
 }

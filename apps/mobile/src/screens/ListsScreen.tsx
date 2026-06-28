@@ -8,7 +8,7 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 
 export function ListsScreen() {
   const {
@@ -22,13 +22,13 @@ export function ListsScreen() {
     clearCheckedShoppingItems,
     refreshFromBackend,
     isHydrating,
-    isSaving,
     createShoppingItem,
     syncSource,
     syncMessage,
     realtimeStatus,
     realtimeMessage
   } = useHomeThreadStore();
+  const isSavingLists = useHomeThreadStore(isHomeThreadSavingScope("lists"));
   const { scrollToTop } = useScrollAssist();
   const [newItem, setNewItem] = useState("");
   const [newListTitle, setNewListTitle] = useState("");
@@ -39,6 +39,7 @@ export function ListsScreen() {
   const [listTitleError, setListTitleError] = useState<string | null>(null);
   const [itemTitleError, setItemTitleError] = useState<string | null>(null);
   const [showCreateListForm, setShowCreateListForm] = useState(false);
+  const [toggleFeedback, setToggleFeedback] = useState<string | null>(null);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const checkedCount = shoppingItems.filter((item) => item.checked).length;
   const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
@@ -72,6 +73,15 @@ export function ListsScreen() {
     const timer = setTimeout(() => setErrorMessage(null), 5000);
     return () => clearTimeout(timer);
   }, [errorMessage]);
+
+  useEffect(() => {
+    if (!toggleFeedback) {
+      return;
+    }
+
+    const timer = setTimeout(() => setToggleFeedback(null), 2200);
+    return () => clearTimeout(timer);
+  }, [toggleFeedback]);
 
   useEffect(() => {
     if (lists.length === 0) {
@@ -110,7 +120,7 @@ export function ListsScreen() {
   }
 
   async function handleCreateList() {
-    if (isSaving) {
+    if (isSavingLists) {
       return;
     }
 
@@ -135,7 +145,7 @@ export function ListsScreen() {
   }
 
   async function handleAddItem() {
-    if (isSaving) {
+    if (isSavingLists) {
       return;
     }
 
@@ -159,7 +169,7 @@ export function ListsScreen() {
   }
 
   async function handleClearChecked() {
-    if (isSaving || checkedCount === 0) {
+    if (isSavingLists || checkedCount === 0) {
       return;
     }
 
@@ -174,22 +184,33 @@ export function ListsScreen() {
   }
 
   async function handleToggleItem(itemId: string) {
+    const item = shoppingItems.find((entry) => entry.id === itemId);
+    if (!item) {
+      return;
+    }
+
+    const nextChecked = !item.checked;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const outcome = await toggleShoppingItem(itemId);
     if (outcome?.kind === "failed") {
       setErrorMessage(outcome.message);
       setSuccessMessage(null);
       setInfoMessage(null);
+      setToggleFeedback(null);
+      return;
     }
+
+    setToggleFeedback(nextChecked ? `Checked off ${item.title}` : `Reopened ${item.title}`);
+    setErrorMessage(null);
   }
 
   return (
     <View>
       <ScreenHeader
         eyebrow="Lists"
-        title="Shared lists"
-        subtitle="Groceries, errands, and packing in one place."
-        icon="list"
+        title="Capture and check off"
+        subtitle="Groceries, errands, and packing stay in one shared place."
+        icon="list-outline"
         density="compact"
       />
 
@@ -204,6 +225,12 @@ export function ListsScreen() {
 
       <View style={styles.actionRow}>
         <PrimaryButton
+          label={showCreateListForm ? "Hide new list" : "New list"}
+          icon={showCreateListForm ? "chevron-up" : "add-circle"}
+          tone={lists.length === 0 ? "primary" : "soft"}
+          onPress={() => setShowCreateListForm((value) => !value)}
+        />
+        <PrimaryButton
           label={isHydrating ? "Refreshing..." : "Refresh"}
           icon="sync"
           tone="ghost"
@@ -213,11 +240,11 @@ export function ListsScreen() {
         />
         {checkedCount > 0 ? (
           <PrimaryButton
-            label={isSaving ? "Clearing..." : `Clear checked (${checkedCount})`}
+            label={isSavingLists ? "Clearing..." : `Clear checked (${checkedCount})`}
             icon="trash"
-            tone="soft"
-            loading={isSaving}
-            disabled={isSaving}
+            tone="ghost"
+            loading={isSavingLists}
+            disabled={isSavingLists}
             onPress={() => {
               void handleClearChecked();
             }}
@@ -229,47 +256,65 @@ export function ListsScreen() {
       <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
       <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
-      {activeList ? (
-        <Card>
-          <Text style={styles.formTitle}>Add to {activeList.title}</Text>
-          <TextInput
-            accessibilityLabel="New list item"
-            placeholder="e.g. Oat milk"
-            placeholderTextColor={colors.muted}
-            value={newItem}
-            onChangeText={(value) => {
-              setNewItem(value);
-              if (itemTitleError) {
-                setItemTitleError(null);
-              }
-            }}
-            style={[styles.input, itemTitleError ? styles.inputInvalid : null]}
-            returnKeyType="done"
-            onSubmitEditing={() => {
-              void handleAddItem();
-            }}
-          />
-          <FieldError message={itemTitleError} />
-          <View style={styles.formActions}>
-            <PrimaryButton
-              label={isSaving ? "Adding..." : "Add item"}
-              icon="add"
-              loading={isSaving}
-              disabled={isSaving}
-              onPress={() => {
-                void handleAddItem();
+      <ActionFeedback message={toggleFeedback ?? ""} tone="success" visible={Boolean(toggleFeedback)} />
+
+      {showCreateListForm || lists.length === 0 ? (
+        <View style={styles.createListShell}>
+          <Card>
+            <Text style={styles.formTitle}>{lists.length === 0 ? "Create your first list" : "New list"}</Text>
+            <Text style={styles.createListLead}>
+              {lists.length === 0
+                ? "Start with groceries, errands, or packing. Lists live here for the whole household."
+                : "Add another shared list for errands, packing, or anything else."}
+            </Text>
+            <TextInput
+              accessibilityLabel="New list title"
+              placeholder="e.g. Camping weekend"
+              placeholderTextColor={colors.muted}
+              value={newListTitle}
+              onChangeText={(value) => {
+                setNewListTitle(value);
+                if (listTitleError) {
+                  setListTitleError(null);
+                }
+              }}
+              style={[styles.input, listTitleError ? styles.inputInvalid : null]}
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                void handleCreateList();
               }}
             />
-          </View>
-        </Card>
-      ) : (
-        <Card>
-          <Text style={styles.emptyTitle}>Start with one shared list.</Text>
-          <Text style={styles.emptyText}>
-            A grocery list is usually the best first move. Once the first list exists, everyone can add items from here.
-          </Text>
-        </Card>
-      )}
+            <FieldError message={listTitleError} />
+            <Text style={styles.pickerLabel}>Type</Text>
+            <View style={styles.pickerRow}>
+              {(["grocery", "todo", "packing", "custom"] as const).map((type) => {
+                const selected = type === newListType;
+                return (
+                  <Pressable
+                    key={type}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${selected ? "Selected" : "Select"} ${type} list type`}
+                    onPress={() => setNewListType(type)}
+                  >
+                    <Pill label={type === "todo" ? "to-do" : type} tone={selected ? "primary" : "neutral"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.formActions}>
+              <PrimaryButton
+                label={isSavingLists ? "Creating..." : "Create list"}
+                icon="add-circle"
+                loading={isSavingLists}
+                disabled={isSavingLists}
+                onPress={() => {
+                  void handleCreateList();
+                }}
+              />
+            </View>
+          </Card>
+        </View>
+      ) : null}
 
       {lists.length > 0 ? (
         <>
@@ -295,6 +340,48 @@ export function ListsScreen() {
           </View>
         </>
       ) : null}
+
+      {activeList ? (
+        <Card>
+          <Text style={styles.formTitle}>Add to {activeList.title}</Text>
+          <TextInput
+            accessibilityLabel="New list item"
+            placeholder="e.g. Oat milk"
+            placeholderTextColor={colors.muted}
+            value={newItem}
+            onChangeText={(value) => {
+              setNewItem(value);
+              if (itemTitleError) {
+                setItemTitleError(null);
+              }
+            }}
+            style={[styles.input, itemTitleError ? styles.inputInvalid : null]}
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              void handleAddItem();
+            }}
+          />
+          <FieldError message={itemTitleError} />
+          <View style={styles.formActions}>
+            <PrimaryButton
+              label={isSavingLists ? "Adding..." : "Add item"}
+              icon="add"
+              loading={isSavingLists}
+              disabled={isSavingLists}
+              onPress={() => {
+                void handleAddItem();
+              }}
+            />
+          </View>
+        </Card>
+      ) : (
+        <Card>
+          <Text style={styles.emptyTitle}>Add a list to start capturing items.</Text>
+          <Text style={styles.emptyText}>
+            Use the new list form above to create groceries, errands, or packing lists for the household.
+          </Text>
+        </Card>
+      )}
 
       {Object.entries(grouped).map(([category, items]) => (
         <View key={category}>
@@ -338,68 +425,6 @@ export function ListsScreen() {
           </Text>
         </Card>
       ) : null}
-
-      {lists.length > 0 ? (
-        <PrimaryButton
-          label={showCreateListForm ? "Hide new list form" : "Create another list"}
-          icon={showCreateListForm ? "chevron-up" : "add-circle"}
-          tone="ghost"
-          onPress={() => setShowCreateListForm((value) => !value)}
-        />
-      ) : null}
-
-      {showCreateListForm || lists.length === 0 ? (
-      <View style={styles.createListShell}>
-      <Card>
-        <Text style={styles.formTitle}>{lists.length === 0 ? "Create list" : "New list"}</Text>
-        <TextInput
-          accessibilityLabel="New list title"
-          placeholder="e.g. Camping weekend"
-          placeholderTextColor={colors.muted}
-          value={newListTitle}
-          onChangeText={(value) => {
-            setNewListTitle(value);
-            if (listTitleError) {
-              setListTitleError(null);
-            }
-          }}
-          style={[styles.input, listTitleError ? styles.inputInvalid : null]}
-          returnKeyType="done"
-          onSubmitEditing={() => {
-            void handleCreateList();
-          }}
-        />
-        <FieldError message={listTitleError} />
-        <Text style={styles.pickerLabel}>Type</Text>
-        <View style={styles.pickerRow}>
-          {(["grocery", "todo", "packing", "custom"] as const).map((type) => {
-            const selected = type === newListType;
-            return (
-              <Pressable
-                key={type}
-                accessibilityRole="button"
-                accessibilityLabel={`${selected ? "Selected" : "Select"} ${type} list type`}
-                onPress={() => setNewListType(type)}
-              >
-                <Pill label={type === "todo" ? "to-do" : type} tone={selected ? "primary" : "neutral"} />
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={styles.formActions}>
-          <PrimaryButton
-            label={isSaving ? "Creating..." : "Create list"}
-            icon="add-circle"
-            loading={isSaving}
-            disabled={isSaving}
-            onPress={() => {
-              void handleCreateList();
-            }}
-          />
-        </View>
-      </Card>
-      </View>
-      ) : null}
     </View>
   );
 }
@@ -430,6 +455,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "700",
+    marginBottom: spacing.xs
+  },
+  createListLead: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
     marginBottom: spacing.md
   },
   createListShell: {

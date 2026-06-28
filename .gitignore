@@ -3,6 +3,8 @@ node_modules/
 apps/*/node_modules/
 .expo/
 dist/
+dist-*/
+apps/mobile/dist-*/
 build/
 coverage/
 .env
@@ -15,3 +17,17 @@ expo-server.log
 apps/backend/*.log
 dist-test/
 .gstack/
+.chrome-*/
+artifacts-*.png
+apps/mobile/*.out.log
+apps/mobile/*.err.log
+tmp-*.json
+apps/backend/tmp-*.ts
+*.patch
+*.snapshot.ts
+DEPLOYMENT_CHATGPT_BRIEF.md
+HomeThread_Research_Brief.html
+familysync_codex_handoff.md
+familysync_codex_qa_audit.md
+homethread_navigation_hierarchy_critique.md
+upwork-assets/

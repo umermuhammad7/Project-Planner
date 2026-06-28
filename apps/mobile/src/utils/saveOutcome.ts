@@ -1,10 +1,15 @@
-import type { SaveOutcome, SaveOutcomeKind } from "../types";
+import type { SaveOutcome, SaveOutcomeField, SaveOutcomeKind } from "../types";
 
-export function makeSaveOutcome(kind: SaveOutcomeKind, message: string): SaveOutcome {
+export function makeSaveOutcome(
+  kind: SaveOutcomeKind,
+  message: string,
+  invalidField?: SaveOutcomeField
+): SaveOutcome {
   return {
     ok: kind === "saved" || kind === "queued" || kind === "local",
     kind,
-    message
+    message,
+    invalidField
   };
 }
 

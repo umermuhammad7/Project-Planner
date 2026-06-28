@@ -7,6 +7,16 @@ import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { InsightsBusyness, InsightsChores, InsightsWeekly } from "../types";
+import { safeArray } from "../utils/safeRender";
+
+function SectionError({ title, message }: { title: string; message: string }) {
+  return (
+    <Card>
+      <Text style={styles.cardTitle}>{title}</Text>
+      <Text style={styles.cardText}>{message}</Text>
+    </Card>
+  );
+}
 
 export function InsightsScreen({ onClose }: { onClose: () => void }) {
   const familyId = useHomeThreadStore((state) => state.familyId);
@@ -14,6 +24,9 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
   const [weekly, setWeekly] = useState<InsightsWeekly | null>(null);
   const [chores, setChores] = useState<InsightsChores | null>(null);
   const [busyness, setBusyness] = useState<InsightsBusyness | null>(null);
+  const [weeklyError, setWeeklyError] = useState<string | null>(null);
+  const [choresError, setChoresError] = useState<string | null>(null);
+  const [busynessError, setBusynessError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -22,6 +35,9 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
       setWeekly(null);
       setChores(null);
       setBusyness(null);
+      setWeeklyError(null);
+      setChoresError(null);
+      setBusynessError(null);
       setIsLoading(false);
       setMessage("Sign in and sync your household to see insights.");
       return;
@@ -29,6 +45,9 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
 
     setIsLoading(true);
     setMessage(null);
+    setWeeklyError(null);
+    setChoresError(null);
+    setBusynessError(null);
 
     const [weeklyResult, choresResult, busynessResult] = await Promise.all([
       apiRequest<InsightsWeekly>(`/families/${familyId}/insights/weekly`),
@@ -36,23 +55,42 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
       apiRequest<InsightsBusyness>(`/families/${familyId}/insights/busyness`)
     ]);
 
-    if (!weeklyResult.data || !choresResult.data || !busynessResult.data) {
+    if (weeklyResult.data) {
+      setWeekly(weeklyResult.data);
+      setWeeklyError(null);
+    } else {
+      setWeekly(null);
+      setWeeklyError(weeklyResult.error?.message ?? "Could not load this week's summary.");
+    }
+
+    if (choresResult.data) {
+      setChores(choresResult.data);
+      setChoresError(null);
+    } else {
+      setChores(null);
+      setChoresError(choresResult.error?.message ?? "Could not load chore momentum.");
+    }
+
+    if (busynessResult.data) {
+      setBusyness(busynessResult.data);
+      setBusynessError(null);
+    } else {
+      setBusyness(null);
+      setBusynessError(busynessResult.error?.message ?? "Could not load schedule load.");
+    }
+
+    const anyLoaded = Boolean(weeklyResult.data || choresResult.data || busynessResult.data);
+    if (!anyLoaded) {
       setMessage(
         weeklyResult.error?.message ??
           choresResult.error?.message ??
           busynessResult.error?.message ??
           "Could not load insights right now."
       );
-      setWeekly(null);
-      setChores(null);
-      setBusyness(null);
-      setIsLoading(false);
-      return;
+    } else {
+      setMessage(null);
     }
 
-    setWeekly(weeklyResult.data);
-    setChores(choresResult.data);
-    setBusyness(busynessResult.data);
     setIsLoading(false);
   }
 
@@ -61,11 +99,15 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
   }, [familyId, syncSource]);
 
   const topChoreMember = useMemo(() => {
-    return chores?.members.slice().sort((left, right) => right.completedCount - left.completedCount)[0] ?? null;
+    const members = safeArray(chores?.members);
+    return members.slice().sort((left, right) => right.completedCount - left.completedCount)[0] ?? null;
   }, [chores]);
 
-  const busiestDay = busyness?.days[0] ?? null;
-  const busiestMember = busyness?.members[0] ?? null;
+  const busiestDay = safeArray(busyness?.days)[0] ?? null;
+  const busiestMember = safeArray(busyness?.members)[0] ?? null;
+  const choreMembers = safeArray(chores?.members);
+  const busynessDays = safeArray(busyness?.days);
+  const hasPartialData = Boolean(weekly || chores || busyness);
 
   return (
     <View style={styles.screen}>
@@ -73,6 +115,8 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
         eyebrow="Insights"
         title="How the family is doing"
         subtitle="A compact weekly read on plans, chores, and household load."
+        badgeLabel="Preview"
+        badgeTone="gold"
         icon="stats-chart"
         variant="admin"
         actionLabel="Back"
@@ -86,10 +130,16 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
         </Card>
       ) : null}
 
-      {message ? (
+      {!isLoading && message && !hasPartialData ? (
         <Card>
           <Text style={styles.cardTitle}>Not ready yet</Text>
           <Text style={styles.cardText}>{message}</Text>
+        </Card>
+      ) : null}
+
+      {!isLoading && message && hasPartialData ? (
+        <Card>
+          <Text style={styles.cardText}>Some insight sections could not load. The rest are still available below.</Text>
         </Card>
       ) : null}
 
@@ -108,6 +158,11 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
               {weekly.activeMembers} active family members are part of this household right now.
             </Text>
           </Card>
+        </>
+      ) : !isLoading && weeklyError ? (
+        <>
+          <SectionTitle title="This week" />
+          <SectionError title="Weekly summary unavailable" message={weeklyError} />
         </>
       ) : null}
 
@@ -129,7 +184,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
             </Card>
           ) : null}
           <View style={styles.stack}>
-            {chores.members.map((member) => (
+            {choreMembers.map((member) => (
               <Card key={member.memberId}>
                 <Row>
                   <View style={styles.fill}>
@@ -143,6 +198,11 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
               </Card>
             ))}
           </View>
+        </>
+      ) : !isLoading && choresError ? (
+        <>
+          <SectionTitle title="Chore momentum" />
+          <SectionError title="Chore momentum unavailable" message={choresError} />
         </>
       ) : null}
 
@@ -163,9 +223,9 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
               </Text>
             ) : null}
           </Card>
-          {busyness.days.length > 0 ? (
+          {busynessDays.length > 0 ? (
             <View style={styles.stack}>
-              {busyness.days.map((day) => (
+              {busynessDays.map((day) => (
                 <Card key={day.dayLabel}>
                   <Row>
                     <Text style={styles.itemTitle}>{day.dayLabel}</Text>
@@ -181,6 +241,11 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
               Counts refresh when you open this screen, not on a fixed schedule.
             </Text>
           </Card>
+        </>
+      ) : !isLoading && busynessError ? (
+        <>
+          <SectionTitle title="Schedule load" />
+          <SectionError title="Schedule load unavailable" message={busynessError} />
         </>
       ) : null}
     </View>
@@ -214,50 +279,6 @@ const toneStyles = {
 const styles = StyleSheet.create({
   screen: {
     gap: spacing.md
-  },
-  header: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between"
-  },
-  headerCopy: {
-    flex: 1,
-    gap: spacing.xs
-  },
-  kicker: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase"
-  },
-  title: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 34,
-    fontWeight: "700",
-    lineHeight: 40
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22
-  },
-  closeButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    minHeight: 44,
-    justifyContent: "center",
-    paddingHorizontal: spacing.md
-  },
-  closeLabel: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: "700"
   },
   metrics: {
     flexDirection: "row",

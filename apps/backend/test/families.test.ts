@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
+import { db } from "../src/db/client.js";
+import { familyMembers } from "../src/db/schema.js";
 import { env } from "../src/env.js";
 
 const authHeaders = {
@@ -142,7 +144,33 @@ describe("family setup routes", () => {
     });
   });
 
-  it("lets a member leave a family", async () => {
+  it("blocks the last admin from leaving a household", async () => {
+    const app = buildApp();
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: {
+        name: "Solo Admin Home"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const familyId = createResponse.json().family.id;
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${familyId}/leave`,
+      headers: authHeaders
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      error: "Promote another adult to admin before leaving this household.",
+      code: "LAST_ADMIN_LEAVE_BLOCKED"
+    });
+  });
+
+  it("lets an admin leave after another admin exists", async () => {
     const app = buildApp();
     const createResponse = await app.inject({
       method: "POST",
@@ -153,7 +181,16 @@ describe("family setup routes", () => {
       }
     });
     expect(createResponse.statusCode).toBe(201);
-    const familyId = createResponse.json().family.id;
+    const familyId = createResponse.json().family.id as string;
+
+    await db.insert(familyMembers).values({
+      familyId,
+      userId: "00000000-0000-4000-8000-000000000099",
+      displayName: "Second Admin",
+      color: "#2DAA84",
+      role: "admin",
+      isVirtual: false
+    });
 
     const response = await app.inject({
       method: "DELETE",

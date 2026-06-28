@@ -11,6 +11,7 @@ import {
   textUpdates as initialTexts
 } from "../data/mockFamily";
 import { apiRequest } from "../services/api";
+import { loadBoardHistoryFromStorage, clearBoardHistoryStorage, saveBoardHistoryToStorage } from "../services/boardHistoryStorage";
 import {
   clearOfflineQueue,
   enqueueOfflineItem,
@@ -36,7 +37,8 @@ import {
   RealtimeSyncStatus,
   SyncSource,
   TextUpdate,
-  SaveOutcome
+  SaveOutcome,
+  HomeThreadSaveScope
 } from "../types";
 import { createDigest, parseFamilyText } from "../utils/textParser";
 import { makeSaveOutcome } from "../utils/saveOutcome";
@@ -78,6 +80,7 @@ function buildSignedOutHomeState(): Pick<
   | "syncMessage"
   | "isHydrating"
   | "isSaving"
+  | "saveScope"
   | "saveMessage"
   | "offlineQueue"
   | "isReplayingOffline"
@@ -110,6 +113,7 @@ function buildSignedOutHomeState(): Pick<
     syncMessage: "Sign in to load household data.",
     isHydrating: false,
     isSaving: false,
+    saveScope: null,
     saveMessage: "Sign in to keep household changes in sync.",
     offlineQueue: [],
     isReplayingOffline: false,
@@ -270,6 +274,7 @@ type HomeThreadState = {
   syncMessage: string;
   isHydrating: boolean;
   isSaving: boolean;
+  saveScope: HomeThreadSaveScope | null;
   saveMessage: string;
   offlineQueue: OfflineQueueItem[];
   isReplayingOffline: boolean;
@@ -292,6 +297,7 @@ type HomeThreadState = {
     displayName: string;
   }) => Promise<{ ok: boolean; message?: string }>;
   removeVirtualMember: (memberId: string) => Promise<{ ok: boolean; message?: string }>;
+  promoteMemberToAdmin: (memberId: string) => Promise<{ ok: boolean; message?: string }>;
   createEvent: (input: {
     title: string;
     location?: string;
@@ -309,6 +315,14 @@ type HomeThreadState = {
   }) => Promise<SaveOutcome>;
   deleteEvent: (eventId: string) => Promise<SaveOutcome>;
   createChore: (input: { title: string; dueTime?: string; assignedTo?: string | null; starsValue?: number }) => Promise<SaveOutcome>;
+  updateChore: (input: {
+    choreId: string;
+    title: string;
+    dueTime?: string;
+    assignedTo?: string | null;
+    starsValue?: number;
+  }) => Promise<SaveOutcome>;
+  deleteChore: (choreId: string) => Promise<SaveOutcome>;
   completeChore: (id: string) => Promise<SaveOutcome | null>;
   toggleChore: (id: string) => void;
   toggleShoppingItem: (id: string) => Promise<SaveOutcome | null>;
@@ -366,6 +380,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   syncMessage: "Preview household on this device.",
   isHydrating: false,
   isSaving: false,
+  saveScope: null,
   saveMessage: "Quick add is ready",
   offlineQueue: loadOfflineQueueFromStorage(),
   isReplayingOffline: false,
@@ -376,7 +391,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   hydrateFromBackend: async (options) => {
     const authState = useAuthStore.getState();
 
-    if (authState.mode === "supabase" && !authState.familyId) {
+    if ((authState.mode === "supabase" || authState.mode === "dev_token") && !authState.familyId) {
       set({
         familyId: null,
         currentMemberId: null,
@@ -495,9 +510,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const totalListItems = Object.values(listItemsByListId).reduce((sum, items) => sum + items.length, 0);
     const completedChoreIds = get().completedChoreIds;
     const hydratedChores = choresResult.data.chores
-      .map(mapChore)
+      .map((chore) => mapChore(chore))
       .map((chore) => (completedChoreIds[chore.id] ? { ...chore, completed: true } : chore));
     const mappedEvents = eventsResult.data.events.map((event) => mapEvent(event, event.memberIds ?? []));
+    const boardHistory = await loadBoardHistoryFromStorage(familyResult.data.family.id);
 
     set({
       familyId: familyResult.data.family.id,
@@ -518,6 +534,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       chores: hydratedChores,
       shoppingItems: selectedListId ? (listItemsByListId[selectedListId] ?? []) : [],
       notifications: notificationsResult.data.notifications,
+      textUpdates: boardHistory,
       syncSource: "api",
       syncMessage: `Updated ${eventsResult.data.events.length} plans, ${mealsResult.data.items.length} meals, ${choresResult.data.chores.length} chores, and ${backendLists.length} lists.`,
       offlineQueue: getOfflineQueue(),
@@ -591,11 +608,11 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Only family admins can regenerate invite codes." };
     }
 
-    set({ isSaving: true, saveMessage: "Regenerating invite code..." });
+    set({ isSaving: true, saveScope: "family", saveMessage: "Regenerating invite code..." });
     const result = await apiRequest<{ inviteCode: string }>(`/families/${state.familyId}/invite`, {
       method: "POST"
     });
-    set({ isSaving: false });
+    set({ isSaving: false, saveScope: null });
 
     if (!result.data?.inviteCode) {
       return {
@@ -623,12 +640,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Only family admins can rename the household." };
     }
 
-    set({ isSaving: true, saveMessage: "Saving family name..." });
+    set({ isSaving: true, saveScope: "family", saveMessage: "Saving family name..." });
     const result = await apiRequest<{ family: { name: string } }>(`/families/${state.familyId}`, {
       method: "PATCH",
       body: JSON.stringify({ name: trimmedName })
     });
-    set({ isSaving: false });
+    set({ isSaving: false, saveScope: null });
 
     if (!result.data?.family?.name) {
       return {
@@ -649,7 +666,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Sign in to sync your household before leaving a family." };
     }
 
-    set({ isSaving: true, saveMessage: "Leaving household..." });
+    set({ isSaving: true, saveScope: "family", saveMessage: "Leaving household..." });
     const familyId = state.familyId;
     const result = await apiRequest<{ left: boolean }>(`/families/${familyId}/leave`, {
       method: "DELETE"
@@ -657,7 +674,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.left) {
       set({
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: result.error?.message ?? "Could not leave this household."
       });
       return {
@@ -667,6 +684,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     const refreshed = await useAuthStore.getState().refreshMembership();
+    await clearBoardHistoryStorage(familyId);
     set({
       familyId: null,
       currentMemberId: null,
@@ -689,7 +707,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         notifications: [],
         textUpdates: [],
       syncSource: "mock",
-      isSaving: false,
+      isSaving: false, saveScope: null,
       isHydrating: false,
       saveMessage: "You left this household.",
       syncMessage: refreshed.familyId
@@ -719,7 +737,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const memberColors = ["#F9735B", "#2DAA84", "#F4B740", "#A85576", "#3A91C9", "#3157D5"];
     const color = memberColors[state.members.length % memberColors.length];
 
-    set({ isSaving: true, saveMessage: "Adding member..." });
+    set({ isSaving: true, saveScope: "family", saveMessage: "Adding member..." });
     const result = await apiRequest<{ member: BackendMemberRecord }>(`/families/${state.familyId}/members`, {
       method: "POST",
       body: JSON.stringify({
@@ -732,7 +750,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.member) {
       set({
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: result.error?.message ?? "Could not add member."
       });
       return {
@@ -747,7 +765,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         : `${trimmedName} added to your household.`;
 
     set({
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: successMessage
     });
     void get().refreshFromBackend();
@@ -771,7 +789,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Only virtual profiles can be edited in this build." };
     }
 
-    set({ isSaving: true, saveMessage: "Saving member..." });
+    set({ isSaving: true, saveScope: "family", saveMessage: "Saving member..." });
     const result = await apiRequest<{ member: BackendMemberRecord }>(
       `/families/${state.familyId}/members/${memberId}`,
       {
@@ -787,7 +805,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.member) {
       set({
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: result.error?.message ?? "Could not update member."
       });
       return {
@@ -797,7 +815,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     set({
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: `${trimmedName} updated.`
     });
     void get().refreshFromBackend();
@@ -817,7 +835,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Only virtual profiles can be removed in this build." };
     }
 
-    set({ isSaving: true, saveMessage: "Removing member..." });
+    set({ isSaving: true, saveScope: "family", saveMessage: "Removing member..." });
     const result = await apiRequest<{ deleted: boolean }>(
       `/families/${state.familyId}/members/${memberId}`,
       {
@@ -827,7 +845,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.deleted) {
       set({
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: result.error?.message ?? "Could not remove member."
       });
       return {
@@ -837,9 +855,47 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     set({
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: `${member.name} removed from your household.`
     });
+    void get().refreshFromBackend();
+    return { ok: true };
+  },
+  promoteMemberToAdmin: async (memberId) => {
+    const state = get();
+    if (state.syncSource !== "api" || !state.familyId) {
+      return { ok: false, message: "Sign in to sync your household before changing admin access." };
+    }
+    if (!state.isFamilyAdmin) {
+      return { ok: false, message: "Only household admins can promote another adult." };
+    }
+
+    const member = state.members.find((item) => item.id === memberId);
+    if (!member || member.role === "kid" || member.isVirtual || !member.userId) {
+      return { ok: false, message: "Only signed-in adult members can be promoted to admin." };
+    }
+    if (member.role === "parent") {
+      return { ok: false, message: "That adult is already an admin." };
+    }
+
+    set({ isSaving: true, saveScope: "family", saveMessage: "Promoting to admin..." });
+    const result = await apiRequest<{ member: BackendMemberRecord }>(
+      `/families/${state.familyId}/members/${memberId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role: "admin" })
+      }
+    );
+    set({ isSaving: false, saveScope: null });
+
+    if (!result.data?.member) {
+      return {
+        ok: false,
+        message: result.error?.message ?? "Could not promote that adult to admin."
+      };
+    }
+
+    set({ saveMessage: `${member.name} is now a household admin.` });
     void get().refreshFromBackend();
     return { ok: true };
   },
@@ -854,9 +910,22 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const trimmedDate = startDate?.trim() ?? "";
     const trimmedTime = startTime?.trim() ?? "";
+
+    if (trimmedDate && !parseDateInput(trimmedDate)) {
+      const outcome = makeSaveOutcome("failed", "Choose a real calendar day.", "date");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    if (trimmedTime && !parseFlexibleTime(trimmedTime)) {
+      const outcome = makeSaveOutcome("failed", 'Use a time like "5:30 PM" or 17:30.', "time");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
     const startAt = resolveEventStartAt({ startDate: trimmedDate, startTime: trimmedTime });
     if (!startAt) {
-      const outcome = makeSaveOutcome("failed", 'Choose a real day and use a time like "5:30 PM".');
+      const outcome = makeSaveOutcome("failed", "Choose a valid day and time.", "date");
       set({ saveMessage: outcome.message });
       return outcome;
     }
@@ -898,7 +967,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Creating event..." });
+    set({ isSaving: true, saveScope: "plan", saveMessage: "Creating event..." });
 
     const result = await apiRequest<{ event: BackendEventRecord }>(`/families/${state.familyId}/events`, {
       method: "POST",
@@ -915,7 +984,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         });
         const outcome = makeSaveOutcome("queued", "Network error - event queued for replay");
         set({
-          isSaving: false,
+          isSaving: false, saveScope: null,
           offlineQueue: getOfflineQueue(),
           saveMessage: outcome.message
         });
@@ -923,7 +992,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       }
 
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to create event");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -937,7 +1006,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: "Event saved."
     }));
 
@@ -961,9 +1030,22 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     const trimmedDate = startDate?.trim() ?? "";
     const trimmedTime = startTime?.trim() ?? "";
+
+    if (trimmedDate && !parseDateInput(trimmedDate)) {
+      const outcome = makeSaveOutcome("failed", "Choose a real calendar day.", "date");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    if (trimmedTime && !parseFlexibleTime(trimmedTime)) {
+      const outcome = makeSaveOutcome("failed", 'Use a time like "5:30 PM" or 17:30.', "time");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
     const startAt = resolveEventStartAt({ startDate: trimmedDate, startTime: trimmedTime });
     if (!startAt) {
-      const outcome = makeSaveOutcome("failed", 'Choose a real day and use a time like "5:30 PM".');
+      const outcome = makeSaveOutcome("failed", "Choose a valid day and time.", "date");
       set({ saveMessage: outcome.message });
       return outcome;
     }
@@ -1004,7 +1086,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Saving event..." });
+    set({ isSaving: true, saveScope: "plan", saveMessage: "Saving event..." });
 
     const result = await apiRequest<{ event: BackendEventRecord }>(`/families/${state.familyId}/events/${eventId}`, {
       method: "PATCH",
@@ -1013,7 +1095,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.event) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to update event");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1024,7 +1106,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           ? mapEvent(result.data!.event, result.data!.event.memberIds ?? memberIds, existingEvent.source)
           : event
       ),
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
     return outcome;
@@ -1047,7 +1129,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Removing event..." });
+    set({ isSaving: true, saveScope: "plan", saveMessage: "Removing event..." });
 
     const result = await apiRequest<{ deleted: boolean }>(`/families/${state.familyId}/events/${eventId}`, {
       method: "DELETE"
@@ -1055,14 +1137,14 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.deleted) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove event");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
     const outcome = makeSaveOutcome("saved", "Event removed.");
     set((current) => ({
       events: current.events.filter((event) => event.id !== eventId),
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
     return outcome;
@@ -1084,13 +1166,15 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     const fallbackAssignee =
-      state.members.find((member) => member.role === "kid")?.id ?? state.currentMemberId;
+      state.members.find((member) => member.role === "kid")?.id ?? state.currentMemberId ?? null;
+    const resolvedAssignee =
+      assignedTo === undefined ? fallbackAssignee : assignedTo;
     const chorePayload = {
       title: normalizedTitle,
       description: null,
       icon: null,
       starsValue: starsValue ?? 2,
-      assignedTo: assignedTo ?? fallbackAssignee ?? null,
+      assignedTo: resolvedAssignee,
       recurrenceRule: null,
       dueTime: normalizedDueTime,
       isActive: true
@@ -1121,7 +1205,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Creating chore..." });
+    set({ isSaving: true, saveScope: "chores", saveMessage: "Creating chore..." });
 
     const result = await apiRequest<{ chore: BackendChoreRecord }>(`/families/${state.familyId}/chores`, {
       method: "POST",
@@ -1138,7 +1222,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         });
         const outcome = makeSaveOutcome("queued", "Network error - chore queued for replay");
         set({
-          isSaving: false,
+          isSaving: false, saveScope: null,
           offlineQueue: getOfflineQueue(),
           saveMessage: outcome.message
         });
@@ -1146,7 +1230,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       }
 
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to create chore");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1160,11 +1244,135 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: "Chore saved."
     }));
 
     return makeSaveOutcome("saved", "Chore saved.");
+  },
+  updateChore: async ({ choreId, title, dueTime, assignedTo, starsValue }) => {
+    const state = get();
+    const existingChore = state.chores.find((chore) => chore.id === choreId);
+    if (!existingChore) {
+      const outcome = makeSaveOutcome("failed", "That chore is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      const outcome = makeSaveOutcome("failed", "Chore title is required.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const normalizedDueTime = normalizeDueTime(dueTime);
+    if (dueTime?.trim() && normalizedDueTime === null) {
+      const outcome = makeSaveOutcome("failed", 'Use a time like "5:30 PM".');
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const resolvedAssignee =
+      assignedTo === undefined ? existingChore.assignedTo : assignedTo ?? null;
+    const chorePayload = {
+      title: normalizedTitle,
+      starsValue: starsValue ?? existingChore.stars,
+      assignedTo: resolvedAssignee === "unassigned" ? null : resolvedAssignee,
+      dueTime: normalizedDueTime
+    };
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", "Chore updated on this device.");
+      set((current) => ({
+        chores: current.chores.map((chore) =>
+          chore.id === choreId
+            ? {
+                ...chore,
+                title: normalizedTitle,
+                dueTime: normalizedDueTime,
+                dueLabel: formatChoreDueLabel(normalizedDueTime),
+                assignedTo: resolvedAssignee ?? "unassigned",
+                stars: chorePayload.starsValue
+              }
+            : chore
+        ),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveScope: "chores", saveMessage: "Saving chore..." });
+
+    const result = await apiRequest<{ chore: BackendChoreRecord }>(
+      `/families/${state.familyId}/chores/${choreId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(chorePayload)
+      }
+    );
+
+    if (!result.data?.chore) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to update chore.");
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const outcome = makeSaveOutcome("saved", "Chore updated.");
+    set((current) => ({
+      chores: current.chores.map((chore) =>
+        chore.id === choreId ? mapChore(result.data!.chore, chore.completed) : chore
+      ),
+      isSaving: false,
+      saveScope: null,
+      saveMessage: outcome.message
+    }));
+    return outcome;
+  },
+  deleteChore: async (choreId) => {
+    const state = get();
+    const existingChore = state.chores.find((chore) => chore.id === choreId);
+    if (!existingChore) {
+      const outcome = makeSaveOutcome("failed", "That chore is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", "Chore removed from this device.");
+      set((current) => ({
+        chores: current.chores.filter((chore) => chore.id !== choreId),
+        completedChoreIds: Object.fromEntries(
+          Object.entries(current.completedChoreIds).filter(([key]) => key !== choreId)
+        ),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveScope: "chores", saveMessage: "Removing chore..." });
+
+    const result = await apiRequest<{ deleted: boolean }>(`/families/${state.familyId}/chores/${choreId}`, {
+      method: "DELETE"
+    });
+
+    if (!result.data?.deleted) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove chore.");
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const outcome = makeSaveOutcome("saved", "Chore removed.");
+    set((current) => ({
+      chores: current.chores.filter((chore) => chore.id !== choreId),
+      completedChoreIds: Object.fromEntries(
+        Object.entries(current.completedChoreIds).filter(([key]) => key !== choreId)
+      ),
+      isSaving: false,
+      saveScope: null,
+      saveMessage: outcome.message
+    }));
+    return outcome;
   },
   completeChore: async (id) => {
     const current = get();
@@ -1216,7 +1424,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return makeSaveOutcome("failed", "Choose a family member before completing this chore.");
     }
 
-    set({ isSaving: true, saveMessage: `Completing ${target.title}...` });
+    set({ isSaving: true, saveScope: "chores", saveMessage: `Completing ${target.title}...` });
 
     const result = await apiRequest<{ completion: unknown; reward: unknown }>(
       `/families/${current.familyId}/chores/${id}/complete`,
@@ -1235,7 +1443,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       set((state) => ({
         chores: state.chores.map((chore) => (chore.id === id ? { ...chore, completed: false } : chore)),
         completedChoreIds: Object.fromEntries(Object.entries(state.completedChoreIds).filter(([key]) => key !== id)),
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: result.error?.message ?? "Could not record that chore yet."
       }));
       return makeSaveOutcome("failed", result.error?.message ?? "Could not record that chore yet.");
@@ -1258,7 +1466,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...state.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
     return outcome;
@@ -1292,7 +1500,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Creating list..." });
+    set({ isSaving: true, saveScope: "lists", saveMessage: "Creating list..." });
 
     const result = await apiRequest<{ list: Omit<BackendListRecord, "items"> }>(`/families/${state.familyId}/lists`, {
       method: "POST",
@@ -1306,7 +1514,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data?.list) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to create list");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1325,7 +1533,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
 
@@ -1359,6 +1567,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set({
       isSaving: true,
+      saveScope: "lists",
       saveMessage: `${nextChecked ? "Checking off" : "Reopening"} ${target.title}...`
     });
 
@@ -1383,7 +1592,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           listItemsByListId: listId
             ? replaceListItems(current.listItemsByListId, listId, revertedItems)
             : current.listItemsByListId,
-          isSaving: false,
+          isSaving: false, saveScope: null,
           saveMessage: outcome.message
         };
       });
@@ -1406,7 +1615,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           }),
           ...current.textUpdates
         ],
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: `${target.title} updated`
       };
     });
@@ -1436,7 +1645,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Clearing checked items..." });
+    set({ isSaving: true, saveScope: "lists", saveMessage: "Clearing checked items..." });
 
     const result = await apiRequest<{ deletedCount: number }>(
       `/families/${state.familyId}/lists/${listId}/clear-checked`,
@@ -1451,7 +1660,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       set((current) => ({
         shoppingItems: state.shoppingItems,
         listItemsByListId: replaceListItems(current.listItemsByListId, listId, state.shoppingItems),
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: outcome.message
       }));
       return outcome;
@@ -1469,7 +1678,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
     return outcome;
@@ -1517,13 +1726,13 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Adding item..." });
+    set({ isSaving: true, saveScope: "lists", saveMessage: "Adding item..." });
 
     const ensuredList = await ensureActiveListId(state);
     const listId = ensuredList?.id ?? null;
     if (!listId) {
       const outcome = makeSaveOutcome("failed", "Unable to resolve list - item was not added");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1551,7 +1760,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         });
         const outcome = makeSaveOutcome("queued", "Network error - list item queued for replay");
         set({
-          isSaving: false,
+          isSaving: false, saveScope: null,
           offlineQueue: getOfflineQueue(),
           saveMessage: outcome.message
         });
@@ -1559,7 +1768,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       }
 
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to add item");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1586,7 +1795,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           }),
           ...current.textUpdates
         ],
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: "List item saved."
       };
     });
@@ -1625,7 +1834,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Saving meal..." });
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Saving meal..." });
 
     const result = await apiRequest<BackendMealsResponse>(`/families/${state.familyId}/meals`, {
       method: "POST",
@@ -1643,7 +1852,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to save meal");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1659,7 +1868,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
 
@@ -1726,7 +1935,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Saving recipe..." });
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Saving recipe..." });
 
     const result = await apiRequest<{ recipe: BackendRecipeRecord }>(`/families/${state.familyId}/recipes`, {
       method: "POST",
@@ -1735,7 +1944,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to save recipe");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1750,7 +1959,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
 
@@ -1810,12 +2019,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Adding ingredients to grocery list..." });
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Adding ingredients to grocery list..." });
 
     const ensuredList = await ensureGroceryListId(get());
     if (!ensuredList) {
       const outcome = makeSaveOutcome("failed", "Unable to resolve grocery list");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1823,6 +2032,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       set((current) => ({
         ...applyEnsuredGroceryListState(current, ensuredList),
         isSaving: true,
+        saveScope: "meals",
         saveMessage: "Adding ingredients to grocery list..."
       }));
     }
@@ -1838,7 +2048,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to add ingredients to grocery list");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1881,7 +2091,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           }),
           ...current.textUpdates
         ],
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: outcome.message
       };
     });
@@ -1954,12 +2164,12 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Adding this week's ingredients..." });
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Adding this week's ingredients..." });
 
     const ensuredList = await ensureGroceryListId(get());
     if (!ensuredList) {
       const outcome = makeSaveOutcome("failed", "Unable to resolve grocery list");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -1967,6 +2177,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       set((current) => ({
         ...applyEnsuredGroceryListState(current, ensuredList),
         isSaving: true,
+        saveScope: "meals",
         saveMessage: "Adding this week's ingredients..."
       }));
     }
@@ -1984,7 +2195,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to add this week's ingredients");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -2025,7 +2236,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
           }),
           ...current.textUpdates
         ],
-        isSaving: false,
+        isSaving: false, saveScope: null,
         saveMessage: outcome.message
       };
     });
@@ -2048,7 +2259,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return outcome;
     }
 
-    set({ isSaving: true, saveMessage: "Removing meal..." });
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Removing meal..." });
 
     const result = await apiRequest<BackendMealsResponse>(`/families/${state.familyId}/meals`, {
       method: "POST",
@@ -2066,7 +2277,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     if (!result.data) {
       const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove meal");
-      set({ isSaving: false, saveMessage: outcome.message });
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
       return outcome;
     }
 
@@ -2081,7 +2292,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         }),
         ...current.textUpdates
       ],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: outcome.message
     }));
     return outcome;
@@ -2090,6 +2301,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
   commitDraft: async (draft) => {
     set({
       isSaving: true,
+      saveScope: "board",
       saveMessage: `Saving ${draft.kind}...`
     });
 
@@ -2101,7 +2313,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       set((current) => ({
         ...current,
         ...applied,
-        isSaving: false,
+        isSaving: false, saveScope: null,
         textUpdates: draft.rawText
           ? [
               {
@@ -2126,7 +2338,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     set((current) => ({
       ...applyLocalDraft(current, draft),
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: localMessage,
       textUpdates: draft.rawText
         ? [
@@ -2168,6 +2380,19 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     return digest;
   }
 }));
+
+useHomeThreadStore.subscribe((state, previousState) => {
+  if (state.textUpdates === previousState.textUpdates || !state.familyId) {
+    return;
+  }
+
+  void saveBoardHistoryToStorage(state.familyId, state.textUpdates);
+});
+
+export function isHomeThreadSavingScope(scope: HomeThreadSaveScope) {
+  return (state: { isSaving: boolean; saveScope: HomeThreadSaveScope | null }) =>
+    state.isSaving && state.saveScope === scope;
+}
 
 export function resetHomeThreadStoreForSignedOut() {
   clearOfflineQueue();
@@ -2496,7 +2721,7 @@ function applyPersistedDraft(
   if (persisted.event) {
     return {
       events: [persisted.event, ...state.events],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: "Event saved.",
       syncMessage: "Household synced."
     };
@@ -2505,7 +2730,7 @@ function applyPersistedDraft(
   if (persisted.chore) {
     return {
       chores: [persisted.chore, ...state.chores],
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: "Chore saved.",
       syncMessage: "Household synced."
     };
@@ -2529,14 +2754,14 @@ function applyPersistedDraft(
         ? replaceListItems(state.listItemsByListId, listId, nextListItems)
         : state.listItemsByListId,
       shoppingItems: listId && selectedListId === listId ? nextListItems : state.shoppingItems,
-      isSaving: false,
+      isSaving: false, saveScope: null,
       saveMessage: "List item saved.",
       syncMessage: "Household synced."
     };
   }
 
   return {
-    isSaving: false,
+    isSaving: false, saveScope: null,
     saveMessage: `Saved ${kind}`
   };
 }
@@ -2640,14 +2865,23 @@ function mapEvent(
   };
 }
 
-function mapChore(chore: BackendChoreRecord): Chore {
+function formatChoreDueLabel(dueTime: string | null | undefined) {
+  if (!dueTime) {
+    return "Daily · anytime";
+  }
+
+  return `Daily · by ${formatStoredTimeValue(dueTime)}`;
+}
+
+function mapChore(chore: BackendChoreRecord, completed = false): Chore {
   return {
     id: chore.id,
     title: chore.title,
-    dueLabel: chore.dueTime ? `Today at ${formatStoredTimeValue(chore.dueTime)}` : "Anytime today",
+    dueLabel: formatChoreDueLabel(chore.dueTime),
+    dueTime: chore.dueTime,
     assignedTo: chore.assignedTo ?? "unassigned",
     stars: chore.starsValue,
-    completed: false
+    completed
   };
 }
 

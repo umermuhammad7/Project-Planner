@@ -10,9 +10,11 @@ import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 import { TravelReminderStatus } from "../types";
 import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } from "../utils/eventUrgency";
+import { getMemberProfileLabel } from "../utils/memberAccessLabel";
+import { safeText } from "../utils/safeRender";
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 import type { PlanEvent } from "../types";
 
@@ -45,8 +47,9 @@ function eventStatusLabel(
 }
 
 export function PlanScreen() {
-  const { events, members, createEvent, updateEvent, deleteEvent, refreshFromBackend, isSaving, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
+  const { events, members, createEvent, updateEvent, deleteEvent, refreshFromBackend, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
     useHomeThreadStore();
+  const isSavingPlan = useHomeThreadStore(isHomeThreadSavingScope("plan"));
   const { scrollToOffset, scrollToTop } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -63,6 +66,8 @@ export function PlanScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [titleError, setTitleError] = useState<string | null>(null);
+  const [startDateError, setStartDateError] = useState<string | null>(null);
+  const [startTimeError, setStartTimeError] = useState<string | null>(null);
   const formOpacity = useRef(new Animated.Value(0)).current;
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
@@ -123,6 +128,8 @@ export function PlanScreen() {
     setMemberIds([]);
     setEditingEventId(null);
     setTitleError(null);
+    setStartDateError(null);
+    setStartTimeError(null);
   }
 
   function populateForm(event: (typeof sortedEvents)[number]) {
@@ -135,6 +142,8 @@ export function PlanScreen() {
     setEditingEventId(event.id);
     setErrorMessage(null);
     setTitleError(null);
+    setStartDateError(null);
+    setStartTimeError(null);
     setSuccessMessage(null);
     setInfoMessage(null);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -158,7 +167,7 @@ export function PlanScreen() {
   }
 
   async function handleCreateEvent() {
-    if (isSaving) {
+    if (isSavingPlan) {
       return;
     }
 
@@ -166,6 +175,8 @@ export function PlanScreen() {
     setSuccessMessage(null);
     setInfoMessage(null);
     setTitleError(null);
+    setStartDateError(null);
+    setStartTimeError(null);
 
     if (!title.trim()) {
       setTitleError("Event title is required.");
@@ -193,11 +204,21 @@ export function PlanScreen() {
       return;
     }
 
+    if (outcome.invalidField === "date") {
+      setStartDateError(outcome.message);
+      return;
+    }
+
+    if (outcome.invalidField === "time") {
+      setStartTimeError(outcome.message);
+      return;
+    }
+
     setErrorMessage(outcome.message || "Could not create that event.");
   }
 
   async function handleDeleteEvent(eventId: string, titleText: string) {
-    if (isSaving) {
+    if (isSavingPlan) {
       return;
     }
 
@@ -267,8 +288,7 @@ export function PlanScreen() {
       <ScreenHeader
         eyebrow="Plan"
         title="This week"
-        subtitle="Add and edit plans for the household."
-        icon="calendar-clear"
+        subtitle="See what's ahead and add the next household plan."
         badgeLabel={`${upcomingCount} upcoming`}
         badgeTone={upcomingCount > 0 ? "mint" : "neutral"}
         density="compact"
@@ -328,8 +348,29 @@ export function PlanScreen() {
               onChangeText={setLocation}
               style={styles.input}
             />
-            <DateField label="Day" value={startDate} onChange={setStartDate} />
-            <TimeField label="Start time (optional)" value={startTime} onChange={setStartTime} placeholder="Choose a time" />
+            <DateField
+              label="Day"
+              value={startDate}
+              onChange={(value) => {
+                setStartDate(value);
+                if (startDateError) {
+                  setStartDateError(null);
+                }
+              }}
+            />
+            <FieldError message={startDateError} />
+            <TimeField
+              label="Start time (optional)"
+              value={startTime}
+              onChange={(value) => {
+                setStartTime(value);
+                if (startTimeError) {
+                  setStartTimeError(null);
+                }
+              }}
+              placeholder="Choose a time"
+            />
+            <FieldError message={startTimeError} />
             <Text style={styles.pickerLabel}>Assign to</Text>
             <View style={styles.pickerRow}>
               {members.map((member) => {
@@ -348,10 +389,10 @@ export function PlanScreen() {
             </View>
             <View style={styles.formActions}>
               <PrimaryButton
-                label={isSaving ? (editingEventId ? "Saving..." : "Creating...") : editingEventId ? "Save changes" : "Create event"}
+                label={isSavingPlan ? (editingEventId ? "Saving..." : "Creating...") : editingEventId ? "Save changes" : "Create event"}
                 icon="checkmark"
-                loading={isSaving}
-                disabled={isSaving || !canSubmit}
+                loading={isSavingPlan}
+                disabled={isSavingPlan || !canSubmit}
                 onPress={() => {
                   void handleCreateEvent();
                 }}
@@ -361,9 +402,9 @@ export function PlanScreen() {
                   label="Cancel edit"
                   icon="close"
                   tone="ghost"
-                  disabled={isSaving}
+                  disabled={isSavingPlan}
                   onPress={() => {
-                    if (isSaving) return;
+                    if (isSavingPlan) return;
                     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                     setShowForm(false);
                     resetForm();
@@ -430,7 +471,7 @@ export function PlanScreen() {
                 <Text style={styles.avatarText}>{member.initials}</Text>
               </View>
               <Text style={styles.personName}>{member.name}</Text>
-              <Pill label={member.role} tone="neutral" />
+              <Pill label={getMemberProfileLabel(member)} tone="neutral" />
             </View>
           </Card>
         ))}
@@ -450,7 +491,9 @@ export function PlanScreen() {
             const eventColor =
               members.find((member) => member.id === assignedTo[0])?.color ?? colors.primary;
             const isExpanded = expandedEventId === event.id;
-            const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${event.time}` : event.time;
+            const eventTitle = safeText(event.title, "Untitled plan");
+            const eventTime = safeText(event.time, "Time TBD");
+            const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${eventTime}` : eventTime;
             const statusLabel = eventStatusLabel(event, urgency, importedSource);
 
             return (
@@ -462,18 +505,18 @@ export function PlanScreen() {
                   </View>
                   <View style={styles.fill}>
                     <View style={styles.eventTopRow}>
-                      <Text style={styles.time}>{event.time}</Text>
+                      <Text style={styles.time}>{eventTime}</Text>
                       {statusLabel ? <Pill label={statusLabel} tone={urgency?.tone ?? "neutral"} /> : null}
                     </View>
-                    <Text style={styles.eventTitle}>{event.title}</Text>
+                    <Text style={styles.eventTitle}>{eventTitle}</Text>
                     <Text style={styles.schedule}>{scheduleLabel}</Text>
                     {assigned ? <Text style={styles.meta}>{assigned}</Text> : null}
                     {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
                     <View style={styles.eventActionRow}>
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Edit ${event.title}`}
-                        disabled={isSaving}
+                        accessibilityLabel={`Edit ${eventTitle}`}
+                        disabled={isSavingPlan}
                         onPress={() => populateForm(event)}
                         style={styles.eventActionLink}
                       >
@@ -482,10 +525,10 @@ export function PlanScreen() {
                       <Text style={styles.eventActionDivider}>·</Text>
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Delete ${event.title}`}
-                        disabled={isSaving}
+                        accessibilityLabel={`Delete ${eventTitle}`}
+                        disabled={isSavingPlan}
                         onPress={() => {
-                          void handleDeleteEvent(event.id, event.title);
+                          void handleDeleteEvent(event.id, eventTitle);
                         }}
                         style={styles.eventActionLink}
                       >

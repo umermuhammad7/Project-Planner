@@ -7,9 +7,10 @@ import { Card, FieldError, Pill, PrimaryButton, SectionTitle } from "../componen
 import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 import { AssistantDraft, TextUpdate } from "../types";
 import { parseFamilyText } from "../utils/textParser";
+import { safeArray } from "../utils/safeRender";
 import { formatThreadConversion, formatThreadDirection } from "../utils/threadLabels";
 
 function formatDraftKind(kind: AssistantDraft["kind"]) {
@@ -20,18 +21,18 @@ function formatDraftKind(kind: AssistantDraft["kind"]) {
   return kind;
 }
 
-export function ThreadScreen() {
+export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
   const {
     textUpdates,
     commitDraft,
     sendDigestToThread,
-    isSaving,
     syncSource,
     syncMessage,
     isHydrating,
     realtimeStatus,
     realtimeMessage
   } = useHomeThreadStore();
+  const isSavingBoard = useHomeThreadStore(isHomeThreadSavingScope("board"));
   const [body, setBody] = useState("");
   const [lastDraft, setLastDraft] = useState<AssistantDraft | null>(null);
   const [lastDigest, setLastDigest] = useState<string | null>(null);
@@ -41,13 +42,15 @@ export function ThreadScreen() {
   const [importError, setImportError] = useState<string | null>(null);
   const [highlightEntryId, setHighlightEntryId] = useState<string | null>(null);
 
+  const boardUpdates = safeArray(textUpdates);
+
   const inboundUpdates = useMemo(
-    () => textUpdates.filter((update) => update.direction === "inbound"),
-    [textUpdates]
+    () => boardUpdates.filter((update) => update.direction === "inbound"),
+    [boardUpdates]
   );
   const outboundUpdates = useMemo(
-    () => textUpdates.filter((update) => update.direction === "outbound"),
-    [textUpdates]
+    () => boardUpdates.filter((update) => update.direction === "outbound"),
+    [boardUpdates]
   );
 
   useEffect(() => {
@@ -89,6 +92,8 @@ export function ThreadScreen() {
         subtitle="Post summaries or import a family text."
         icon="chatbubble-ellipses"
         density="compact"
+        actionLabel={onBack ? "Back" : undefined}
+        onActionPress={onBack}
       />
 
       <SyncStatusRow
@@ -182,12 +187,12 @@ export function ThreadScreen() {
             }}
           />
           <PrimaryButton
-            label={isSaving ? "Saving..." : "Save to household"}
+            label={isSavingBoard ? "Saving..." : "Save to household"}
             icon="checkmark"
-            loading={isSaving}
-            disabled={!lastDraft || isSaving}
+            loading={isSavingBoard}
+            disabled={!lastDraft || isSavingBoard}
             onPress={() => {
-              if (!lastDraft || isSaving) return;
+              if (!lastDraft || isSavingBoard) return;
               const draftTitle = lastDraft.title;
               void commitDraft(lastDraft).then((outcome) => {
                 if (outcome.kind === "failed") {
@@ -233,12 +238,15 @@ export function ThreadScreen() {
         )}
       </Card>
 
-      <SectionTitle title="Board history" action={`${textUpdates.length} entries`} />
-      {textUpdates.length === 0 ? (
+      <SectionTitle title="Board history" action={`${boardUpdates.length} on this device`} />
+      <Text style={styles.historyNote}>
+        Board history is saved on this device for your household. It does not sync across phones yet.
+      </Text>
+      {boardUpdates.length === 0 ? (
         <Card>
           <Text style={styles.emptyTitle}>No thread entries yet</Text>
           <Text style={styles.meta}>
-            Add a summary to the family board or import a family text to start a readable history of what came from where.
+            Add a summary to the family board or import a family text to start a readable on-device history of what came from where.
           </Text>
         </Card>
       ) : (
@@ -395,6 +403,13 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.6,
     textTransform: "uppercase"
+  },
+  historyNote: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginBottom: spacing.sm
   },
   stack: {
     gap: spacing.sm

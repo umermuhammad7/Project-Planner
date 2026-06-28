@@ -2,6 +2,7 @@ import { Component, ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, radii, spacing } from "../constants/theme";
+import { captureMobileError } from "../services/sentry";
 
 type Props = {
   children: ReactNode;
@@ -28,6 +29,7 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: unknown) {
     console.error("HomeThread render error", error);
+    captureMobileError(error);
   }
 
   render() {

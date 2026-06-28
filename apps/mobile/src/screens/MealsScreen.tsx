@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, FieldError, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
@@ -8,7 +8,7 @@ import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 import { MealType, RecipeImportDraft, RecipeImportResponse, RecipeIngredient, SaveOutcome } from "../types";
 import { feedbackToneForOutcome } from "../utils/saveOutcome";
 
@@ -100,7 +100,7 @@ function parseRecipeTextLocally(text: string): RecipeImportDraft | null {
   };
 }
 
-export function MealsScreen() {
+export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
   const {
     meals,
     recipes,
@@ -110,12 +110,12 @@ export function MealsScreen() {
     addMealIngredientsToGrocery,
     addWeekMealsToGrocery,
     removeMeal,
-    isSaving,
     syncSource,
     syncMessage,
     isHydrating
   } = useHomeThreadStore();
-  const { scrollToTop } = useScrollAssist();
+  const isSavingMeals = useHomeThreadStore(isHomeThreadSavingScope("meals"));
+  const { scrollToOffset, scrollToTop } = useScrollAssist();
 
   const [title, setTitle] = useState("");
   const [recipeTitle, setRecipeTitle] = useState("");
@@ -159,6 +159,21 @@ export function MealsScreen() {
     () => meals.filter((meal) => meal.mealType === "dinner").length,
     [meals]
   );
+
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  function toggleMealForm() {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const next = !showMealForm;
+    setShowMealForm(next);
+    if (next) {
+      setTimeout(() => scrollToOffset(120), 80);
+    }
+  }
 
   function applyOutcome(outcome: SaveOutcome | null) {
     if (!outcome) {
@@ -303,6 +318,8 @@ export function MealsScreen() {
         subtitle="Plan dinners and keep recipes handy."
         icon="restaurant"
         density="compact"
+        actionLabel={onBack ? "Back" : undefined}
+        onActionPress={onBack}
       />
 
       <SyncStatusRow syncSource={syncSource} syncMessage={syncMessage} isHydrating={isHydrating} />
@@ -362,20 +379,20 @@ export function MealsScreen() {
               label={showMealForm ? "Close meal form" : "Plan a meal"}
               icon={showMealForm ? "close" : "add"}
               tone={showMealForm ? "soft" : "primary"}
-              onPress={() => setShowMealForm((value) => !value)}
+              onPress={toggleMealForm}
             />
           </View>
 
           {meals.length > 0 ? (
             <View style={styles.weekGroceryRow}>
               <PrimaryButton
-                label={isSaving ? "Working..." : "Add week to grocery"}
+                label={isSavingMeals ? "Working..." : "Add week to grocery"}
                 icon="basket"
                 tone="soft"
-                loading={isSaving}
-                disabled={isSaving}
+                loading={isSavingMeals}
+                disabled={isSavingMeals}
                 onPress={() => {
-                  if (isSaving) return;
+                  if (isSavingMeals) return;
                   void addWeekMealsToGrocery().then((outcome) => {
                     applyOutcome(outcome);
                   });
@@ -429,7 +446,7 @@ export function MealsScreen() {
                 style={[styles.input, mealTitleError ? styles.inputInvalid : null]}
                 returnKeyType="done"
                 onSubmitEditing={() => {
-                  if (isSaving) return;
+                  if (isSavingMeals) return;
                   void savePlannedMeal();
                 }}
               />
@@ -459,12 +476,12 @@ export function MealsScreen() {
             </View>
             <View style={styles.formActions}>
               <PrimaryButton
-                label={isSaving ? "Saving..." : "Save meal"}
+                label={isSavingMeals ? "Saving..." : "Save meal"}
                 icon="restaurant"
-                loading={isSaving}
-                disabled={isSaving}
+                loading={isSavingMeals}
+                disabled={isSavingMeals}
                 onPress={() => {
-                  if (isSaving) return;
+                  if (isSavingMeals) return;
                   void savePlannedMeal();
                 }}
               />
@@ -484,7 +501,7 @@ export function MealsScreen() {
                 Start with the busiest dinner night this week. A small plan beats waiting for the perfect one.
               </Text>
               <View style={styles.formActions}>
-                <PrimaryButton label="Plan a meal" icon="add" onPress={() => setShowMealForm(true)} />
+                <PrimaryButton label="Plan a meal" icon="add" onPress={toggleMealForm} />
               </View>
             </Card>
           ) : null}
@@ -516,10 +533,10 @@ export function MealsScreen() {
                           label="Add to grocery"
                           icon="basket"
                           tone="soft"
-                          loading={isSaving}
-                          disabled={isSaving}
+                          loading={isSavingMeals}
+                          disabled={isSavingMeals}
                           onPress={() => {
-                            if (isSaving) return;
+                            if (isSavingMeals) return;
                             void addMealIngredientsToGrocery({
                               mealPlanItemId: item.id,
                               recipeId: item.recipeId ?? undefined
@@ -532,9 +549,9 @@ export function MealsScreen() {
                           label="Remove"
                           icon="trash"
                           tone="ghost"
-                          disabled={isSaving}
+                          disabled={isSavingMeals}
                           onPress={() => {
-                            if (isSaving) return;
+                            if (isSavingMeals) return;
                             void removeMeal(item.id).then((outcome) => {
                               applyOutcome(outcome);
                             });
@@ -654,12 +671,12 @@ export function MealsScreen() {
                   ) : null}
                   <View style={styles.formActions}>
                     <PrimaryButton
-                      label={isSaving ? "Saving..." : "Save imported recipe"}
+                      label={isSavingMeals ? "Saving..." : "Save imported recipe"}
                       icon="checkmark"
-                      loading={isSaving}
-                      disabled={isSaving}
+                      loading={isSavingMeals}
+                      disabled={isSavingMeals}
                       onPress={() => {
-                        if (isSaving) return;
+                        if (isSavingMeals) return;
                         void saveImportedRecipe();
                       }}
                     />
@@ -697,12 +714,12 @@ export function MealsScreen() {
               />
               <View style={styles.formActions}>
                 <PrimaryButton
-                  label={isSaving ? "Saving..." : "Save recipe"}
+                  label={isSavingMeals ? "Saving..." : "Save recipe"}
                   icon="restaurant-outline"
-                  loading={isSaving}
-                  disabled={isSaving}
+                  loading={isSavingMeals}
+                  disabled={isSavingMeals}
                   onPress={() => {
-                    if (isSaving) return;
+                    if (isSavingMeals) return;
                     if (!recipeTitle.trim()) {
                       setRecipeTitleError("Recipe title is required.");
                       return;
@@ -739,10 +756,10 @@ export function MealsScreen() {
                       label="Add to grocery"
                       icon="basket"
                       tone="soft"
-                      loading={isSaving}
-                      disabled={isSaving}
+                      loading={isSavingMeals}
+                      disabled={isSavingMeals}
                       onPress={() => {
-                        if (isSaving) return;
+                        if (isSavingMeals) return;
                         void addMealIngredientsToGrocery({ recipeId: recipe.id }).then((outcome) => {
                           applyOutcome(outcome);
                         });

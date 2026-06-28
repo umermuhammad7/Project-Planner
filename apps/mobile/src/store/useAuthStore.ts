@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { Platform } from "react-native";
 
 import {
   apiRequest,
@@ -42,6 +43,7 @@ type AuthState = {
   supabaseConfiguredOnClient: boolean;
   devTokenAvailable: boolean;
   bootstrap: () => Promise<void>;
+  syncAccessTokenFromSession: () => Promise<void>;
   signInWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   signInWithGoogle: () => Promise<{ ok: boolean; message?: string }>;
@@ -377,6 +379,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
     }
   },
+  syncAccessTokenFromSession: async () => {
+    if (!supabaseClient) {
+      return;
+    }
+
+    const { mode } = get();
+    if (mode !== "supabase") {
+      return;
+    }
+
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error || !data.session?.access_token) {
+      return;
+    }
+
+    if (data.session.access_token !== get().accessToken) {
+      set({ accessToken: data.session.access_token });
+    }
+  },
   signInWithPassword: async (email, password) => {
     if (!supabaseClient) {
       return { ok: false, message: friendlyAuthError(undefined, "Sign-in is not set up in this version of the app yet.") };
@@ -477,7 +498,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     const { webBrowser } = await loadAuthModules();
-    const result = await webBrowser.openAuthSessionAsync(data?.url ?? "", redirectTo);
+    const result = await webBrowser.openAuthSessionAsync(data?.url ?? "", redirectTo, {
+      preferEphemeralSession: Platform.OS === "ios"
+    });
     if (result.type !== "success" || !result.url) {
       return {
         ok: false,

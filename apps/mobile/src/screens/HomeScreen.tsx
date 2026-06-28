@@ -4,13 +4,15 @@ import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View, Image } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { TabKey } from "../types";
+import { ScreenDestination } from "../types";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 import { formatNotificationType } from "../utils/notificationLabels";
 import { getSyncPillLabel, getSyncPillTone } from "../utils/syncTrustCopy";
+import { safeText } from "../utils/safeRender";
 
 type HomeHighlight = {
   key: string;
@@ -18,7 +20,7 @@ type HomeHighlight = {
   label: string;
   value: string;
   tone: "primary" | "mint" | "gold" | "coral" | "neutral";
-  tab?: TabKey;
+  tab?: ScreenDestination;
 };
 
 export function HomeScreen({
@@ -28,7 +30,7 @@ export function HomeScreen({
   onOpenInsights,
   onOpenSettings
 }: {
-  goTo: (tab: TabKey) => void;
+  goTo: (destination: ScreenDestination) => void;
   onEnterKidsMode?: () => void;
   onOpenFamilySettings?: () => void;
   onOpenInsights?: () => void;
@@ -203,11 +205,12 @@ export function HomeScreen({
     <View>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={styles.greeting}>Good day, {profileLabel}</Text>
-          <Text style={styles.kicker}>{familyName}</Text>
-          <View style={styles.dateBadge}>
-            <Text style={styles.dateBadgeText}>Today - {todayDateParts.compact}</Text>
-          </View>
+          <ScreenHeader
+            eyebrow="Home"
+            title={`Good day, ${profileLabel}`}
+            subtitle={`${safeText(familyName, "Your household")} · Today · ${todayDateParts.compact}`}
+            density="compact"
+          />
           <View style={styles.headerMeta}>
             <Pill label={householdSummaryLabel} tone="neutral" icon="people" />
           </View>
@@ -366,19 +369,14 @@ export function HomeScreen({
       ) : null}
 
       <SectionTitle
-        title="Family board"
+        title="Recent alerts"
         action={unreadNotifications.length > 0 ? `${unreadNotifications.length} unread` : "All caught up"}
       />
       <View style={styles.stack}>
         {recentNotifications.length > 0 ? (
           recentNotifications.map((notification) => (
             <View key={notification.id} style={styles.boardRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open board update: ${notification.title}`}
-                onPress={() => goTo("thread")}
-                style={({ pressed }) => [styles.boardRowMain, pressed && styles.boardRowPressed]}
-              >
+              <View style={styles.boardRowMain}>
                 <View
                   style={[
                     styles.notificationIcon,
@@ -407,7 +405,7 @@ export function HomeScreen({
                     {notification.body}
                   </Text>
                 </View>
-              </Pressable>
+              </View>
               {!notification.readAt ? (
                 <Pressable
                   accessibilityRole="button"
@@ -425,27 +423,27 @@ export function HomeScreen({
           ))
         ) : (
           <View style={styles.boardEmpty}>
-            <Text style={styles.emptyPanelText}>No updates yet.</Text>
-            <Pressable accessibilityRole="button" onPress={() => goTo("thread")} style={styles.boardLink}>
-              <Text style={styles.boardLinkText}>Open family board</Text>
-            </Pressable>
+            <Text style={styles.emptyPanelText}>No household alerts yet.</Text>
           </View>
         )}
       </View>
 
       {onOpenFamilySettings || onOpenInsights ? (
-        <View style={styles.adminLinks}>
-          {onOpenFamilySettings ? (
-            <Pressable accessibilityRole="button" onPress={onOpenFamilySettings} style={styles.adminLink}>
-              <Text style={styles.adminLinkText}>Household</Text>
-            </Pressable>
-          ) : null}
-          {onOpenInsights ? (
-            <Pressable accessibilityRole="button" onPress={onOpenInsights} style={styles.adminLink}>
-              <Text style={styles.adminLinkText}>Insights</Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <>
+          <SectionTitle title="Quick access" action="More has the full hub" />
+          <View style={styles.adminLinks}>
+            {onOpenFamilySettings ? (
+              <Pressable accessibilityRole="button" onPress={onOpenFamilySettings} style={styles.adminLink}>
+                <Text style={styles.adminLinkText}>Household</Text>
+              </Pressable>
+            ) : null}
+            {onOpenInsights ? (
+              <Pressable accessibilityRole="button" onPress={onOpenInsights} style={styles.adminLink}>
+                <Text style={styles.adminLinkText}>Insights (preview)</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </>
       ) : null}
 
     </View>
@@ -494,40 +492,16 @@ const styles = StyleSheet.create({
   },
   headerCopy: {
     flex: 1,
-    gap: spacing.xs
+    gap: spacing.xs,
+    minWidth: 0
   },
-  greeting: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 28,
-    fontWeight: "700",
-    lineHeight: 34
-  },
-  kicker: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  dateBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.primarySoft,
-    borderRadius: radii.pill,
-    marginTop: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs
-  },
-  dateBadgeText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "800"
+  headerMeta: {
+    marginTop: -spacing.sm
   },
   headerRail: {
     alignItems: "flex-start",
     marginLeft: spacing.md,
     paddingTop: spacing.xs
-  },
-  headerMeta: {
-    marginTop: spacing.sm
   },
   memberStack: {
     flexDirection: "row",

@@ -1,4 +1,12 @@
-import { ChildDeviceChoresResponse, ChildDeviceMeResponse, ChildDevicesListResponse, ChildPairingCodeResponse, PairChildDeviceResponse } from "@homethread/shared";
+import {
+  ChildDeviceChoresResponse,
+  ChildDeviceMeResponse,
+  ChildDevicesListResponse,
+  ChildPairingCodeResponse,
+  ChildPairingCodesListResponse,
+  ChildPairPreviewResponse,
+  PairChildDeviceResponse
+} from "@homethread/shared";
 
 import { apiRequest } from "./api";
 
@@ -38,6 +46,13 @@ async function childDeviceRequest<T>(path: string, options: RequestInit = {}) {
   }
 
   return result;
+}
+
+export async function previewChildPairingCode(pairingCode: string) {
+  return apiRequest<ChildPairPreviewResponse>("/child-devices/pair/preview", {
+    method: "POST",
+    body: JSON.stringify({ pairingCode: pairingCode.trim().toUpperCase() })
+  });
 }
 
 export async function pairChildDevice(pairingCode: string) {
@@ -82,6 +97,10 @@ export async function createChildPairingCode(familyId: string, memberId: string)
   return apiRequest<ChildPairingCodeResponse>(`/families/${familyId}/members/${memberId}/child-pairing-code`, {
     method: "POST"
   });
+}
+
+export async function listActiveChildPairingCodes(familyId: string) {
+  return apiRequest<ChildPairingCodesListResponse>(`/families/${familyId}/child-pairing-codes`);
 }
 
 export async function listChildDevices(familyId: string) {

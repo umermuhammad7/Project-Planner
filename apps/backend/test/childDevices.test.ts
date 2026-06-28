@@ -1,11 +1,11 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from "vitest";
 
 import { buildApp } from "../src/app.js";
 import { db } from "../src/db/client.js";
-import { childDevices } from "../src/db/schema.js";
+import { childDevices, childPairingAttempts } from "../src/db/schema.js";
 import { deliverHouseholdNotification } from "../src/lib/pushNotifications.js";
 import { env } from "../src/env.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 const authHeaders = {
   Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
@@ -40,6 +40,26 @@ async function pairDevice(pairingCode: string) {
 }
 
 describe("child device routes", () => {
+  beforeAll(async () => {
+    await db.execute(sql`
+      create table if not exists child_pairing_attempts (
+        client_key text primary key,
+        failure_count integer not null default 0,
+        reset_at timestamp with time zone not null,
+        created_at timestamp with time zone not null default now(),
+        updated_at timestamp with time zone not null default now()
+      )
+    `);
+  });
+
+  beforeEach(async () => {
+    await db.delete(childPairingAttempts);
+  });
+
+  afterEach(async () => {
+    await db.delete(childPairingAttempts);
+  });
+
   it("rejects adult join attempts that use a child pairing code", async () => {
     const app = buildApp();
     const response = await app.inject({
@@ -69,6 +89,64 @@ describe("child device routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().code).toMatch(/CHILD_PAIRING_CODE_REQUIRED|VALIDATION_ERROR/u);
+
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/child-devices/pair/preview",
+      payload: {
+        pairingCode: "HT2026"
+      }
+    });
+
+    expect(previewResponse.statusCode).toBe(400);
+    expect(previewResponse.json().code).toMatch(/CHILD_PAIRING_CODE_REQUIRED|VALIDATION_ERROR/u);
+  });
+
+  it("blocks repeated failed child pairing attempts across preview and pair routes", async () => {
+    const app = buildApp();
+    const headers = {
+      "x-forwarded-for": "203.0.113.42"
+    };
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const previewResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/child-devices/pair/preview",
+        headers,
+        payload: {
+          pairingCode: "KC-AAAAAA"
+        }
+      });
+
+      expect(previewResponse.statusCode).toBe(400);
+    }
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const pairResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/child-devices/pair",
+        headers,
+        payload: {
+          pairingCode: "KC-BBBBBB"
+        }
+      });
+
+      expect(pairResponse.statusCode).toBe(400);
+    }
+
+    const blockedResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/child-devices/pair",
+      headers,
+      payload: {
+        pairingCode: "KC-CCCCCC"
+      }
+    });
+
+    expect(blockedResponse.statusCode).toBe(429);
+    expect(blockedResponse.json()).toMatchObject({
+      code: "CHILD_PAIRING_RATE_LIMITED"
+    });
   });
 
   it("returns a specific readiness error when child pairing tables are unavailable", async () => {
@@ -115,12 +193,50 @@ describe("child device routes", () => {
     const pairingCode = await createPairingCode();
     expect(pairingCode).toMatch(/^KC-[A-Z0-9]{6}$/u);
 
+    const app = buildApp();
+    const listResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/families/${parkerFamilyId}/child-pairing-codes`,
+      headers: authHeaders
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toMatchObject({
+      pairingCodes: [
+        {
+          pairingCode,
+          memberId: julesMemberId,
+          memberName: "Jules"
+        }
+      ]
+    });
+    expect(listResponse.json().pairingCodes[0]?.expiresAt).toBeTruthy();
+
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/child-devices/pair/preview",
+      payload: {
+        pairingCode
+      }
+    });
+
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json()).toMatchObject({
+      pairingCode,
+      family: {
+        id: parkerFamilyId
+      },
+      member: {
+        id: julesMemberId,
+        displayName: "Jules"
+      }
+    });
+
     const pairResponse = await pairDevice(pairingCode);
     expect(pairResponse.statusCode).toBe(201);
     const deviceToken = pairResponse.json().deviceToken as string;
     expect(deviceToken.length).toBeGreaterThan(20);
 
-    const app = buildApp();
     const meResponse = await app.inject({
       method: "GET",
       url: "/api/v1/child-devices/me",

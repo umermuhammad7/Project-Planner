@@ -1,13 +1,17 @@
 import { randomBytes } from "node:crypto";
+import { eq } from "drizzle-orm";
+
+import { db } from "../db/client.js";
+import { childPairingAttempts } from "../db/schema.js";
 
 /**
- * Child pairing abuse protection in this repo is process-local:
- * - Fastify route rate limit on POST /child-devices/pair
- * - In-memory failed-attempt counter per client IP
+ * Child pairing abuse protection in this repo now has a shared database-backed
+ * failure window, plus Fastify's route-level burst limiter on the pairing routes.
  *
- * Production requirement (multi-instance): add shared rate limiting at the edge
- * (API gateway / WAF) or Redis-backed counters. Without that, each server process
- * tracks failures independently.
+ * Production note: the database window works across app replicas, but it is still
+ * not a substitute for edge-level throttling against heavy abuse traffic. Keep an
+ * API gateway / WAF or Redis-backed rate limiting layer in front of public routes
+ * for higher-volume protection.
  */
 const pairingAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -33,37 +37,61 @@ export function pairingCodeExpiresAt(minutes = 15) {
   return new Date(Date.now() + minutes * 60 * 1000);
 }
 
-const failedPairAttempts = new Map<string, { count: number; resetAt: number }>();
-
 const PAIR_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const PAIR_ATTEMPT_MAX_FAILURES = 12;
 
-export function isChildPairAttemptBlocked(clientKey: string) {
-  const entry = failedPairAttempts.get(clientKey);
+export async function isChildPairAttemptBlocked(clientKey: string) {
+  const entry = await db.query.childPairingAttempts.findFirst({
+    where: eq(childPairingAttempts.clientKey, clientKey)
+  });
   if (!entry) {
     return false;
   }
 
-  if (entry.resetAt <= Date.now()) {
-    failedPairAttempts.delete(clientKey);
+  if (entry.resetAt.getTime() <= Date.now()) {
+    await db.delete(childPairingAttempts).where(eq(childPairingAttempts.clientKey, clientKey));
     return false;
   }
 
-  return entry.count >= PAIR_ATTEMPT_MAX_FAILURES;
+  return entry.failureCount >= PAIR_ATTEMPT_MAX_FAILURES;
 }
 
-export function recordFailedChildPairAttempt(clientKey: string) {
-  const now = Date.now();
-  const entry = failedPairAttempts.get(clientKey);
+export async function recordFailedChildPairAttempt(clientKey: string) {
+  const now = new Date();
+  const resetAt = new Date(now.getTime() + PAIR_ATTEMPT_WINDOW_MS);
+  const entry = await db.query.childPairingAttempts.findFirst({
+    where: eq(childPairingAttempts.clientKey, clientKey)
+  });
 
-  if (!entry || entry.resetAt <= now) {
-    failedPairAttempts.set(clientKey, { count: 1, resetAt: now + PAIR_ATTEMPT_WINDOW_MS });
+  if (!entry || entry.resetAt.getTime() <= now.getTime()) {
+    await db
+      .insert(childPairingAttempts)
+      .values({
+        clientKey,
+        failureCount: 1,
+        resetAt,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: childPairingAttempts.clientKey,
+        set: {
+          failureCount: 1,
+          resetAt,
+          updatedAt: now
+        }
+      });
     return;
   }
 
-  entry.count += 1;
+  await db
+    .update(childPairingAttempts)
+    .set({
+      failureCount: entry.failureCount + 1,
+      updatedAt: now
+    })
+    .where(eq(childPairingAttempts.clientKey, clientKey));
 }
 
-export function clearFailedChildPairAttempts(clientKey: string) {
-  failedPairAttempts.delete(clientKey);
+export async function clearFailedChildPairAttempts(clientKey: string) {
+  await db.delete(childPairingAttempts).where(eq(childPairingAttempts.clientKey, clientKey));
 }

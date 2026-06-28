@@ -1,5 +1,5 @@
-import { childDevicesListResponseSchema, childPairingCodeResponseSchema, uuidSchema } from "@homethread/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { childDevicesListResponseSchema, childPairingCodeResponseSchema, childPairingCodesListResponseSchema, uuidSchema } from "@homethread/shared";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -77,6 +77,37 @@ export async function childDeviceAdminRoutes(app: FastifyInstance) {
         memberName: member.displayName
       })
     );
+  });
+
+  app.get("/child-pairing-codes", async (request, reply) => {
+    const { familyId } = familyParamsSchema.parse(request.params);
+    const membership = await requireFamilyAdmin(request, reply, familyId);
+    if (!membership) return;
+
+    const now = new Date();
+    const pairingCodes = await db.query.childPairingCodes.findMany({
+      where: and(
+        eq(childPairingCodes.familyId, familyId),
+        isNull(childPairingCodes.redeemedAt),
+        isNull(childPairingCodes.revokedAt),
+        gt(childPairingCodes.expiresAt, now)
+      ),
+      orderBy: desc(childPairingCodes.createdAt)
+    });
+
+    const members = await db.query.familyMembers.findMany({
+      where: eq(familyMembers.familyId, familyId)
+    });
+    const memberNames = new Map(members.map((member) => [member.id, member.displayName]));
+
+    return childPairingCodesListResponseSchema.parse({
+      pairingCodes: pairingCodes.map((entry) => ({
+        pairingCode: entry.code,
+        expiresAt: entry.expiresAt.toISOString(),
+        memberId: entry.memberId,
+        memberName: memberNames.get(entry.memberId) ?? "Child"
+      }))
+    });
   });
 
   app.get("/child-devices", async (request, reply) => {

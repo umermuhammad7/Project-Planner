@@ -7,6 +7,7 @@ import { Card, MemberAvatar, Pill, SectionTitle } from "../components/Primitives
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useChildDeviceStore } from "../store/useChildDeviceStore";
 import { FamilyMember } from "../types";
+import { safeMemberInitials } from "../utils/safeRender";
 
 export function ChildDeviceShellScreen() {
   const session = useChildDeviceStore((state) => state.session);
@@ -27,7 +28,7 @@ export function ChildDeviceShellScreen() {
     return {
       id: session.memberId,
       name: session.memberName,
-      initials: session.memberName.slice(0, 2).toUpperCase(),
+      initials: safeMemberInitials(session.memberName),
       role: "kid",
       color: colors.gold,
       starBalance: session.starBalance

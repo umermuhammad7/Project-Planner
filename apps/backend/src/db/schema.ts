@@ -394,3 +394,11 @@ export const childDevices = pgTable(
     memberIdx: index("idx_child_devices_member").on(table.memberId)
   })
 );
+
+export const childPairingAttempts = pgTable("child_pairing_attempts", {
+  clientKey: text("client_key").primaryKey(),
+  failureCount: integer("failure_count").notNull().default(0),
+  resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});

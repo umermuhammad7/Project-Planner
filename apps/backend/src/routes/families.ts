@@ -11,6 +11,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { families, familyMembers, rewards, users } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
+import { countFamilyAdmins } from "../lib/householdAdmins.js";
 import { ensureUserProfile } from "../lib/userProvisioning.js";
 import { isChildPairingCode } from "../lib/childPairing.js";
 import { requireAuth } from "../plugins/auth.js";
@@ -179,6 +180,18 @@ export async function familiesRoutes(app: FastifyInstance) {
     const { id } = idParamsSchema.parse(request.params);
     const membership = await requireFamilyMember(request, reply, id);
     if (!membership) return;
+
+    if (membership.role === "admin") {
+      const adminCount = await countFamilyAdmins(id);
+      if (adminCount <= 1) {
+        return sendError(
+          reply,
+          409,
+          "Promote another adult to admin before leaving this household.",
+          "LAST_ADMIN_LEAVE_BLOCKED"
+        );
+      }
+    }
 
     await db
       .delete(familyMembers)

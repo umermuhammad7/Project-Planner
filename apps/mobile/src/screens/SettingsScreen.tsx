@@ -14,6 +14,7 @@ import {
 } from "../services/notifications";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { NotificationPermissionState } from "../types";
 
 function buildInitials(displayName: string | null, email: string | null) {
   const source = (displayName?.trim() || email?.split("@")[0] || "Home").trim();
@@ -23,6 +24,33 @@ function buildInitials(displayName: string | null, email: string | null) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function describePushSetupStatus(
+  permission: NotificationPermissionState,
+  pushToken: string | null
+): string {
+  if (permission === "denied") {
+    return "Notification permission is denied on this device. Turn it on in iOS Settings if you want alerts.";
+  }
+
+  if (permission === "unsupported") {
+    return "Push notifications are not supported in this build.";
+  }
+
+  if (permission === "undetermined") {
+    return "Notification permission has not been requested on this device yet.";
+  }
+
+  if (pushToken) {
+    return "Permission is granted and this device's push token is saved. HomeThread has not confirmed delivery from Settings.";
+  }
+
+  if (permission === "granted") {
+    return "Permission is granted, but this device's push token is not saved yet.";
+  }
+
+  return "Enable notifications to request permission and save this device's token.";
 }
 
 function feedbackTone(message: string): "success" | "error" | "info" {
@@ -64,7 +92,6 @@ export function SettingsScreen({
   const deleteAccount = useAuthStore((state) => state.deleteAccount);
   const signOut = useAuthStore((state) => state.signOut);
   const syncSource = useHomeThreadStore((state) => state.syncSource);
-  const isSaving = useHomeThreadStore((state) => state.isSaving);
 
   const [editedDisplayName, setEditedDisplayName] = useState(displayName ?? "");
   const [formMessage, setFormMessage] = useState<string | null>(null);
@@ -236,9 +263,11 @@ export function SettingsScreen({
       if (result.ok && result.pushToken) {
         const saved = await savePushToken(result.pushToken);
         if (!saved.ok) {
-          setNotificationMessage(saved.message ?? "Push setup was granted, but the token could not be saved.");
+          setNotificationMessage(saved.message ?? "Permission was granted, but the token could not be saved.");
         } else {
-          setNotificationMessage("Notifications are ready on this device.");
+          setNotificationMessage(
+            "Permission granted and push token saved for this device. Delivery is not verified from Settings."
+          );
         }
       }
     } finally {
@@ -289,8 +318,7 @@ export function SettingsScreen({
       <ScreenHeader
         eyebrow="Settings"
         title="Your account"
-        subtitle="Profile, notifications, and sign-in."
-        icon="person-circle"
+        subtitle="Profile, notifications, and household links."
         variant="admin"
         actionLabel="Back"
         onActionPress={onClose}
@@ -346,9 +374,9 @@ export function SettingsScreen({
             label={isSavingProfile ? "Saving..." : "Save profile"}
             icon="checkmark"
             loading={isSavingProfile}
-            disabled={isSaving || isSavingProfile || !backendConnected}
+            disabled={isSavingProfile || !backendConnected}
             onPress={() => {
-              if (isSaving || isSavingProfile) return;
+              if (isSavingProfile) return;
               if (!backendConnected) {
                 setProfileMessage("Profile changes need a connected household. Refresh and try again.");
                 return;
@@ -435,9 +463,7 @@ export function SettingsScreen({
       <SectionTitle title="Notifications" />
       <Card>
         <Text style={styles.cardTitle}>This device</Text>
-        <Text style={styles.helperText}>
-          {pushToken ? "This device is registered." : "Enable notifications to register this device."}
-        </Text>
+        <Text style={styles.helperText}>{describePushSetupStatus(notificationPermission, pushToken)}</Text>
         {notificationCapabilityMessage ? <Text style={styles.helperText}>{notificationCapabilityMessage}</Text> : null}
         <ActionFeedback
           message={notificationMessage ?? ""}
@@ -446,9 +472,17 @@ export function SettingsScreen({
         />
         <View style={styles.cardActions}>
           <PrimaryButton
-            label={isRegisteringNotifications ? "Working..." : pushToken ? "Refresh notification setup" : "Enable notifications"}
+            label={
+              isRegisteringNotifications
+                ? "Working..."
+                : pushToken
+                  ? "Refresh push token"
+                  : "Enable notifications"
+            }
             icon="notifications"
             tone="soft"
+            loading={isRegisteringNotifications}
+            disabled={isRegisteringNotifications}
             onPress={() => {
               if (isRegisteringNotifications) return;
               void handleEnableNotifications();
@@ -484,11 +518,12 @@ export function SettingsScreen({
       </Card>
 
       <Card>
-        <Text style={styles.cardTitle}>Household</Text>
+        <Text style={styles.cardTitle}>Household links</Text>
+        <Text style={styles.cardText}>These open the same household and insights screens available from More.</Text>
         <View style={styles.cardActions}>
           <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
           {onOpenInsights ? (
-            <PrimaryButton label="Household insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
+            <PrimaryButton label="Open insights (preview)" icon="analytics" tone="ghost" onPress={onOpenInsights} />
           ) : null}
         </View>
       </Card>
@@ -548,12 +583,17 @@ export function SettingsScreen({
         {authMode === "supabase" ? (
           <>
             <Text style={styles.cardText}>This permanently removes your HomeThread profile. Only use it if the account is no longer needed.</Text>
+            {!backendConnected ? (
+              <Text style={styles.helperText}>Account deletion requires a connected session. Refresh and try again when sync is back.</Text>
+            ) : null}
             <Text style={styles.dangerText}>This action is destructive and cannot be undone from the app.</Text>
             <View style={styles.cardActions}>
               <PrimaryButton
                 label={isDeletingAccount ? "Deleting..." : "Delete account"}
                 icon="trash"
                 tone="dark"
+                loading={isDeletingAccount}
+                disabled={!backendConnected || isDeletingAccount}
                 onPress={() => {
                   if (isDeletingAccount || !backendConnected) return;
                   void handleDeleteAccount();

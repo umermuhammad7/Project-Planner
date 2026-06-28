@@ -131,6 +131,7 @@ export type Chore = {
   id: string;
   title: string;
   dueLabel: string;
+  dueTime?: string | null;
   assignedTo: string;
   stars: number;
   completed: boolean;
@@ -263,16 +264,26 @@ export type AssistantMealSuggestResponse = {
   suggestions: AssistantMealSuggestion[] | null;
 };
 
-export type TabKey = "home" | "plan" | "chores" | "lists" | "meals" | "thread" | "add";
+export type TabKey = "home" | "plan" | "chores" | "lists" | "more";
+
+export type MoreDestination = "hub" | "meals" | "board" | "assistant";
+
+/** Routes reachable from Home shortcuts and legacy tab keys. */
+export type ScreenDestination = TabKey | "meals" | "thread" | "assistant" | "add";
 
 export type SyncSource = "mock" | "api";
 
 export type SaveOutcomeKind = "saved" | "queued" | "local" | "failed";
 
+export type SaveOutcomeField = "title" | "date" | "time";
+
+export type HomeThreadSaveScope = "plan" | "chores" | "lists" | "meals" | "board" | "family";
+
 export type SaveOutcome = {
   ok: boolean;
   kind: SaveOutcomeKind;
   message: string;
+  invalidField?: SaveOutcomeField;
 };
 
 export type RealtimeSyncStatus = "inactive" | "connecting" | "connected" | "unavailable" | "error";

@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, MemberAvatar, Pill, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 import { feedbackToneForOutcome } from "../utils/saveOutcome";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 
@@ -38,8 +38,9 @@ export function KidsModeScreen({
   activeKidMemberId: string;
   onExit: () => void;
 }) {
-  const { chores, members, events, meals, completeChore, refreshFromBackend, isSaving } =
+  const { chores, members, events, meals, completeChore, refreshFromBackend } =
     useHomeThreadStore();
+  const isSavingChores = useHomeThreadStore(isHomeThreadSavingScope("chores"));
   const [exitHintVisible, setExitHintVisible] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"success" | "error" | "info">("success");
@@ -115,6 +116,8 @@ export function KidsModeScreen({
   async function markDone(choreId: string) {
     const outcome = await completeChore(choreId);
     if (!outcome) {
+      setStatusTone("error");
+      setStatusMessage("That chore could not be completed right now.");
       return;
     }
 
@@ -227,12 +230,12 @@ export function KidsModeScreen({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Mark ${chore.title} done`}
-                  disabled={isSaving}
+                  disabled={isSavingChores}
                   onPress={() => void markDone(chore.id)}
                   style={({ pressed }) => [styles.doneButton, pressed && styles.doneButtonPressed]}
                 >
                   <Ionicons name="checkmark-circle" size={26} color="#FFFFFF" />
-                  <Text style={styles.doneButtonText}>{isSaving ? "Saving..." : "Done!"}</Text>
+                  <Text style={styles.doneButtonText}>{isSavingChores ? "Saving..." : "Done!"}</Text>
                 </Pressable>
               </View>
             );

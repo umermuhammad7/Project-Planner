@@ -9,13 +9,28 @@ import { SyncStatusRow } from "../components/SyncStatusRow";
 import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 
 export function ChoresScreen() {
-  const { chores, members, completeChore, createChore, refreshFromBackend, isSaving, isHydrating, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
-    useHomeThreadStore();
+  const {
+    chores,
+    members,
+    completeChore,
+    createChore,
+    updateChore,
+    deleteChore,
+    refreshFromBackend,
+    isHydrating,
+    syncSource,
+    syncMessage,
+    realtimeStatus,
+    realtimeMessage
+  } = useHomeThreadStore();
+  const isSavingChores = useHomeThreadStore(isHomeThreadSavingScope("chores"));
   const { scrollToOffset, scrollToTop } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
+  const [editingChoreId, setEditingChoreId] = useState<string | null>(null);
+  const [pendingDeleteChoreId, setPendingDeleteChoreId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
@@ -47,20 +62,48 @@ export function ChoresScreen() {
     return () => clearTimeout(timer);
   }, [successMessage, infoMessage, completionMessage]);
 
-  function toggleForm() {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const next = !showForm;
-    setShowForm(next);
-    setErrorMessage(null);
+  function resetForm() {
+    setTitle("");
+    setDueTime("");
+    setAssignedTo(null);
+    setEditingChoreId(null);
     setTitleError(null);
-
-    if (next) {
-      setTimeout(() => scrollToOffset(120), 80);
-    }
+    setErrorMessage(null);
   }
 
-  async function handleCreateChore() {
-    if (isSaving) {
+  function openCreateForm() {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    resetForm();
+    setShowForm(true);
+    setTimeout(() => scrollToOffset(120), 80);
+  }
+
+  function openEditForm(chore: (typeof chores)[number]) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setEditingChoreId(chore.id);
+    setTitle(chore.title);
+    setDueTime(choreDueTimeForField(chore.dueTime));
+    setAssignedTo(chore.assignedTo === "unassigned" ? null : chore.assignedTo);
+    setShowForm(true);
+    setPendingDeleteChoreId(null);
+    setTitleError(null);
+    setErrorMessage(null);
+    setTimeout(() => scrollToOffset(120), 80);
+  }
+
+  function toggleForm() {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (showForm) {
+      setShowForm(false);
+      resetForm();
+      return;
+    }
+
+    openCreateForm();
+  }
+
+  async function handleSaveChore() {
+    if (isSavingChores) {
       return;
     }
 
@@ -75,16 +118,57 @@ export function ChoresScreen() {
     setSuccessMessage(null);
     setInfoMessage(null);
 
-    const outcome = await createChore({ title, dueTime, assignedTo });
+    const wasEditing = Boolean(editingChoreId);
+    const outcome = editingChoreId
+      ? await updateChore({
+          choreId: editingChoreId,
+          title,
+          dueTime,
+          assignedTo
+        })
+      : await createChore({ title, dueTime, assignedTo });
+
     if (outcome.kind === "saved") {
       const savedTitle = title.trim();
-      setTitle("");
-      setDueTime("");
-      setAssignedTo(null);
+      resetForm();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setShowForm(false);
       scrollToTop();
-      setSuccessMessage(`"${savedTitle}" was added to today's chores.`);
+      setSuccessMessage(
+        wasEditing ? `"${savedTitle}" was updated.` : `"${savedTitle}" was added to open chores.`
+      );
+      return;
+    }
+
+    if (outcome.kind === "queued" || outcome.kind === "local") {
+      setInfoMessage(outcome.message);
+      if (outcome.kind === "local" && editingChoreId) {
+        resetForm();
+        setShowForm(false);
+      }
+      return;
+    }
+
+    setErrorMessage(outcome.message || "Could not save that chore.");
+  }
+
+  async function handleDeleteChore(choreId: string, choreTitle: string) {
+    if (isSavingChores) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setInfoMessage(null);
+    const outcome = await deleteChore(choreId);
+    setPendingDeleteChoreId(null);
+
+    if (outcome.kind === "saved" || outcome.kind === "local") {
+      if (editingChoreId === choreId) {
+        resetForm();
+        setShowForm(false);
+      }
+      setSuccessMessage(`"${choreTitle}" was removed.`);
       return;
     }
 
@@ -93,7 +177,7 @@ export function ChoresScreen() {
       return;
     }
 
-    setErrorMessage(outcome.message || "Could not create that chore.");
+    setErrorMessage(outcome.message || "Could not remove that chore.");
   }
 
   async function handleCompleteChore(choreId: string) {
@@ -119,9 +203,10 @@ export function ChoresScreen() {
     <View>
       <ScreenHeader
         eyebrow="Chores"
-        title="Around the house"
-        subtitle="Assign, complete, and track rewards. Due times apply to today."
-        icon="checkmark-done-circle"
+        title="Household chores"
+        subtitle="Daily assignments with optional due times. Mark done when finished today."
+        badgeLabel={`${openChores.length} open`}
+        badgeTone={openChores.length > 0 ? "gold" : "neutral"}
         density="compact"
       />
 
@@ -160,7 +245,7 @@ export function ChoresScreen() {
 
       {showForm ? (
         <Card>
-          <Text style={styles.formTitle}>Create chore</Text>
+          <Text style={styles.formTitle}>{editingChoreId ? "Edit chore" : "Create chore"}</Text>
           <Text style={styles.fieldLabel}>Title</Text>
           <TextInput
             accessibilityLabel="Chore title"
@@ -176,8 +261,8 @@ export function ChoresScreen() {
             style={[styles.input, titleError ? styles.inputInvalid : null]}
           />
           <FieldError message={titleError} />
-          <TimeField label="Due time for today (optional)" value={dueTime} onChange={setDueTime} placeholder="Tap to choose a time" />
-          <Text style={styles.helperNote}>Pick a time if this chore should pop up later today.</Text>
+          <TimeField label="Daily due time (optional)" value={dueTime} onChange={setDueTime} placeholder="Tap to choose a time" />
+          <Text style={styles.helperNote}>Chores repeat daily. Add a time if you want a reminder nudge each day.</Text>
           <Text style={styles.pickerLabel}>Assign to</Text>
           <View style={styles.pickerRow}>
             <Pressable
@@ -203,19 +288,32 @@ export function ChoresScreen() {
           </View>
           <View style={styles.formActions}>
             <PrimaryButton
-              label={isSaving ? "Creating..." : "Create chore"}
+              label={isSavingChores ? "Saving..." : editingChoreId ? "Save changes" : "Create chore"}
               icon="checkmark"
-              loading={isSaving}
-              disabled={isSaving}
+              loading={isSavingChores}
+              disabled={isSavingChores}
               onPress={() => {
-                void handleCreateChore();
+                void handleSaveChore();
               }}
             />
+            {editingChoreId ? (
+              <PrimaryButton
+                label="Cancel edit"
+                icon="close"
+                tone="ghost"
+                disabled={isSavingChores}
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowForm(false);
+                  resetForm();
+                }}
+              />
+            ) : null}
           </View>
         </Card>
       ) : null}
 
-      <SectionTitle title="Due today" action={`${openChores.length} open`} />
+      <SectionTitle title="Open chores" action={`${openChores.length} open`} />
       <ActionFeedback message={completionMessage ?? ""} tone={completionTone} visible={Boolean(completionMessage)} />
       <View style={styles.stack}>
         {openChores.length > 0 ? (
@@ -236,14 +334,53 @@ export function ChoresScreen() {
                 </Row>
                 <View style={styles.choreActions}>
                   <PrimaryButton
-                    label={isSaving ? "Saving..." : "Mark done"}
+                    label={isSavingChores ? "Saving..." : "Mark done"}
                     icon="checkmark-circle"
-                    loading={isSaving}
-                    disabled={isSaving}
+                    loading={isSavingChores}
+                    disabled={isSavingChores}
                     onPress={() => {
                       void handleCompleteChore(chore.id);
                     }}
                   />
+                  <PrimaryButton
+                    label="Edit"
+                    icon="create"
+                    tone="soft"
+                    disabled={isSavingChores}
+                    onPress={() => openEditForm(chore)}
+                  />
+                  {pendingDeleteChoreId === chore.id ? (
+                    <View style={styles.inlineConfirm}>
+                      <Text style={styles.confirmText}>Remove "{chore.title}"?</Text>
+                      <View style={styles.inlineConfirmActions}>
+                        <PrimaryButton
+                          label="Keep"
+                          icon="close"
+                          tone="ghost"
+                          disabled={isSavingChores}
+                          onPress={() => setPendingDeleteChoreId(null)}
+                        />
+                        <PrimaryButton
+                          label={isSavingChores ? "Removing..." : "Remove"}
+                          icon="trash"
+                          tone="dark"
+                          loading={isSavingChores}
+                          disabled={isSavingChores}
+                          onPress={() => {
+                            void handleDeleteChore(chore.id, chore.title);
+                          }}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <PrimaryButton
+                      label="Delete"
+                      icon="trash"
+                      tone="ghost"
+                      disabled={isSavingChores}
+                      onPress={() => setPendingDeleteChoreId(chore.id)}
+                    />
+                  )}
                 </View>
               </Card>
             );
@@ -308,6 +445,15 @@ export function ChoresScreen() {
       </View>
     </View>
   );
+}
+
+function choreDueTimeForField(dueTime?: string | null) {
+  if (!dueTime) {
+    return "";
+  }
+
+  const match = /^(\d{2}):(\d{2})/u.exec(dueTime);
+  return match ? `${match[1]}:${match[2]}` : "";
 }
 
 const styles = StyleSheet.create({
@@ -397,7 +543,23 @@ const styles = StyleSheet.create({
     flex: 1
   },
   choreActions: {
+    gap: spacing.sm,
     marginTop: spacing.md
+  },
+  inlineConfirm: {
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  inlineConfirmActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  confirmText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18
   },
   check: {
     alignItems: "center",

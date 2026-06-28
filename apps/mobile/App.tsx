@@ -30,6 +30,7 @@ import { KidsModePickerScreen } from "./src/screens/KidsModePickerScreen";
 import { KidsModeScreen } from "./src/screens/KidsModeScreen";
 import { ListsScreen } from "./src/screens/ListsScreen";
 import { MealsScreen } from "./src/screens/MealsScreen";
+import { MoreScreen } from "./src/screens/MoreScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { ThreadScreen } from "./src/screens/ThreadScreen";
@@ -42,7 +43,7 @@ import { useChildDeviceStore } from "./src/store/useChildDeviceStore";
 import { useHomeThreadStore, resetHomeThreadStoreForSignedOut } from "./src/store/useHomeThreadStore";
 import { startFamilyRealtimeSync, stopFamilyRealtimeSync } from "./src/services/familyRealtimeSync";
 import { isSupabaseConfigured, supabaseClient } from "./src/services/supabase";
-import { TabKey } from "./src/types";
+import { TabKey, MoreDestination, ScreenDestination } from "./src/types";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -51,14 +52,29 @@ const tabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "plan", label: "Plan", icon: "calendar" },
   { key: "chores", label: "Chores", icon: "star" },
   { key: "lists", label: "Lists", icon: "bag" },
-  { key: "meals", label: "Meals", icon: "restaurant" },
-  { key: "thread", label: "Board", icon: "chatbubbles" },
-  { key: "add", label: "Assistant", icon: "sparkles" }
+  { key: "more", label: "More", icon: "grid" }
 ];
+
+function resolveNavigation(destination: ScreenDestination): { tab: TabKey; more: MoreDestination } {
+  if (destination === "meals") {
+    return { tab: "more", more: "meals" };
+  }
+
+  if (destination === "thread") {
+    return { tab: "more", more: "board" };
+  }
+
+  if (destination === "assistant" || destination === "add") {
+    return { tab: "more", more: "assistant" };
+  }
+
+  return { tab: destination, more: "hub" };
+}
 
 function AppShell() {
   const [enteredApp, setEnteredApp] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
+  const [moreDestination, setMoreDestination] = useState<MoreDestination>("hub");
   const [kidsMode, setKidsMode] = useState(false);
   const [kidsModeMemberId, setKidsModeMemberId] = useState<string | null>(null);
   const [showKidsModePicker, setShowKidsModePicker] = useState(false);
@@ -84,18 +100,23 @@ function AppShell() {
   const bootstrapAuth = useAuthStore((state) => state.bootstrap);
   const savePushToken = useAuthStore((state) => state.savePushToken);
   const childDeviceMode = useChildDeviceStore((state) => state.mode);
+  const childDeviceBootstrapComplete = useChildDeviceStore((state) => state.bootstrapComplete);
+  const isChildDeviceLoading = useChildDeviceStore((state) => state.isLoading);
   const bootstrapChildDevice = useChildDeviceStore((state) => state.bootstrap);
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
   const syncSource = useHomeThreadStore((state) => state.syncSource);
   const familyId = useHomeThreadStore((state) => state.familyId);
-  const listIdsKey = useHomeThreadStore((state) =>
-    state.lists
-      .map((list) => list.id)
-      .slice()
-      .sort()
-      .join(",")
+  const lists = useHomeThreadStore((state) => state.lists);
+  const listIdsKey = useMemo(
+    () =>
+      lists
+        .map((list) => list.id)
+        .slice()
+        .sort()
+        .join(","),
+    [lists]
   );
   const pendingOfflineCount = useHomeThreadStore((state) =>
     state.offlineQueue.filter((item) => item.status === "pending").length
@@ -103,7 +124,8 @@ function AppShell() {
   const failedOfflineCount = useHomeThreadStore((state) =>
     state.offlineQueue.filter((item) => item.status === "failed").length
   );
-  const kidMembers = useHomeThreadStore((state) => state.members.filter((member) => member.role === "kid"));
+  const members = useHomeThreadStore((state) => state.members);
+  const kidMembers = useMemo(() => members.filter((member) => member.role === "kid"), [members]);
   const offlineReplayMessage = useHomeThreadStore((state) => state.offlineReplayMessage);
   const isReplayingOffline = useHomeThreadStore((state) => state.isReplayingOffline);
   const replayPendingOfflineMutations = useHomeThreadStore((state) => state.replayPendingOfflineMutations);
@@ -135,8 +157,13 @@ function AppShell() {
         return;
       }
 
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
         void useAuthStore.getState().bootstrap();
+        return;
+      }
+
+      if (event === "TOKEN_REFRESHED") {
+        void useAuthStore.getState().syncAccessTokenFromSession();
       }
     });
 
@@ -145,10 +172,13 @@ function AppShell() {
     };
   }, []);
 
+  const priorAuthMode = useRef(authMode);
+
   useEffect(() => {
-    if (authMode === "dev_token" || authMode === "supabase") {
-      setEnteredApp(Boolean(authFamilyId));
-    } else if (authMode === "signed_out") {
+    const previous = priorAuthMode.current;
+    priorAuthMode.current = authMode;
+
+    if (authMode === "signed_out") {
       setEnteredApp(false);
       setKidsMode(false);
       setKidsModeMemberId(null);
@@ -157,6 +187,12 @@ function AppShell() {
       setInsightsOpen(false);
       setSettingsOpen(false);
       resetHomeThreadStoreForSignedOut();
+      return;
+    }
+
+    // Session restore only: do not auto-enter when familyId is assigned mid-onboarding (create/join).
+    if (previous === "loading" && authMode !== "loading" && authFamilyId) {
+      setEnteredApp(true);
     }
   }, [authFamilyId, authMode]);
 
@@ -189,6 +225,16 @@ function AppShell() {
       return;
     }
 
+    // Wait for first API hydrate before connecting; refresh cycles keep syncSource "api".
+    if (isHydrating && syncSource !== "api") {
+      stopFamilyRealtimeSync();
+      useHomeThreadStore.setState({
+        realtimeStatus: "inactive",
+        realtimeMessage: ""
+      });
+      return;
+    }
+
     const listIds = listIdsKey ? listIdsKey.split(",") : [];
     const enabled = authMode === "supabase" && syncSource === "api" && Boolean(familyId);
 
@@ -203,11 +249,19 @@ function AppShell() {
         void useHomeThreadStore.getState().refreshFromBackend({ skipOfflineReplay: true });
       }
     });
+  }, [authMode, enteredApp, familyId, listIdsKey, syncSource]);
 
+  useEffect(() => {
     return () => {
       stopFamilyRealtimeSync();
     };
-  }, [authMode, enteredApp, familyId, listIdsKey, syncSource]);
+  }, []);
+
+  const navigateTo = useCallback((destination: ScreenDestination) => {
+    const resolved = resolveNavigation(destination);
+    setActiveTab(resolved.tab);
+    setMoreDestination(resolved.more);
+  }, []);
 
   const handleEnterKidsMode = useCallback(() => {
     if (kidMembers.length === 0) {
@@ -234,24 +288,45 @@ function AppShell() {
     if (activeTab === "plan") return <PlanScreen />;
     if (activeTab === "chores") return <ChoresScreen />;
     if (activeTab === "lists") return <ListsScreen />;
-    if (activeTab === "meals") return <MealsScreen />;
-    if (activeTab === "thread") return <ThreadScreen />;
-    if (activeTab === "add") return <AssistantScreen />;
+    if (activeTab === "more") {
+      if (moreDestination === "meals") {
+        return <MealsScreen onBack={() => setMoreDestination("hub")} />;
+      }
+
+      if (moreDestination === "board") {
+        return <ThreadScreen onBack={() => setMoreDestination("hub")} />;
+      }
+
+      if (moreDestination === "assistant") {
+        return <AssistantScreen onBack={() => setMoreDestination("hub")} />;
+      }
+
+      return (
+        <MoreScreen
+          onOpen={setMoreDestination}
+          onOpenFamilySettings={() => setFamilySettingsOpen(true)}
+          onOpenInsights={() => setInsightsOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      );
+    }
+
     return (
       <HomeScreen
-        goTo={setActiveTab}
+        goTo={navigateTo}
         onEnterKidsMode={handleEnterKidsMode}
         onOpenFamilySettings={() => setFamilySettingsOpen(true)}
         onOpenInsights={() => setInsightsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
     );
-  }, [activeTab, handleEnterKidsMode]);
+  }, [activeTab, handleEnterKidsMode, moreDestination, navigateTo]);
 
   const showConnecting = enteredApp && authMode !== "loading" && authMode !== "signed_out" && isHydrating;
   const showWelcome = authMode === "loading" || authMode === "signed_out" || !enteredApp;
   const screenKey = [
     activeTab,
+    moreDestination,
     kidsMode ? "kids" : "adult",
     showKidsModePicker ? "kids-picker" : "kids-picker-closed",
     kidsModeMemberId ?? "no-kid",
@@ -264,7 +339,7 @@ function AppShell() {
 
   useEffect(() => {
     scrollAssist.scrollToTop();
-  }, [activeTab, familySettingsOpen, insightsOpen, settingsOpen, kidsMode, showKidsModePicker, scrollAssist]);
+  }, [activeTab, familySettingsOpen, insightsOpen, moreDestination, settingsOpen, kidsMode, showKidsModePicker, scrollAssist]);
 
   useEffect(() => {
     screenOpacity.setValue(0.9);
@@ -298,6 +373,28 @@ function AppShell() {
               <Text style={styles.connectingSubtitle}>
                 This production build is missing a reachable EXPO_PUBLIC_API_URL. Configure the Railway API host in
                 EAS secrets before installing on a phone.
+              </Text>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!childDeviceBootstrapComplete || childDeviceMode === "unknown" || isChildDeviceLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.configBlockWrap}>
+          <View style={styles.connectingWrap}>
+            <View style={styles.connectingMarkWrap}>
+              <Image source={require("./assets/icon.png")} style={styles.connectingMark} />
+            </View>
+            <View style={styles.connecting}>
+              <Text style={styles.connectingEyebrow}>HomeThread</Text>
+              <Text style={styles.connectingTitle}>Checking this device</Text>
+              <Text style={styles.connectingSubtitle}>
+                Making sure we open the right child or adult experience before showing anything else.
               </Text>
             </View>
           </View>
@@ -430,7 +527,21 @@ function AppShell() {
                 }}
               />
             ) : familySettingsOpen ? (
-              <FamilyScreen onClose={() => setFamilySettingsOpen(false)} />
+              <FamilyScreen
+                onClose={() => setFamilySettingsOpen(false)}
+                onLeaveComplete={({ needsFamilySetup }) => {
+                  setFamilySettingsOpen(false);
+                  setSettingsOpen(false);
+                  setInsightsOpen(false);
+                  setKidsMode(false);
+                  setShowKidsModePicker(false);
+                  setKidsModeMemberId(null);
+                  if (needsFamilySetup) {
+                    setEnteredApp(false);
+                    setActiveTab("home");
+                  }
+                }}
+              />
             ) : (
               content
             )}
@@ -445,6 +556,9 @@ function AppShell() {
                 icon={tab.icon}
                 label={tab.label}
                 onPress={() => {
+                  if (tab.key === "more") {
+                    setMoreDestination("hub");
+                  }
                   setActiveTab(tab.key);
                 }}
                 selected={activeTab === tab.key}

@@ -1,13 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View
+} from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Pill, PrimaryButton } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
-import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
-import { useHomeThreadStore } from "../store/useHomeThreadStore";
+import {
+  ASSISTANT_WELCOME_MESSAGE,
+  loadAssistantConversationFromStorage,
+  saveAssistantConversationToStorage,
+  StoredAssistantMessage
+} from "../services/assistantConversationStorage";
+import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 import {
   AssistantAssistResponse,
   AssistantContext,
@@ -18,6 +33,7 @@ import {
 } from "../types";
 import { parseFamilyText } from "../utils/textParser";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
+import { safeArray, safeText } from "../utils/safeRender";
 
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -25,11 +41,7 @@ function mealSuggestionKey(suggestion: AssistantMealSuggestion) {
   return `${suggestion.dayOfWeek}-${suggestion.mealType}-${suggestion.title}`;
 }
 
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  body: string;
-};
+type ChatMessage = StoredAssistantMessage;
 
 type AssistantStatus = {
   configured: boolean;
@@ -153,19 +165,22 @@ const quickPrompts: Array<{ label: string; intent: AssistantIntent; text: string
   }
 ];
 
-export function AssistantScreen() {
-  const { commitDraft, createMeal, familyName, members, events, chores, isSaving, saveMessage, syncSource } = useHomeThreadStore();
+const NEAR_BOTTOM_THRESHOLD = 120;
+const COMPOSER_ESTIMATED_HEIGHT = 220;
+
+export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
+  const { commitDraft, createMeal, familyId, familyName, members, events, chores, syncSource } = useHomeThreadStore();
+  const isSavingBoard = useHomeThreadStore(isHomeThreadSavingScope("board"));
+  const isSavingMeals = useHomeThreadStore(isHomeThreadSavingScope("meals"));
+  const { height: windowHeight } = useWindowDimensions();
+  const conversationScrollRef = useRef<ScrollView>(null);
+  const pinnedToBottomRef = useRef(true);
   const [prompt, setPrompt] = useState("");
   const [draft, setDraft] = useState<AssistantDraft | null>(null);
   const [mealSuggestions, setMealSuggestions] = useState<AssistantMealSuggestion[] | null>(null);
   const [savedMealKeys, setSavedMealKeys] = useState<string[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "assistant-welcome",
-      role: "assistant",
-      body: "Paste family text or ask for help. I'll draft it - you save what fits."
-    }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([ASSISTANT_WELCOME_MESSAGE]);
+  const [conversationReady, setConversationReady] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [savedKind, setSavedKind] = useState<"saved" | "local" | null>(null);
   const [draftFeedback, setDraftFeedback] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(
@@ -175,42 +190,57 @@ export function AssistantScreen() {
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus | null>(null);
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
   const [showPrompts, setShowPrompts] = useState(false);
-  const { scrollToBottom } = useScrollAssist();
+  const panelHeight = Math.min(Math.max(windowHeight * 0.62, 420), 680);
+  const conversationHeight = Math.max(240, panelHeight - COMPOSER_ESTIMATED_HEIGHT);
+
+  const scrollConversationToBottom = useCallback((animated = true) => {
+    conversationScrollRef.current?.scrollToEnd({ animated });
+  }, []);
+
+  const handleConversationScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    pinnedToBottomRef.current = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD;
+  }, []);
 
   const canSend = useMemo(() => prompt.trim().length > 0 && !isThinking, [isThinking, prompt]);
   const assistantContext = useMemo<AssistantContext>(() => {
-    const upcomingEvents = [...events]
+    const eventRows = safeArray(events);
+    const memberRows = safeArray(members);
+    const choreRows = safeArray(chores);
+
+    const upcomingEvents = [...eventRows]
       .sort(compareEventsByStartAt)
       .filter((event) => getEventUrgency(event)?.label !== "Past")
       .slice(0, 5)
       .map((event) => {
         const assignedTo = Array.isArray(event.assignedTo) ? event.assignedTo : [];
         const assignedMemberNames = assignedTo
-          .map((id) => members.find((member) => member.id === id)?.name)
+          .map((id) => memberRows.find((member) => member.id === id)?.name)
           .filter((name): name is string => Boolean(name));
 
         return {
-          title: event.title,
-          time: event.time,
-          dateLabel: event.dateLabel,
+          title: safeText(event.title, "Untitled plan"),
+          time: safeText(event.time, "Time TBD"),
+          dateLabel: safeText(event.dateLabel, "Date TBD"),
           location: event.location ?? null,
           assignedTo: assignedMemberNames
         };
       });
 
-    const openChores = chores
+    const openChores = choreRows
       .filter((chore) => !chore.completed)
       .slice(0, 5)
       .map((chore) => ({
-        title: chore.title,
-        dueLabel: chore.dueLabel
+        title: safeText(chore.title, "Chore"),
+        dueLabel: safeText(chore.dueLabel, "Today")
       }));
 
     return {
       familyName,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       today: new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }),
-      members: members.map((member) => member.name),
+      members: memberRows.map((member) => safeText(member.name, "Family member")),
       upcomingEvents,
       openChores
     };
@@ -257,11 +287,43 @@ export function AssistantScreen() {
   }, [syncSource]);
 
   useEffect(() => {
+    let cancelled = false;
+    setConversationReady(false);
+
+    void (async () => {
+      const stored = await loadAssistantConversationFromStorage(familyId);
+      if (cancelled) {
+        return;
+      }
+
+      setMessages(stored);
+      pinnedToBottomRef.current = true;
+      setConversationReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [familyId]);
+
+  useEffect(() => {
+    if (!conversationReady) {
+      return;
+    }
+
+    void saveAssistantConversationToStorage(familyId, messages);
+  }, [conversationReady, familyId, messages]);
+
+  useEffect(() => {
+    if (!conversationReady || !pinnedToBottomRef.current) {
+      return;
+    }
+
     const timer = setTimeout(() => {
-      scrollToBottom();
+      scrollConversationToBottom(true);
     }, 80);
     return () => clearTimeout(timer);
-  }, [draft, isThinking, mealSuggestions, messages, scrollToBottom]);
+  }, [conversationReady, draft, isThinking, mealSuggestions, messages, scrollConversationToBottom]);
 
   useEffect(() => {
     if (!draftFeedback) {
@@ -284,6 +346,7 @@ export function AssistantScreen() {
     setDraft(null);
     setMealSuggestions(null);
     setSavedMealKeys([]);
+    pinnedToBottomRef.current = true;
     setMessages((current) => [
       ...current,
       { id: `user-${Date.now()}`, role: "user", body: trimmed }
@@ -444,14 +507,23 @@ export function AssistantScreen() {
         eyebrow="Assistant"
         title="Ask HomeThread"
         subtitle="Draft ideas here. Nothing saves until you approve."
-        icon="sparkles"
         badgeLabel={syncSource === "api" ? (assistantStatus?.configured ? "Cloud AI" : "Local draft") : "Preview"}
         badgeTone={syncSource === "api" ? (assistantStatus?.configured ? "mint" : "gold") : "neutral"}
         density="compact"
+        actionLabel={onBack ? "Back" : undefined}
+        onActionPress={onBack}
       />
 
-      <View style={styles.surface}>
-        <View style={styles.conversationContent}>
+      <View style={[styles.surface, { height: panelHeight }]}>
+        <ScrollView
+          ref={conversationScrollRef}
+          style={[styles.conversationScroll, { maxHeight: conversationHeight }]}
+          contentContainerStyle={styles.conversationContent}
+          keyboardShouldPersistTaps="handled"
+          onScroll={handleConversationScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator
+        >
           {messages.map((message) => (
             <View
               key={message.id}
@@ -487,11 +559,11 @@ export function AssistantScreen() {
                     <Text style={styles.resultTitle}>{suggestion.title}</Text>
                     {suggestion.notes ? <Text style={styles.resultMeta}>{suggestion.notes}</Text> : null}
                     <PrimaryButton
-                      label={added ? "Added to meals" : isSaving ? "Saving..." : "Add to meals"}
+                      label={added ? "Added to meals" : isSavingMeals ? "Saving..." : "Add to meals"}
                       icon={added ? "checkmark" : "restaurant"}
                       tone={added ? "ghost" : "soft"}
                       onPress={() => {
-                        if (added || isSaving) {
+                        if (added || isSavingMeals) {
                           return;
                         }
 
@@ -518,7 +590,6 @@ export function AssistantScreen() {
                 );
               })}
               {assistantNote ? <Text style={styles.resultNote}>{assistantNote}</Text> : null}
-              {saveMessage ? <Text style={styles.saveStatus}>{saveMessage}</Text> : null}
             </View>
           ) : null}
 
@@ -543,17 +614,17 @@ export function AssistantScreen() {
                   visible={Boolean(draftFeedback?.message)}
                 />
                 <Text style={styles.saveStatus}>
-                  {isSaving
+                  {isSavingBoard
                     ? "Saving..."
                     : savedKind === "saved"
                       ? "Saved to your household."
                       : savedKind === "local"
                         ? "Saved on this device only. Pull to refresh when the connection is steady."
-                        : saveMessage}
+                        : ""}
                 </Text>
                 <PrimaryButton
                   label={
-                    isSaving
+                    isSavingBoard
                       ? "Saving..."
                       : savedKind === "saved"
                         ? "Saved"
@@ -562,11 +633,11 @@ export function AssistantScreen() {
                           : "Save to HomeThread"
                   }
                   icon={
-                    isSaving ? "sync" : savedKind === "saved" || savedKind === "local" ? "checkmark" : "add"
+                    isSavingBoard ? "sync" : savedKind === "saved" || savedKind === "local" ? "checkmark" : "add"
                   }
-                  disabled={isSaving || savedKind !== null}
+                  disabled={isSavingBoard || savedKind !== null}
                   onPress={() => {
-                    if (isSaving || savedKind !== null) return;
+                    if (isSavingBoard || savedKind !== null) return;
                     void commitDraft(draft).then((outcome) => {
                       if (outcome.kind === "failed") {
                         setDraftFeedback({ message: outcome.message, tone: "error" });
@@ -588,7 +659,7 @@ export function AssistantScreen() {
               </View>
             </View>
           ) : null}
-        </View>
+        </ScrollView>
 
         <View style={styles.composer}>
           <Pressable
@@ -671,7 +742,12 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.lg,
     borderWidth: 1,
+    flexDirection: "column",
     overflow: "hidden"
+  },
+  conversationScroll: {
+    flexGrow: 0,
+    flexShrink: 1
   },
   conversationContent: {
     gap: spacing.sm,
@@ -763,6 +839,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.line,
     borderTopWidth: 1,
+    flexShrink: 0,
     gap: spacing.sm,
     padding: spacing.md
   },
