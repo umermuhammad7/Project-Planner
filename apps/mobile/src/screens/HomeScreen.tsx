@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View, Image } from "react-native";
 
 import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
@@ -113,6 +113,11 @@ export function HomeScreen({
     () => (avatarUrl ? { uri: avatarUrl, cache: "reload" as const } : null),
     [avatarUrl]
   );
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarImageFailed(false);
+  }, [avatarUrl]);
   const householdSummaryLabel = useMemo(() => {
     const adults = adultMembers.length;
     const kids = kidMembers.length;
@@ -223,8 +228,13 @@ export function HomeScreen({
               onPress={onOpenSettings}
               style={styles.profileButton}
             >
-              {avatarSource ? (
-                <Image accessibilityLabel={`${profileLabel} profile photo`} source={avatarSource} style={styles.profileImage} />
+              {avatarSource && !avatarImageFailed ? (
+                <Image
+                  accessibilityLabel={`${profileLabel} profile photo`}
+                  onError={() => setAvatarImageFailed(true)}
+                  source={avatarSource}
+                  style={styles.profileImage}
+                />
               ) : (
                 <Text style={styles.profileInitials}>{profileInitials}</Text>
               )}
@@ -253,7 +263,7 @@ export function HomeScreen({
                   ? `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
                   : todayDinner
                     ? `${todayDinner.title} is already penciled in for tonight.`
-                    : "Add the next plan, list, or chore before someone has to carry it by memory."}
+                    : "Add a plan, list, or chore so nothing lives only in memory."}
               </Text>
             </View>
           </View>
@@ -430,16 +440,32 @@ export function HomeScreen({
 
       {onOpenFamilySettings || onOpenInsights ? (
         <>
-          <SectionTitle title="Quick access" action="More has the full hub" />
+          <SectionTitle title="Quick access" action="Full hub in More" />
           <View style={styles.adminLinks}>
             {onOpenFamilySettings ? (
-              <Pressable accessibilityRole="button" onPress={onOpenFamilySettings} style={styles.adminLink}>
-                <Text style={styles.adminLinkText}>Household</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={onOpenFamilySettings}
+                style={({ pressed }) => [styles.adminLinkCard, pressed && styles.adminLinkCardPressed]}
+              >
+                <View style={styles.adminLinkCopy}>
+                  <Text style={styles.adminLinkTitle}>Household</Text>
+                  <Text style={styles.adminLinkMeta}>Invite adults & pair devices</Text>
+                </View>
+                <Ionicons color={colors.muted} name="chevron-forward" size={16} />
               </Pressable>
             ) : null}
             {onOpenInsights ? (
-              <Pressable accessibilityRole="button" onPress={onOpenInsights} style={styles.adminLink}>
-                <Text style={styles.adminLinkText}>Insights (preview)</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={onOpenInsights}
+                style={({ pressed }) => [styles.adminLinkCard, pressed && styles.adminLinkCardPressed]}
+              >
+                <View style={styles.adminLinkCopy}>
+                  <Text style={styles.adminLinkTitle}>Insights</Text>
+                  <Text style={styles.adminLinkMeta}>Preview · weekly summary</Text>
+                </View>
+                <Ionicons color={colors.muted} name="chevron-forward" size={16} />
               </Pressable>
             ) : null}
           </View>
@@ -521,14 +547,14 @@ const styles = StyleSheet.create({
     borderColor: "rgba(139,107,74,0.16)",
     borderRadius: radii.pill,
     borderWidth: 1,
-    height: 42,
+    height: 44,
     justifyContent: "center",
     overflow: "hidden",
-    width: 42
+    width: 44
   },
   profileImage: {
-    height: 42,
-    width: 42
+    height: 44,
+    width: 44
   },
   profileInitials: {
     color: colors.primary,
@@ -691,20 +717,39 @@ const styles = StyleSheet.create({
     lineHeight: 19
   },
   adminLinks: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md,
+    gap: spacing.sm,
     marginBottom: spacing.sm
   },
-  adminLink: {
-    minHeight: 36,
-    justifyContent: "center",
-    paddingVertical: spacing.xs
+  adminLinkCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    minHeight: 56,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
   },
-  adminLinkText: {
-    color: colors.tertiary,
+  adminLinkCardPressed: {
+    backgroundColor: colors.canvas,
+    opacity: 0.96
+  },
+  adminLinkCopy: {
+    flex: 1,
+    gap: 2
+  },
+  adminLinkTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  adminLinkMeta: {
+    color: colors.muted,
     fontSize: 13,
-    fontWeight: "700"
+    fontWeight: "600",
+    lineHeight: 18
   },
   boardRow: {
     alignItems: "center",

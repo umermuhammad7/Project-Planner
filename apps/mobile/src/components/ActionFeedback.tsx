@@ -50,6 +50,8 @@ export function ActionFeedback({
 
   return (
     <Animated.View
+      accessibilityLiveRegion="polite"
+      accessibilityRole="alert"
       style={[
         styles.banner,
         toneStyles[tone],

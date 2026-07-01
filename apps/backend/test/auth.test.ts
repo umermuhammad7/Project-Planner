@@ -93,6 +93,7 @@ describe("auth guard", () => {
 
   it("updates the authenticated profile", async () => {
     const app = buildApp();
+    const avatarUrl = "https://example.com/avatar.jpg?v=1";
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/auth/profile",
@@ -101,7 +102,7 @@ describe("auth guard", () => {
       },
       payload: {
         displayName: "Mara Parker",
-        avatarUrl: null,
+        avatarUrl,
         phone: null,
         timezone: "Asia/Karachi",
         locale: "en-PK"
@@ -112,6 +113,7 @@ describe("auth guard", () => {
     expect(response.json()).toMatchObject({
       user: {
         displayName: "Mara Parker",
+        avatarUrl,
         timezone: "Asia/Karachi",
         locale: "en-PK"
       }

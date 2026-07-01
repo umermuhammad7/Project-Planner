@@ -79,10 +79,22 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
   try {
     const token = accessTokenProvider();
+    const hasBody = options.body !== undefined && options.body !== null;
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
       ...(options.headers as Record<string, string> | undefined)
     };
+
+    if (hasBody && !Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    if (!hasBody) {
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === "content-type") {
+          delete headers[key];
+        }
+      }
+    }
 
     if (token) {
       headers.Authorization = `Bearer ${token}`;

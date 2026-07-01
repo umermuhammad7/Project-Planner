@@ -207,7 +207,11 @@ export function SettingsScreen({
         return;
       }
 
-      setAvatarPreviewUrl(useAuthStore.getState().avatarUrl ?? upload.avatarUrl);
+      const savedAvatarUrl = useAuthStore.getState().avatarUrl ?? upload.avatarUrl;
+      if (upload.localPreviewUrl) {
+        useAuthStore.setState({ avatarUrl: upload.localPreviewUrl });
+      }
+      setAvatarPreviewUrl(upload.localPreviewUrl ?? savedAvatarUrl);
       setProfileMessage("Profile photo updated.");
     } finally {
       setIsUploadingPhoto(false);
@@ -324,8 +328,7 @@ export function SettingsScreen({
         onActionPress={onClose}
       />
 
-      <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
-
+      <SectionTitle title="Account" />
       <Card>
         <View style={styles.profileSummary}>
           {avatarSource && !avatarImageFailed ? (
@@ -390,23 +393,36 @@ export function SettingsScreen({
           tone={feedbackTone(profileMessage ?? "")}
           visible={Boolean(profileMessage)}
         />
+        <View style={styles.cardActions}>
+          <PrimaryButton label="Sign out" icon="log-out" tone="ghost" onPress={() => void handleSignOut()} />
+        </View>
+      </Card>
+
+      <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
+
+      <SectionTitle title="Household" />
+      <Card>
+        <View style={styles.cardActionsTight}>
+          <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
+          {onOpenInsights ? (
+            <PrimaryButton label="Open insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
+          ) : null}
+        </View>
       </Card>
 
       <SectionTitle title="Security" />
       <Card>
-        <Text style={styles.cardTitle}>Password and sign-in</Text>
         {authMode === "dev_token" ? (
-          <Text style={styles.cardText}>This device is using a developer session, so password controls are unavailable here.</Text>
+          <Text style={styles.cardText}>Developer session — password controls are unavailable.</Text>
         ) : authProvider === "google" ? (
           <>
             <View style={styles.providerRow}>
               <Pill label="Google sign-in" tone="primary" icon="logo-google" />
             </View>
-            <Text style={styles.cardText}>You signed in with Google, so password changes stay with your Google account instead of happening inside HomeThread.</Text>
+            <Text style={styles.cardText}>Password changes stay with your Google account.</Text>
           </>
         ) : (
           <>
-            <Text style={styles.cardText}>Change your password while signed in, or send a reset email.</Text>
             <Text style={styles.label}>New password</Text>
             <TextInput
               style={styles.input}
@@ -462,7 +478,6 @@ export function SettingsScreen({
 
       <SectionTitle title="Notifications" />
       <Card>
-        <Text style={styles.cardTitle}>This device</Text>
         <Text style={styles.helperText}>{describePushSetupStatus(notificationPermission, pushToken)}</Text>
         {notificationCapabilityMessage ? <Text style={styles.helperText}>{notificationCapabilityMessage}</Text> : null}
         <ActionFeedback
@@ -517,20 +532,10 @@ export function SettingsScreen({
         </View>
       </Card>
 
+      <SectionTitle title="Advanced" />
+      <View style={styles.advancedShell}>
       <Card>
-        <Text style={styles.cardTitle}>Household links</Text>
-        <Text style={styles.cardText}>These open the same household and insights screens available from More.</Text>
-        <View style={styles.cardActions}>
-          <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
-          {onOpenInsights ? (
-            <PrimaryButton label="Open insights (preview)" icon="analytics" tone="ghost" onPress={onOpenInsights} />
-          ) : null}
-        </View>
-      </Card>
-
-      <SectionTitle title="Build diagnostics" />
-      <Card>
-        <Text style={styles.cardText}>Keep the testing details tucked away unless you are actively checking this build.</Text>
+        <Text style={styles.advancedLead}>Build diagnostics and testing details.</Text>
         <View style={styles.cardActions}>
           <PrimaryButton
             label={showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
@@ -571,12 +576,7 @@ export function SettingsScreen({
           </View>
         ) : null}
       </Card>
-
-      <Card>
-        <View style={styles.cardActions}>
-          <PrimaryButton label="Sign out" icon="log-out" tone="soft" onPress={() => void handleSignOut()} />
-        </View>
-      </Card>
+      </View>
 
       <Card>
         <Text style={styles.cardTitle}>Delete account</Text>
@@ -775,6 +775,21 @@ const styles = StyleSheet.create({
   cardActions: {
     gap: spacing.md,
     marginTop: spacing.lg
+  },
+  cardActionsTight: {
+    gap: spacing.sm,
+    marginTop: 0
+  },
+  advancedShell: {
+    backgroundColor: colors.canvas,
+    borderRadius: radii.lg,
+    padding: spacing.xs
+  },
+  advancedLead: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
   },
   summaryActions: {
     marginTop: spacing.md

@@ -77,8 +77,8 @@ export function ChildDeviceShellScreen() {
       <Card>
         <View style={styles.heroPanel}>
           <View style={styles.heroCopy}>
-            <Text style={styles.greeting}>{member.name}'s device</Text>
-            <Text style={styles.heroNote}>Kids mode only. Adult settings stay on parent phones.</Text>
+            <Text style={styles.greeting}>{member.name}</Text>
+            <Text style={styles.heroNote}>{session.familyName} · kids mode only</Text>
             {exitHintVisible ? (
               <Text style={styles.exitHint}>Keep holding the lock to unpair this device. Ask a parent for a new KC- code to pair again.</Text>
             ) : null}
@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
-    minHeight: 48,
+    minHeight: 56,
     paddingVertical: spacing.md
   },
   doneButtonPressed: {

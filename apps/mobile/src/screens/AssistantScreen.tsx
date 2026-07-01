@@ -506,7 +506,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
       <ScreenHeader
         eyebrow="Assistant"
         title="Ask HomeThread"
-        subtitle="Draft ideas here. Nothing saves until you approve."
+        subtitle="Draft here. Nothing saves until you approve."
         badgeLabel={syncSource === "api" ? (assistantStatus?.configured ? "Cloud AI" : "Local draft") : "Preview"}
         badgeTone={syncSource === "api" ? (assistantStatus?.configured ? "mint" : "gold") : "neutral"}
         density="compact"

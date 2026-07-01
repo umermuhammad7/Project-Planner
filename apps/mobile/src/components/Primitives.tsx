@@ -216,19 +216,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 12,
-    marginTop: spacing.lg
+    marginBottom: spacing.sm,
+    marginTop: spacing.md
   },
   sectionText: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 21,
-    fontWeight: "700"
+    fontSize: 20,
+    fontWeight: "700",
+    letterSpacing: -0.2
   },
   sectionAction: {
     color: colors.tertiary,
     fontSize: 12,
-    fontWeight: "700"
+    fontWeight: "700",
+    maxWidth: "48%",
+    textAlign: "right"
   },
   fieldError: {
     color: colors.coral,

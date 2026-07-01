@@ -114,7 +114,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
       <ScreenHeader
         eyebrow="Insights"
         title="How the family is doing"
-        subtitle="A compact weekly read on plans, chores, and household load."
+        subtitle="A quick weekly read on plans, chores, and household load."
         badgeLabel="Preview"
         badgeTone="gold"
         icon="stats-chart"
@@ -145,17 +145,17 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
 
       {weekly ? (
         <>
-          <SectionTitle title="This week" action={`${weekly.windowDays} day window`} />
+          <SectionTitle title="This week" />
           <View style={styles.metrics}>
-            <MetricCard value={weekly.upcomingEvents} label="upcoming events" tone="primary" />
-            <MetricCard value={weekly.openChores} label="open chores" tone="coral" />
-            <MetricCard value={weekly.plannedMeals} label="planned meals" tone="mint" />
-            <MetricCard value={weekly.unreadNotifications} label="unread alerts" tone="gold" />
+            <MetricCard value={weekly.upcomingEvents} label="Upcoming plans" tone="primary" />
+            <MetricCard value={weekly.openChores} label="Open chores" tone="coral" />
+            <MetricCard value={weekly.plannedMeals} label="Planned meals" tone="mint" />
+            <MetricCard value={weekly.unreadNotifications} label="Unread alerts" tone="gold" />
           </View>
           <Card>
-            <Text style={styles.cardTitle}>Household coverage</Text>
+            <Text style={styles.cardTitle}>Household</Text>
             <Text style={styles.cardText}>
-              {weekly.activeMembers} active family members are part of this household right now.
+              {weekly.activeMembers} family {weekly.activeMembers === 1 ? "member" : "members"} in this household.
             </Text>
           </Card>
         </>
@@ -168,15 +168,15 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
 
       {chores ? (
         <>
-          <SectionTitle title="Chore momentum" action={`${chores.windowDays} days`} />
+          <SectionTitle title="Chore momentum" />
           {topChoreMember ? (
             <Card>
               <Row>
                 <View style={styles.fill}>
                   <Text style={styles.cardTitle}>{topChoreMember.name}</Text>
                   <Text style={styles.cardText}>
-                    {topChoreMember.completedCount} chores finished, {topChoreMember.outstandingCount} still assigned,{" "}
-                    {topChoreMember.starsEarned} stars earned.
+                    {topChoreMember.completedCount} done · {topChoreMember.outstandingCount} still open ·{" "}
+                    {topChoreMember.starsEarned} stars
                   </Text>
                 </View>
                 <Pill label="Top helper" tone="gold" />
@@ -190,7 +190,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
                   <View style={styles.fill}>
                     <Text style={styles.itemTitle}>{member.name}</Text>
                     <Text style={styles.itemMeta}>
-                      {member.completedCount} completed - {member.outstandingCount} assigned - {member.starsEarned} stars
+                      {member.completedCount} done · {member.outstandingCount} open · {member.starsEarned} stars
                     </Text>
                   </View>
                   <Pill label={member.role} tone="neutral" />
@@ -208,18 +208,18 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
 
       {busyness ? (
         <>
-          <SectionTitle title="Schedule load" action={`${busyness.windowDays} days`} />
+          <SectionTitle title="Schedule load" />
           <Card>
-            <Text style={styles.cardTitle}>{busiestDay ? busiestDay.dayLabel : "No busy day yet"}</Text>
+            <Text style={styles.cardTitle}>{busiestDay ? busiestDay.dayLabel : "Quiet week ahead"}</Text>
             <Text style={styles.cardText}>
               {busiestDay
-                ? `${busiestDay.eventCount} events make this the busiest upcoming day.`
-                : "No upcoming events are scheduled in the current window."}
+                ? `${busiestDay.eventCount} plans make this the busiest day coming up.`
+                : "No upcoming plans in the current window."}
             </Text>
             {busiestMember ? (
               <Text style={styles.helperText}>
-                Most involved member: {busiestMember.name} with {busiestMember.eventCount} linked event
-                {busiestMember.eventCount === 1 ? "" : "s"}.
+                Most involved: {busiestMember.name} ({busiestMember.eventCount} linked plan
+                {busiestMember.eventCount === 1 ? "" : "s"})
               </Text>
             ) : null}
           </Card>
@@ -237,9 +237,7 @@ export function InsightsScreen({ onClose }: { onClose: () => void }) {
             </View>
           ) : null}
           <Card>
-            <Text style={styles.cardText}>
-              Counts refresh when you open this screen, not on a fixed schedule.
-            </Text>
+            <Text style={styles.cardText}>Counts refresh each time you open Insights.</Text>
           </Card>
         </>
       ) : !isLoading && busynessError ? (

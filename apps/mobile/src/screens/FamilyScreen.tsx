@@ -571,7 +571,7 @@ export function FamilyScreen({
         title={safeText(familyName, "Your household")}
         subtitle={
           backendConnected
-            ? "Invite adults, pair child devices, manage profiles."
+            ? `${currentAccessLabel} · ${adultMembers.length} adults · ${childProfiles.length} child profiles`
             : "Sign in to manage the household."
         }
         variant="admin"
@@ -579,145 +579,23 @@ export function FamilyScreen({
         onActionPress={onClose}
       />
 
-      <View style={styles.inviteHero}>
-        <View style={styles.inviteHeroHeader}>
-          <Text style={styles.inviteHeroTitle}>Adult invite code</Text>
-          <Pill label="Adults only" tone="primary" />
-        </View>
-        <Text style={styles.inviteHeroText}>Second parent signs in, then joins with this code. Kids never use it.</Text>
-        <Text style={styles.inviteHeroText}>
-          Regenerating creates a new code immediately. Any older adult code that is still being shared stops working.
-        </Text>
-        <Text selectable style={styles.inviteCode} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-          {inviteCode ?? "Unavailable"}
-        </Text>
-        <View style={styles.inviteActionRow}>
-          <PrimaryButton
-            label="Copy code"
-            icon="copy"
-            tone="soft"
-            disabled={!inviteCode}
-            onPress={() => {
-              void handleCopyInvite();
-            }}
-          />
-          {isFamilyAdmin && !showRegenerateConfirm ? (
-            <PrimaryButton
-              label="Regenerate"
-              icon="refresh"
-              loading={isRegeneratingInvite}
-              disabled={isRegeneratingInvite || !backendConnected}
-              onPress={() => {
-                if (isRegeneratingInvite || !backendConnected) return;
-                setShowRegenerateConfirm(true);
-              }}
-            />
-          ) : null}
-        </View>
-        {isFamilyAdmin && showRegenerateConfirm ? (
-          <View style={styles.inlineConfirm}>
-            <Text style={styles.warningText}>
-              This replaces the current adult invite code. Anyone still trying the old code will not be able to join.
-            </Text>
-            <View style={styles.memberButtonRow}>
-              <PrimaryButton
-                label="Keep current code"
-                icon="close"
-                tone="soft"
-                onPress={() => setShowRegenerateConfirm(false)}
-              />
-              <PrimaryButton
-                label="Regenerate now"
-                icon="refresh"
-                tone="dark"
-                loading={isRegeneratingInvite}
-                disabled={isRegeneratingInvite || !backendConnected}
-                onPress={() => {
-                  if (isRegeneratingInvite || !backendConnected) return;
-                  void handleRegenerateInvite();
-                }}
-              />
-            </View>
-          </View>
-        ) : null}
-        {inviteFeedback ? <Text style={styles.inviteFeedback}>{inviteFeedback}</Text> : null}
-      </View>
-
-      <View style={styles.futurePairingPanel}>
-        <View style={styles.futurePairingHeader}>
-          <Text style={styles.futurePairingTitle}>Child device pairing</Text>
-          <Pill label="KC- codes" tone="gold" icon="key" />
-        </View>
-        <Text style={styles.futurePairingText}>
-          Each child gets a KC- code on their own phone or tablet. One active device per child - a new code replaces the old phone.
-        </Text>
-        <View style={styles.futurePairingPlaceholders}>
-          <View style={styles.futurePairingSlot}>
-            <Text style={styles.futurePairingSlotLabel}>Paired devices</Text>
-            <Text style={styles.futurePairingSlotValue}>
-              {isLoadingDevices ? "Loading..." : `${childDevices.filter((device) => !device.revokedAt).length} active`}
-            </Text>
-          </View>
-        </View>
-        {pairingFeedback ? <Text style={styles.pairingFeedback}>{pairingFeedback}</Text> : null}
-        {childDevices.length > 0 ? (
-          <View style={styles.deviceList}>
-            {[...childDevices]
-              .sort((left, right) => Number(Boolean(left.revokedAt)) - Number(Boolean(right.revokedAt)))
-              .map((device) => (
-              <View key={device.id} style={styles.deviceRow}>
-                <View style={styles.deviceCopy}>
-                  <Text style={styles.deviceName}>{device.memberName}</Text>
-                  <Text style={styles.deviceMeta}>{formatChildDeviceStatus(device)}</Text>
-                </View>
-                {isFamilyAdmin && !device.revokedAt ? (
-                  <PrimaryButton
-                    label="Revoke"
-                    icon="close-circle"
-                    tone="ghost"
-                    onPress={() => {
-                      void handleRevokeChildDevice(device.id);
-                    }}
-                  />
-                ) : null}
-              </View>
-            ))}
-          </View>
-        ) : null}
-      </View>
-
       <View style={styles.summaryStrip}>
         <View style={styles.summaryTop}>
-          <Pill label={`${currentAccessLabel} access`} tone={accessPillTone(
-            currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
-          )} />
+          <Pill
+            label={`${currentAccessLabel} access`}
+            tone={accessPillTone(
+              currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
+            )}
+          />
           <Pill label={backendConnected ? "Connected" : "Local-only"} tone={backendConnected ? "mint" : "neutral"} />
-        </View>
-        <View style={styles.summaryGrid}>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-              {adultMembers.length}
-            </Text>
-            <Text style={styles.summaryLabel} numberOfLines={1}>
-              Adults
-            </Text>
-          </View>
-          <View style={styles.summaryStat}>
-            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-              {childProfiles.length}
-            </Text>
-            <Text style={styles.summaryLabel} numberOfLines={1}>
-              Child profiles
-            </Text>
-          </View>
         </View>
       </View>
 
       {isFamilyAdmin ? (
         <Card>
-          <View style={styles.cardActions}>
+          <View style={styles.cardActionsTight}>
             <PrimaryButton
-              label={showHouseholdDetails ? "Hide household details" : "Edit household details"}
+              label={showHouseholdDetails ? "Close name editor" : "Edit household name"}
               icon={showHouseholdDetails ? "chevron-up" : "create"}
               tone="ghost"
               onPress={() => setShowHouseholdDetails((value) => !value)}
@@ -725,9 +603,7 @@ export function FamilyScreen({
           </View>
           {showHouseholdDetails ? (
             <>
-              <Text style={styles.cardTitle}>Household name</Text>
-              <Text style={styles.cardText}>Use the name everyone in the home will recognize at a glance.</Text>
-              <Text style={styles.label}>Family name</Text>
+              <Text style={styles.label}>Household name</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Family name"
@@ -752,13 +628,117 @@ export function FamilyScreen({
         </Card>
       ) : null}
 
+      <View style={styles.inviteHero}>
+        <View style={styles.inviteHeroHeader}>
+          <Text style={styles.inviteHeroTitle}>Adult invite</Text>
+          <Pill label="Adults only" tone="primary" />
+        </View>
+        <Text selectable style={styles.inviteCode} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+          {inviteCode ?? "Unavailable"}
+        </Text>
+        <View style={styles.inviteActionRow}>
+          <View style={styles.invitePrimaryAction}>
+            <PrimaryButton
+              label="Copy code"
+              icon="copy"
+              tone="soft"
+              disabled={!inviteCode}
+              onPress={() => {
+                void handleCopyInvite();
+              }}
+            />
+          </View>
+          {isFamilyAdmin && !showRegenerateConfirm ? (
+            <PrimaryButton
+              label="Regenerate"
+              icon="refresh"
+              tone="ghost"
+              loading={isRegeneratingInvite}
+              disabled={isRegeneratingInvite || !backendConnected}
+              onPress={() => {
+                if (isRegeneratingInvite || !backendConnected) return;
+                setShowRegenerateConfirm(true);
+              }}
+            />
+          ) : null}
+        </View>
+        {isFamilyAdmin && showRegenerateConfirm ? (
+          <View style={styles.inlineConfirm}>
+            <Text style={styles.warningText}>Replaces the current code immediately.</Text>
+            <View style={styles.memberButtonRow}>
+              <PrimaryButton
+                label="Keep current"
+                icon="close"
+                tone="soft"
+                onPress={() => setShowRegenerateConfirm(false)}
+              />
+              <PrimaryButton
+                label="Regenerate"
+                icon="refresh"
+                tone="dark"
+                loading={isRegeneratingInvite}
+                disabled={isRegeneratingInvite || !backendConnected}
+                onPress={() => {
+                  if (isRegeneratingInvite || !backendConnected) return;
+                  void handleRegenerateInvite();
+                }}
+              />
+            </View>
+          </View>
+        ) : null}
+        {inviteFeedback ? <Text style={styles.inviteFeedback}>{inviteFeedback}</Text> : null}
+      </View>
+
+      <View style={styles.pairingPanel}>
+        <View style={styles.pairingHeader}>
+          <Text style={styles.pairingTitle}>Child device pairing</Text>
+          <Pill label="KC- codes" tone="gold" icon="key" />
+        </View>
+        <Text style={styles.pairingStat}>
+          {isLoadingDevices
+            ? "Loading paired devices..."
+            : `${childDevices.filter((device) => !device.revokedAt).length} active device${
+                childDevices.filter((device) => !device.revokedAt).length === 1 ? "" : "s"
+              }`}
+        </Text>
+        {pairingFeedback ? <Text style={styles.pairingFeedback}>{pairingFeedback}</Text> : null}
+        {childDevices.length > 0 ? (
+          <View style={styles.deviceList}>
+            {[...childDevices]
+              .sort((left, right) => Number(Boolean(left.revokedAt)) - Number(Boolean(right.revokedAt)))
+              .map((device) => (
+                <View key={device.id} style={styles.deviceRow}>
+                  <View style={styles.deviceCopy}>
+                    <Text style={styles.deviceName} numberOfLines={1}>
+                      {device.memberName}
+                    </Text>
+                    <Text style={styles.deviceMeta} numberOfLines={1}>
+                      {formatChildDeviceStatus(device)}
+                    </Text>
+                  </View>
+                  {isFamilyAdmin && !device.revokedAt ? (
+                    <PrimaryButton
+                      label="Revoke"
+                      icon="close-circle"
+                      tone="ghost"
+                      onPress={() => {
+                        void handleRevokeChildDevice(device.id);
+                      }}
+                    />
+                  ) : null}
+                </View>
+              ))}
+          </View>
+        ) : null}
+      </View>
+
       <ActionFeedback
         message={formMessage ?? saveMessage ?? ""}
         tone={feedbackTone(formMessage ?? saveMessage ?? "")}
         visible={Boolean(formMessage ?? saveMessage)}
       />
 
-      <SectionTitle title="Adults" action={`${adultMembers.length} total`} />
+      <SectionTitle title="Adults" action={`${adultMembers.length}`} />
       <View style={styles.memberList}>
         {adultMembers.map((member) => (
           <View key={member.id} style={styles.memberRow}>
@@ -799,7 +779,7 @@ export function FamilyScreen({
         ))}
       </View>
 
-      <SectionTitle title="Child profiles" action={`${childProfiles.length} total`} />
+      <SectionTitle title="Child profiles" action={`${childProfiles.length}`} />
       {isFamilyAdmin ? (
         <View style={styles.addChildPanel}>
           <View style={styles.cardActions}>
@@ -845,7 +825,6 @@ export function FamilyScreen({
         {childProfiles.length === 0 ? (
           <View style={styles.emptyRow}>
             <Text style={styles.emptyTitle}>No child profiles yet.</Text>
-            <Text style={styles.emptyText}>Add the first child when you are ready to assign chores and track stars.</Text>
           </View>
         ) : null}
         {childProfiles.map((member) => (
@@ -896,37 +875,44 @@ export function FamilyScreen({
                     </View>
                   </>
                 ) : (
-                  <View style={styles.memberButtonRow}>
-                    <PrimaryButton
-                      label={pairingMemberId === member.id ? "Generating..." : "Pair device"}
-                      icon="phone-portrait"
-                      tone="soft"
-                      loading={pairingMemberId === member.id}
-                      disabled={!backendConnected || pairingMemberId === member.id}
-                      onPress={() => {
-                        void handleGeneratePairingCode(member.id, member.name);
-                      }}
-                    />
-                    <PrimaryButton
-                      label="Rename"
-                      icon="create"
-                      onPress={() => {
-                        setEditingMemberId(member.id);
-                        setEditingMemberName(member.name);
-                      }}
-                    />
-                    <PrimaryButton
-                      label="Remove"
-                      icon="trash"
-                      tone="dark"
-                      loading={isSavingFamily}
-                      disabled={isSavingFamily || !backendConnected}
-                      onPress={() => {
-                        if (isSavingFamily || !backendConnected) return;
-                        setPendingRemoveMemberId(member.id);
-                      }}
-                    />
-                  </View>
+                  <>
+                    <View style={styles.memberButtonRow}>
+                      <View style={styles.memberPrimaryAction}>
+                        <PrimaryButton
+                          label={pairingMemberId === member.id ? "Generating..." : "Pair device"}
+                          icon="phone-portrait"
+                          tone="soft"
+                          loading={pairingMemberId === member.id}
+                          disabled={!backendConnected || pairingMemberId === member.id}
+                          onPress={() => {
+                            void handleGeneratePairingCode(member.id, member.name);
+                          }}
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.memberButtonRow}>
+                      <PrimaryButton
+                        label="Rename"
+                        icon="create"
+                        tone="ghost"
+                        onPress={() => {
+                          setEditingMemberId(member.id);
+                          setEditingMemberName(member.name);
+                        }}
+                      />
+                      <PrimaryButton
+                        label="Remove"
+                        icon="trash"
+                        tone="ghost"
+                        loading={isSavingFamily}
+                        disabled={isSavingFamily || !backendConnected}
+                        onPress={() => {
+                          if (isSavingFamily || !backendConnected) return;
+                          setPendingRemoveMemberId(member.id);
+                        }}
+                      />
+                    </View>
+                  </>
                 )}
                 {pendingRemoveMemberId === member.id ? (
                   <View style={styles.inlineConfirm}>
@@ -960,18 +946,15 @@ export function FamilyScreen({
                 ) : null}
                 {activePairingCodes[member.id] ? (
                   <View style={styles.pairingCodeCard}>
-                    <Text style={styles.pairingCodeLabel}>Child pairing code for {member.name}</Text>
-                    <Text selectable style={styles.pairingCodeValue}>
+                    <Text style={styles.pairingCodeLabel}>Pairing code · {member.name}</Text>
+                    <Text selectable style={styles.pairingCodeValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                       {activePairingCodes[member.id]?.code}
                     </Text>
                     <Text style={styles.pairingCodeHint}>
-                      {formatPairingExpiry(activePairingCodes[member.id]?.expiresAt ?? "")}
-                    </Text>
-                    <Text style={styles.pairingCodeHint}>
-                      Child enters this on Welcome → Set up child's device. One phone per child.
+                      {formatPairingExpiry(activePairingCodes[member.id]?.expiresAt ?? "")} · Enter on Welcome → Set up child's device
                     </Text>
                     <PrimaryButton
-                      label="Copy pairing code"
+                      label="Copy code"
                       icon="copy"
                       tone="ghost"
                       onPress={() => {
@@ -989,17 +972,14 @@ export function FamilyScreen({
         ))}
       </View>
 
-      <SectionTitle title="Future plans" action="Preview" />
+      <SectionTitle title="Plans and billing" action="Preview" />
       <Card>
         <View style={styles.previewBillingHeader}>
-          <Text style={styles.cardTitle}>Plan and billing</Text>
+          <Text style={styles.cardTitle}>Billing preview</Text>
           <Pill label="Preview" tone="gold" icon="card" />
         </View>
-        <Text style={styles.cardText}>
-          Preview build - billing coming soon. No payment is required or collected in this build.
-        </Text>
         <Text style={styles.helperText}>
-          Current plan: {subscriptionStatus?.subscriptionStatus ?? "free preview"}
+          Plan: {subscriptionStatus?.subscriptionStatus ?? "free preview"} · No payment in this build
         </Text>
         <ActionFeedback
           message={subscriptionMessage ?? ""}
@@ -1037,14 +1017,9 @@ export function FamilyScreen({
 
       <SectionTitle title="Leave household" />
       <Card>
-        <Text style={styles.cardTitle}>Leave household</Text>
-        <Text style={styles.cardText}>
-          Leaving removes your membership from this household. You can rejoin later with an adult invite code.
-        </Text>
         {isSoleAdmin ? (
           <Text style={styles.warningText}>
-            You are the only admin right now. Promote another signed-in adult to admin before leaving, or the household
-            would lose admin access.
+            Promote another adult to admin before leaving — you are the only admin.
           </Text>
         ) : null}
         {!showLeaveConfirm ? (
@@ -1063,9 +1038,7 @@ export function FamilyScreen({
           </View>
         ) : (
           <>
-            <Text style={styles.warningText}>
-              This removes your access to the shared home until you join again with a fresh adult invite code.
-            </Text>
+            <Text style={styles.warningText}>You can rejoin later with an adult invite code.</Text>
             <View style={styles.memberButtonRow}>
               <PrimaryButton
                 label="Keep me here"
@@ -1141,32 +1114,15 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   summaryStrip: {
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    gap: spacing.md,
-    paddingBottom: spacing.md
+    gap: spacing.sm
   },
   summaryTop: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm
   },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  summaryStat: {
-    alignItems: "center",
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    flexBasis: "30%",
-    flexGrow: 1,
-    minWidth: 96,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm
+  cardActionsTight: {
+    marginTop: 0
   },
   inviteHero: {
     backgroundColor: colors.surfaceRaised,
@@ -1174,7 +1130,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     gap: spacing.xs,
-    padding: spacing.lg
+    padding: spacing.md
   },
   inviteHeroHeader: {
     alignItems: "center",
@@ -1201,15 +1157,9 @@ const styles = StyleSheet.create({
   inviteHeroTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: "700",
-    lineHeight: 30
-  },
-  inviteHeroText: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 20
+    lineHeight: 24
   },
   secondaryPanel: {
     backgroundColor: colors.canvas,
@@ -1274,11 +1224,11 @@ const styles = StyleSheet.create({
   inviteCode: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: "900",
-    letterSpacing: 1.5,
-    lineHeight: 32,
-    marginTop: spacing.sm
+    letterSpacing: 1.2,
+    lineHeight: 30,
+    marginTop: spacing.xs
   },
   inviteCodeHint: {
     color: colors.muted,
@@ -1288,10 +1238,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs
   },
   inviteActionRow: {
+    alignItems: "stretch",
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.sm,
-    marginTop: spacing.md
+    marginTop: spacing.sm
+  },
+  invitePrimaryAction: {
+    flex: 1
   },
   inviteFeedback: {
     color: colors.primary,
@@ -1299,61 +1252,31 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: spacing.sm
   },
-  futurePairingPanel: {
-    backgroundColor: colors.canvas,
+  pairingPanel: {
+    backgroundColor: colors.surface,
     borderColor: colors.line,
     borderRadius: radii.lg,
-    borderStyle: "dashed",
     borderWidth: 1,
     gap: spacing.sm,
     padding: spacing.md
   },
-  futurePairingHeader: {
+  pairingHeader: {
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
     justifyContent: "space-between"
   },
-  futurePairingTitle: {
+  pairingTitle: {
     color: colors.ink,
-    fontSize: 15,
-    fontWeight: "800"
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "700"
   },
-  futurePairingText: {
+  pairingStat: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19
-  },
-  futurePairingPlaceholders: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.xs
-  },
-  futurePairingSlot: {
-    backgroundColor: colors.surfaceRaised,
-    borderColor: colors.line,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    flexGrow: 1,
-    gap: 2,
-    minWidth: 128,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm
-  },
-  futurePairingSlotLabel: {
-    color: colors.tertiary,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase"
-  },
-  futurePairingSlotValue: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "700"
+    fontWeight: "600"
   },
   pairingFeedback: {
     color: colors.primary,
@@ -1408,9 +1331,9 @@ const styles = StyleSheet.create({
   pairingCodeValue: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "900",
-    letterSpacing: 1.2
+    letterSpacing: 1
   },
   pairingCodeHint: {
     color: colors.muted,
@@ -1552,7 +1475,11 @@ const styles = StyleSheet.create({
   memberButtonRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md
+    gap: spacing.sm
+  },
+  memberPrimaryAction: {
+    flex: 1,
+    minWidth: 140
   },
   memberCopy: {
     flex: 1,

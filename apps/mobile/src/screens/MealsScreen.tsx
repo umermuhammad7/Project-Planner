@@ -315,7 +315,7 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
       <ScreenHeader
         eyebrow="Meals"
         title="This week's meals"
-        subtitle="Plan dinners and keep recipes handy."
+        subtitle={`Plan dinners and keep recipes handy. Week of ${mealWeekStart}.`}
         icon="restaurant"
         density="compact"
         actionLabel={onBack ? "Back" : undefined}
@@ -323,10 +323,11 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
       />
 
       <SyncStatusRow syncSource={syncSource} syncMessage={syncMessage} isHydrating={isHydrating} />
-      <Text style={styles.weekNote}>Meal plan week starting {mealWeekStart}</Text>
-      <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
-      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
-      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+      <View style={styles.feedbackShell}>
+        <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
+        <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+        <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+      </View>
 
       <View style={styles.overviewShell}>
         <View style={styles.summaryRow}>
@@ -374,32 +375,16 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
 
       {activeView === "plan" ? (
         <>
-          <View style={styles.primaryActionWrap}>
-            <PrimaryButton
-              label={showMealForm ? "Close meal form" : "Plan a meal"}
-              icon={showMealForm ? "close" : "add"}
-              tone={showMealForm ? "soft" : "primary"}
-              onPress={toggleMealForm}
-            />
-          </View>
-
-          {meals.length > 0 ? (
-            <View style={styles.weekGroceryRow}>
+          <View style={styles.actionRow}>
+            <View style={styles.primaryAction}>
               <PrimaryButton
-                label={isSavingMeals ? "Working..." : "Add week to grocery"}
-                icon="basket"
-                tone="soft"
-                loading={isSavingMeals}
-                disabled={isSavingMeals}
-                onPress={() => {
-                  if (isSavingMeals) return;
-                  void addWeekMealsToGrocery().then((outcome) => {
-                    applyOutcome(outcome);
-                  });
-                }}
+                label={showMealForm ? "Close meal form" : "Plan a meal"}
+                icon={showMealForm ? "close" : "add"}
+                tone={showMealForm ? "soft" : "primary"}
+                onPress={toggleMealForm}
               />
             </View>
-          ) : null}
+          </View>
 
           {showMealForm ? (
           <Card>
@@ -497,9 +482,7 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
           {meals.length === 0 && !showMealForm ? (
             <Card>
               <Text style={styles.emptyTitle}>No meals planned yet.</Text>
-              <Text style={styles.emptyText}>
-                Start with the busiest dinner night this week. A small plan beats waiting for the perfect one.
-              </Text>
+              <Text style={styles.emptyText}>Start with tonight's dinner.</Text>
               <View style={styles.formActions}>
                 <PrimaryButton label="Plan a meal" icon="add" onPress={toggleMealForm} />
               </View>
@@ -507,12 +490,10 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
           ) : null}
 
           {grouped.map((group) => (
-            <View key={group.label}>
-              <SectionTitle title={group.label} action={`${group.items.length} planned`} />
+            <View key={group.label} style={styles.dayBlock}>
+              <SectionTitle title={group.label} action={group.items.length > 0 ? `${group.items.length}` : undefined} />
               {group.items.length === 0 ? (
-                <Card>
-                  <Text style={styles.emptyText}>Nothing planned yet. Leave this day open if the family really keeps it flexible.</Text>
-                </Card>
+                <Text style={styles.dayEmpty}>Open</Text>
               ) : (
                 <View style={styles.stack}>
                   {group.items.map((item) => (
@@ -564,14 +545,66 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
               )}
             </View>
           ))}
+
+          {meals.length > 0 ? (
+            <View style={styles.weekGroceryRow}>
+              <PrimaryButton
+                label={isSavingMeals ? "Working..." : "Add week to grocery list"}
+                icon="basket"
+                tone="ghost"
+                loading={isSavingMeals}
+                disabled={isSavingMeals}
+                onPress={() => {
+                  if (isSavingMeals) return;
+                  void addWeekMealsToGrocery().then((outcome) => {
+                    applyOutcome(outcome);
+                  });
+                }}
+              />
+            </View>
+          ) : null}
         </>
       ) : (
         <>
+          <SectionTitle title="Saved recipes" action={`${recipes.length}`} />
+          {recipes.length > 0 ? (
+            <View style={styles.recipeList}>
+              {recipes.map((recipe) => (
+                <Card key={recipe.id}>
+                  <View style={styles.recipeCard}>
+                    <View style={styles.fill}>
+                      <Text style={styles.itemTitle}>{recipe.title}</Text>
+                      <Text style={styles.itemMeta}>{formatRecipeIngredientPreview(recipe.ingredients)}</Text>
+                    </View>
+                    <PrimaryButton
+                      label="Add to grocery"
+                      icon="basket"
+                      tone="soft"
+                      loading={isSavingMeals}
+                      disabled={isSavingMeals}
+                      onPress={() => {
+                        if (isSavingMeals) return;
+                        void addMealIngredientsToGrocery({ recipeId: recipe.id }).then((outcome) => {
+                          applyOutcome(outcome);
+                        });
+                      }}
+                    />
+                  </View>
+                </Card>
+              ))}
+            </View>
+          ) : (
+            <Card>
+              <Text style={styles.emptyTitle}>No saved recipes yet.</Text>
+              <Text style={styles.emptyText}>Save a family favorite to speed up planning.</Text>
+            </Card>
+          )}
+
           <View style={styles.recipeToolsRow}>
             <PrimaryButton
-              label={showImportForm ? "Hide import" : "Import recipe"}
+              label={showImportForm ? "Close import" : "Import recipe"}
               icon="sparkles"
-              tone={showImportForm ? "ghost" : "primary"}
+              tone={showImportForm ? "soft" : "ghost"}
               onPress={() => {
                 const next = !showImportForm;
                 setShowImportForm(next);
@@ -581,9 +614,9 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
               }}
             />
             <PrimaryButton
-              label={showManualRecipeForm ? "Hide editor" : "Save manually"}
+              label={showManualRecipeForm ? "Close editor" : "Save manually"}
               icon="create"
-              tone={showManualRecipeForm ? "ghost" : "soft"}
+              tone={showManualRecipeForm ? "soft" : "ghost"}
               onPress={() => {
                 const next = !showManualRecipeForm;
                 setShowManualRecipeForm(next);
@@ -597,7 +630,6 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
           {showImportForm ? (
             <Card>
               <Text style={styles.formTitle}>Import recipe</Text>
-              <Text style={styles.helperText}>Paste recipe text to draft ingredients and steps.</Text>
               <View style={styles.pickerRow}>
                 <Pressable accessibilityRole="button" onPress={() => setImportSource("text")}>
                   <Pill label="Paste text" tone={importSource === "text" ? "primary" : "neutral"} />
@@ -741,42 +773,6 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
               </View>
             </Card>
           ) : null}
-
-          <SectionTitle title="Saved recipes" action={`${recipes.length} saved`} />
-          {recipes.length > 0 ? (
-            <View style={styles.recipeList}>
-              {recipes.map((recipe) => (
-                <Card key={recipe.id}>
-                  <View style={styles.recipeCard}>
-                    <View style={styles.fill}>
-                      <Text style={styles.itemTitle}>{recipe.title}</Text>
-                      <Text style={styles.itemMeta}>{formatRecipeIngredientPreview(recipe.ingredients)}</Text>
-                    </View>
-                    <PrimaryButton
-                      label="Add to grocery"
-                      icon="basket"
-                      tone="soft"
-                      loading={isSavingMeals}
-                      disabled={isSavingMeals}
-                      onPress={() => {
-                        if (isSavingMeals) return;
-                        void addMealIngredientsToGrocery({ recipeId: recipe.id }).then((outcome) => {
-                          applyOutcome(outcome);
-                        });
-                      }}
-                    />
-                  </View>
-                </Card>
-              ))}
-            </View>
-          ) : (
-            <Card>
-              <Text style={styles.emptyTitle}>No saved recipes yet.</Text>
-              <Text style={styles.emptyText}>
-                Save one reliable family favorite first. It makes planning and grocery building feel much more useful.
-              </Text>
-            </Card>
-          )}
         </>
       )}
     </View>
@@ -799,12 +795,9 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
-  weekNote: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: spacing.sm,
-    marginTop: spacing.xs
+  feedbackShell: {
+    gap: spacing.xs,
+    marginBottom: spacing.sm
   },
   overviewShell: {
     backgroundColor: colors.surface,
@@ -815,11 +808,27 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     padding: spacing.md
   },
-  primaryActionWrap: {
+  actionRow: {
+    alignItems: "stretch",
+    flexDirection: "row",
+    gap: spacing.sm,
     marginBottom: spacing.md
   },
+  primaryAction: {
+    flex: 1
+  },
+  dayBlock: {
+    marginBottom: spacing.sm
+  },
   weekGroceryRow: {
-    marginBottom: spacing.md
+    marginTop: spacing.md
+  },
+  dayEmpty: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: spacing.sm,
+    paddingLeft: spacing.xs
   },
   summaryRow: {
     flexDirection: "row",

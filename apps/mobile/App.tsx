@@ -87,6 +87,8 @@ function AppShell() {
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
+  const entryHydrateSettled = useRef(false);
+  const wasHydratingForEntry = useRef(false);
   const scrollAssist = useMemo(
     () => ({
       scrollToTop: () => scrollRef.current?.scrollTo({ y: 0, animated: true }),
@@ -201,6 +203,22 @@ function AppShell() {
       void hydrateFromBackend();
     }
   }, [enteredApp, authMode, hydrateFromBackend]);
+
+  useEffect(() => {
+    if (!enteredApp) {
+      entryHydrateSettled.current = false;
+      wasHydratingForEntry.current = false;
+      return;
+    }
+
+    if (wasHydratingForEntry.current && !isHydrating) {
+      entryHydrateSettled.current = true;
+    }
+
+    if (isHydrating) {
+      wasHydratingForEntry.current = true;
+    }
+  }, [enteredApp, isHydrating]);
 
   useEffect(() => {
     if (!enteredApp || authMode === "signed_out" || authMode === "loading") {
@@ -322,7 +340,12 @@ function AppShell() {
     );
   }, [activeTab, handleEnterKidsMode, moreDestination, navigateTo]);
 
-  const showConnecting = enteredApp && authMode !== "loading" && authMode !== "signed_out" && isHydrating;
+  const showConnecting =
+    enteredApp &&
+    authMode !== "loading" &&
+    authMode !== "signed_out" &&
+    isHydrating &&
+    !entryHydrateSettled.current;
   const showWelcome = authMode === "loading" || authMode === "signed_out" || !enteredApp;
   const screenKey = [
     activeTab,

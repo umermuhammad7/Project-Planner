@@ -52,7 +52,8 @@ export function SyncStatusRow({
 const styles = StyleSheet.create({
   wrap: {
     gap: spacing.sm,
-    marginTop: spacing.md
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm
   },
   liveNote: {
     color: colors.muted,

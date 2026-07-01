@@ -104,52 +104,13 @@ export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
         realtimeMessage={realtimeMessage}
       />
 
-      <SectionTitle title="Post for the household" />
+      <SectionTitle title="Import family text" />
       <Card>
-        <Text style={styles.jobLabel}>Share a summary</Text>
-        <Text style={styles.meta}>
-          Save a readable digest to the board. SMS only pre-fills your phone - nothing sends automatically.
-        </Text>
-        <View style={styles.actions}>
-          <PrimaryButton
-            label="Add summary to board"
-            icon="bookmark"
-            onPress={() => {
-              const digest = sendDigestToThread();
-              setLastDigest(digest);
-              const latestEntry = useHomeThreadStore.getState().textUpdates[0];
-              if (latestEntry) {
-                setHighlightEntryId(latestEntry.id);
-              }
-              setBoardSuccess("Summary added to the family board.");
-            }}
-          />
-          <PrimaryButton
-            label="Send with SMS"
-            icon="chatbubble"
-            tone="soft"
-            disabled={!lastDigest}
-            onPress={() => {
-              if (!lastDigest) return;
-              void openSms(lastDigest);
-            }}
-          />
+        <View style={styles.stepStrip}>
+          <Pill label="Paste" tone={body.trim() ? "mint" : "neutral"} />
+          <Pill label="Review" tone={lastDraft ? "mint" : "neutral"} />
+          <Pill label="Save" tone={importSuccess ? "mint" : "neutral"} />
         </View>
-        <ActionFeedback message={boardSuccess ?? ""} tone="success" visible={Boolean(boardSuccess)} />
-        {lastDigest ? (
-          <View style={styles.preview}>
-            <Pill label="Board preview" tone="neutral" />
-            <Text style={styles.previewText}>{lastDigest}</Text>
-          </View>
-        ) : null}
-      </Card>
-
-      <SectionTitle title="Import a family text" />
-      <Card>
-        <Text style={styles.jobLabel}>Convert a message</Text>
-        <Text style={styles.meta}>
-          Paste a family text. HomeThread suggests an event, chore, or list item before anything is saved.
-        </Text>
         <TextInput
           accessibilityLabel="Paste a family text"
           multiline
@@ -166,7 +127,13 @@ export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
           value={body}
         />
         <FieldError message={importError && !lastDraft ? importError : null} />
-        <View style={styles.actions}>
+        {lastDraft ? (
+          <View style={styles.result}>
+            <Pill label={formatDraftKind(lastDraft.kind)} tone="mint" />
+            <Text style={styles.resultText}>{lastDraft.title}</Text>
+          </View>
+        ) : null}
+        <View style={styles.actionStack}>
           <PrimaryButton
             label="Review suggestion"
             icon="sparkles"
@@ -183,7 +150,7 @@ export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
               setImportSuccess(null);
               setImportInfo(null);
               setLastDraft(parseFamilyText(body.trim()));
-              setImportInfo("Review the suggestion below, then save to your household.");
+              setImportInfo("Check the suggestion, then save.");
             }}
           />
           <PrimaryButton
@@ -227,27 +194,51 @@ export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
         <ActionFeedback message={importSuccess ?? ""} tone="success" visible={Boolean(importSuccess)} />
         <ActionFeedback message={importInfo ?? ""} tone="info" visible={Boolean(importInfo)} />
         <ActionFeedback message={importError ?? ""} tone="error" visible={Boolean(importError)} />
-        {lastDraft ? (
-          <View style={styles.result}>
-            <Pill label={formatDraftKind(lastDraft.kind)} tone="mint" />
-            <Text style={styles.resultText}>{lastDraft.title}</Text>
-            <Text style={styles.meta}>{Math.round(lastDraft.confidence * 100)}% confidence - tap Save to household when it looks right.</Text>
-          </View>
-        ) : (
-          <Text style={styles.stepHint}>Step 1: Review suggestion. Step 2: Save to household.</Text>
-        )}
       </Card>
 
-      <SectionTitle title="Board history" action={`${boardUpdates.length} on this device`} />
-      <Text style={styles.historyNote}>
-        Board history is saved on this device for your household. It does not sync across phones yet.
-      </Text>
+      <SectionTitle title="Post a summary" />
+      <Card>
+        <View style={styles.actionStack}>
+          <PrimaryButton
+            label="Add summary to board"
+            icon="bookmark"
+            tone="soft"
+            onPress={() => {
+              const digest = sendDigestToThread();
+              setLastDigest(digest);
+              const latestEntry = useHomeThreadStore.getState().textUpdates[0];
+              if (latestEntry) {
+                setHighlightEntryId(latestEntry.id);
+              }
+              setBoardSuccess("Summary added to the family board.");
+            }}
+          />
+          <PrimaryButton
+            label="Send with SMS"
+            icon="chatbubble"
+            tone="ghost"
+            disabled={!lastDigest}
+            onPress={() => {
+              if (!lastDigest) return;
+              void openSms(lastDigest);
+            }}
+          />
+        </View>
+        <ActionFeedback message={boardSuccess ?? ""} tone="success" visible={Boolean(boardSuccess)} />
+        {lastDigest ? (
+          <View style={styles.preview}>
+            <Text style={styles.previewText}>{lastDigest}</Text>
+          </View>
+        ) : null}
+      </Card>
+
+      <View style={styles.historyShell}>
+        <SectionTitle title="Board history" action={`${boardUpdates.length}`} />
+        <Text style={styles.historyNote}>Saved on this device only.</Text>
       {boardUpdates.length === 0 ? (
         <Card>
-          <Text style={styles.emptyTitle}>No thread entries yet</Text>
-          <Text style={styles.meta}>
-            Add a summary to the family board or import a family text to start a readable on-device history of what came from where.
-          </Text>
+          <Text style={styles.emptyTitle}>No entries yet</Text>
+          <Text style={styles.meta}>Import a text or post a summary to start.</Text>
         </Card>
       ) : (
         <View style={styles.stack}>
@@ -269,6 +260,7 @@ export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
           ) : null}
         </View>
       )}
+      </View>
     </View>
   );
 }
@@ -330,12 +322,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: spacing.xs
   },
-  stepHint: {
-    color: colors.tertiary,
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 17,
+  stepStrip: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  actionStack: {
+    gap: spacing.sm,
     marginTop: spacing.md
+  },
+  historyShell: {
+    backgroundColor: colors.canvas,
+    borderRadius: radii.lg,
+    marginTop: spacing.md,
+    padding: spacing.md
   },
   input: {
     backgroundColor: colors.surfaceRaised,
@@ -344,6 +345,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.ink,
     fontSize: 16,
+    marginTop: spacing.sm,
     minHeight: 92,
     padding: spacing.md,
     textAlignVertical: "top"
@@ -409,7 +411,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     lineHeight: 18,
-    marginBottom: spacing.sm
+    marginBottom: spacing.sm,
+    marginTop: -spacing.xs
   },
   stack: {
     gap: spacing.sm

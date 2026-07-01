@@ -5,6 +5,7 @@ import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "r
 import { Card, Pill, PrimaryButton } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
+import { useScrollAssist } from "../context/ScrollAssistContext";
 import { copyText } from "../utils/copyText";
 import {
   clearHouseholdSetupIntent,
@@ -37,6 +38,7 @@ export function WelcomeScreen({
     joinFamily,
     signOut
   } = useAuthStore();
+  const scrollAssist = useScrollAssist();
   const [mode, setMode] = useState<Mode>("welcome");
   const [setupTab, setSetupTab] = useState<SetupTab>("create");
   const [email, setEmail] = useState("");
@@ -98,6 +100,38 @@ export function WelcomeScreen({
       ? "Account sign-in is not configured in this build yet."
       : null;
   const welcomeMessage = formMessage ?? (configurationWarning ? null : authMessage);
+  const isSignedInNeedsHousehold =
+    (authMode === "supabase" || authMode === "dev_token") && !familyId;
+
+  function continueHouseholdSetup() {
+    setHasLeftFamilySetup(false);
+    setFormMessage(null);
+    setMode("family-setup");
+    if (preferredSetupTab) {
+      setSetupTab(preferredSetupTab);
+    }
+  }
+
+  async function handleWelcomeSignOut() {
+    if (isSubmitting) {
+      return;
+    }
+
+    await signOut();
+    await clearHouseholdSetupIntent();
+    setHasLeftFamilySetup(false);
+    setMode("welcome");
+    setPreferredSetupTab(null);
+    setSetupTab("create");
+    setFamilyName("");
+    setInviteCode("");
+    setCreatedInviteCode(null);
+    setFormMessage(null);
+  }
+
+  useEffect(() => {
+    scrollAssist.scrollToTop();
+  }, [mode, scrollAssist]);
 
   useEffect(() => {
     void readHouseholdSetupIntent().then((intent) => {
@@ -581,9 +615,32 @@ export function WelcomeScreen({
       {welcomeMessage ? <Text style={styles.formMessage}>{welcomeMessage}</Text> : null}
 
       <Card>
-        <Text style={styles.cardTitle}>Get started</Text>
+        <Text style={styles.cardTitle}>{isSignedInNeedsHousehold ? "Finish household setup" : "Get started"}</Text>
         <View style={styles.entryStack}>
-          {supabaseConfiguredOnClient && authMode !== "supabase" ? (
+          {isSignedInNeedsHousehold ? (
+            <>
+              <Text style={styles.helperTextCompact}>
+                You are signed in. Create or join a household to open the planner.
+              </Text>
+              <PrimaryButton
+                label="Continue household setup"
+                icon="home"
+                tone="primary"
+                onPress={continueHouseholdSetup}
+              />
+              {onSetupChildDevice ? (
+                <PrimaryButton
+                  label="Set up child's device"
+                  icon="phone-portrait"
+                  tone="ghost"
+                  onPress={onSetupChildDevice}
+                />
+              ) : null}
+              <Pressable onPress={() => void handleWelcomeSignOut()} style={styles.linkButton}>
+                <Text style={styles.link}>Sign out</Text>
+              </Pressable>
+            </>
+          ) : supabaseConfiguredOnClient && authMode !== "supabase" && authMode !== "dev_token" ? (
             <>
               <PrimaryButton label="Create household" icon="home" tone="primary" onPress={beginCreateJourney} />
               <PrimaryButton label="Join household" icon="key" tone="soft" onPress={beginJoinJourney} />
@@ -596,7 +653,7 @@ export function WelcomeScreen({
                 />
               ) : null}
               <Text style={styles.helperTextCompact}>
-                Adults join with an invite code. Children pair with a KC- code on their own phone - never the adult code.
+                Adults use an invite code. Kids pair with KC- on their own phone.
               </Text>
               <Pressable onPress={beginLogin} style={styles.loginLinkButton}>
                 <Text style={styles.loginLead}>Already have an account?</Text>

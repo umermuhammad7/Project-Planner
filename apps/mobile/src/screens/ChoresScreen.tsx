@@ -219,16 +219,15 @@ export function ChoresScreen() {
         showLiveNote
       />
 
-      <View style={styles.primaryActionWrap}>
-        <PrimaryButton
-          label={showForm ? "Close chore form" : "Add chore"}
-          icon={showForm ? "close" : "add"}
-          tone={showForm ? "soft" : "primary"}
-          onPress={toggleForm}
-        />
-      </View>
-
-      <View style={styles.utilityRow}>
+      <View style={styles.actionRow}>
+        <View style={styles.primaryAction}>
+          <PrimaryButton
+            label={showForm ? "Close chore form" : "Add chore"}
+            icon={showForm ? "close" : "add"}
+            tone={showForm ? "soft" : "primary"}
+            onPress={toggleForm}
+          />
+        </View>
         <PrimaryButton
           label={isHydrating ? "Refreshing..." : "Refresh"}
           icon="sync"
@@ -472,13 +471,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
-  primaryActionWrap: {
-    marginTop: spacing.lg
-  },
-  utilityRow: {
+  actionRow: {
+    alignItems: "stretch",
     flexDirection: "row",
-    gap: spacing.md,
-    marginTop: spacing.sm
+    gap: spacing.sm,
+    marginTop: spacing.md
+  },
+  primaryAction: {
+    flex: 1
   },
   formTitle: {
     color: colors.ink,

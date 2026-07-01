@@ -303,12 +303,22 @@ export function PlanScreen() {
         showLiveNote
       />
 
-      <View style={styles.primaryActionWrap}>
+      <View style={styles.actionRow}>
+        <View style={styles.primaryAction}>
+          <PrimaryButton
+            label={showForm ? "Close event form" : "Add event"}
+            icon={showForm ? "close" : "add"}
+            tone={showForm ? "soft" : "primary"}
+            onPress={toggleForm}
+          />
+        </View>
         <PrimaryButton
-          label={showForm ? "Close event form" : "Add event"}
-          icon={showForm ? "close" : "add"}
-          tone={showForm ? "soft" : "primary"}
-          onPress={toggleForm}
+          label={isHydrating ? "Refreshing..." : "Refresh"}
+          icon="sync"
+          tone="ghost"
+          loading={isHydrating}
+          disabled={isHydrating}
+          onPress={() => void refreshFromBackend()}
         />
       </View>
 
@@ -419,15 +429,7 @@ export function PlanScreen() {
       ) : null}
 
       <View style={styles.utilityRow}>
-        <PrimaryButton
-          label={isHydrating ? "Refreshing..." : "Refresh"}
-          icon="sync"
-          tone="ghost"
-          loading={isHydrating}
-          disabled={isHydrating}
-          onPress={() => void refreshFromBackend()}
-        />
-        <PrimaryButton label="Google Calendar" icon="calendar" tone="ghost" onPress={() => setShowCalendarSync(true)} />
+        <PrimaryButton label="Google Calendar" icon="calendar" tone="soft" onPress={() => setShowCalendarSync(true)} />
       </View>
 
       <Card>
@@ -449,10 +451,10 @@ export function PlanScreen() {
       </Card>
 
       <Card>
-        <Text style={styles.foundationTitle}>Smart travel reminders</Text>
+        <Text style={styles.foundationTitle}>Travel reminders</Text>
         <Text style={styles.foundationText}>
           {travelStatus?.supported
-            ? `Travel reminders are configured. Suggested lead time is ${travelStatus.recommendedLeadMinutes} minutes for ${travelCandidate?.title ?? "the next event"}.`
+            ? `Leave about ${travelStatus.recommendedLeadMinutes} minutes early for ${travelCandidate?.title ?? "the next event"}.`
             : travelMessage}
         </Text>
         {travelStatus?.estimatedTravelMinutes ? (
@@ -590,14 +592,20 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm
   },
-  primaryActionWrap: {
+  actionRow: {
+    alignItems: "stretch",
+    flexDirection: "row",
+    gap: spacing.sm,
     marginTop: spacing.lg
+  },
+  primaryAction: {
+    flex: 1
   },
   utilityRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.md,
-    marginTop: spacing.sm
+    marginTop: spacing.md
   },
   foundationTitle: {
     color: colors.ink,
@@ -686,7 +694,8 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 13,
     fontWeight: "700",
-    marginTop: spacing.sm
+    marginBottom: spacing.xs,
+    marginTop: spacing.md
   },
   input: {
     backgroundColor: colors.surfaceRaised,
@@ -702,7 +711,7 @@ const styles = StyleSheet.create({
     borderColor: colors.coral
   },
   formActions: {
-    gap: spacing.md,
+    gap: spacing.sm,
     marginTop: spacing.lg
   },
   pickerLabel: {
@@ -745,7 +754,7 @@ const styles = StyleSheet.create({
     fontWeight: "800"
   },
   stack: {
-    gap: spacing.md
+    gap: spacing.sm
   },
   rail: {
     alignItems: "center",
@@ -808,8 +817,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   eventActionLink: {
-    minHeight: 36,
     justifyContent: "center",
+    minHeight: 44,
     paddingVertical: spacing.xs
   },
   eventActionLinkText: {

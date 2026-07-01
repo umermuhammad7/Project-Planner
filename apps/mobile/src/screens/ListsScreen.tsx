@@ -10,6 +10,16 @@ import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
 import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 
+const listTypeOptions = ["grocery", "todo", "packing", "custom"] as const;
+
+function formatListTypeLabel(type: (typeof listTypeOptions)[number]) {
+  if (type === "todo") {
+    return "To-do";
+  }
+
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
 export function ListsScreen() {
   const {
     lists,
@@ -32,7 +42,7 @@ export function ListsScreen() {
   const { scrollToTop } = useScrollAssist();
   const [newItem, setNewItem] = useState("");
   const [newListTitle, setNewListTitle] = useState("");
-  const [newListType, setNewListType] = useState<"grocery" | "todo" | "packing" | "custom">("grocery");
+  const [newListType, setNewListType] = useState<(typeof listTypeOptions)[number]>("grocery");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -42,10 +52,34 @@ export function ListsScreen() {
   const [toggleFeedback, setToggleFeedback] = useState<string | null>(null);
   const activeList = lists.find((list) => list.id === selectedListId) ?? lists[0] ?? null;
   const checkedCount = shoppingItems.filter((item) => item.checked).length;
-  const grouped = shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
-    groups[item.category] = [...(groups[item.category] ?? []), item];
-    return groups;
-  }, {});
+  const uncheckedCount = shoppingItems.length - checkedCount;
+  const grouped = useMemo(
+    () =>
+      shoppingItems.reduce<Record<string, typeof shoppingItems>>((groups, item) => {
+        groups[item.category] = [...(groups[item.category] ?? []), item];
+        return groups;
+      }, {}),
+    [shoppingItems]
+  );
+  const listStatsLabel = useMemo(() => {
+    if (!activeList) {
+      return null;
+    }
+
+    if (shoppingItems.length === 0) {
+      return "No items yet";
+    }
+
+    if (checkedCount === 0) {
+      return `${shoppingItems.length} to check off`;
+    }
+
+    if (uncheckedCount === 0) {
+      return `All ${shoppingItems.length} checked`;
+    }
+
+    return `${uncheckedCount} left · ${checkedCount} done`;
+  }, [activeList, checkedCount, shoppingItems.length, uncheckedCount]);
 
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -208,9 +242,15 @@ export function ListsScreen() {
     <View>
       <ScreenHeader
         eyebrow="Lists"
-        title="Capture and check off"
-        subtitle="Groceries, errands, and packing stay in one shared place."
+        title={activeList ? activeList.title : "Shared lists"}
+        subtitle={
+          activeList
+            ? "Add items and check them off together."
+            : "Groceries, errands, and packing stay in one shared place."
+        }
         icon="list-outline"
+        badgeLabel={listStatsLabel ?? undefined}
+        badgeTone={checkedCount > 0 && uncheckedCount === 0 ? "mint" : "neutral"}
         density="compact"
       />
 
@@ -223,106 +263,16 @@ export function ListsScreen() {
         showLiveNote
       />
 
-      <View style={styles.actionRow}>
-        <PrimaryButton
-          label={showCreateListForm ? "Hide new list" : "New list"}
-          icon={showCreateListForm ? "chevron-up" : "add-circle"}
-          tone={lists.length === 0 ? "primary" : "soft"}
-          onPress={() => setShowCreateListForm((value) => !value)}
-        />
-        <PrimaryButton
-          label={isHydrating ? "Refreshing..." : "Refresh"}
-          icon="sync"
-          tone="ghost"
-          loading={isHydrating}
-          disabled={isHydrating}
-          onPress={() => void refreshFromBackend()}
-        />
-        {checkedCount > 0 ? (
-          <PrimaryButton
-            label={isSavingLists ? "Clearing..." : `Clear checked (${checkedCount})`}
-            icon="trash"
-            tone="ghost"
-            loading={isSavingLists}
-            disabled={isSavingLists}
-            onPress={() => {
-              void handleClearChecked();
-            }}
-          />
-        ) : null}
+      <View style={styles.feedbackShell}>
+        <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
+        <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+        <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+        <ActionFeedback message={toggleFeedback ?? ""} tone="success" visible={Boolean(toggleFeedback)} />
       </View>
 
-      <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
-      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
-      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
-
-      <ActionFeedback message={toggleFeedback ?? ""} tone="success" visible={Boolean(toggleFeedback)} />
-
-      {showCreateListForm || lists.length === 0 ? (
-        <View style={styles.createListShell}>
-          <Card>
-            <Text style={styles.formTitle}>{lists.length === 0 ? "Create your first list" : "New list"}</Text>
-            <Text style={styles.createListLead}>
-              {lists.length === 0
-                ? "Start with groceries, errands, or packing. Lists live here for the whole household."
-                : "Add another shared list for errands, packing, or anything else."}
-            </Text>
-            <TextInput
-              accessibilityLabel="New list title"
-              placeholder="e.g. Camping weekend"
-              placeholderTextColor={colors.muted}
-              value={newListTitle}
-              onChangeText={(value) => {
-                setNewListTitle(value);
-                if (listTitleError) {
-                  setListTitleError(null);
-                }
-              }}
-              style={[styles.input, listTitleError ? styles.inputInvalid : null]}
-              returnKeyType="done"
-              onSubmitEditing={() => {
-                void handleCreateList();
-              }}
-            />
-            <FieldError message={listTitleError} />
-            <Text style={styles.pickerLabel}>Type</Text>
-            <View style={styles.pickerRow}>
-              {(["grocery", "todo", "packing", "custom"] as const).map((type) => {
-                const selected = type === newListType;
-                return (
-                  <Pressable
-                    key={type}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${selected ? "Selected" : "Select"} ${type} list type`}
-                    onPress={() => setNewListType(type)}
-                  >
-                    <Pill label={type === "todo" ? "to-do" : type} tone={selected ? "primary" : "neutral"} />
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={styles.formActions}>
-              <PrimaryButton
-                label={isSavingLists ? "Creating..." : "Create list"}
-                icon="add-circle"
-                loading={isSavingLists}
-                disabled={isSavingLists}
-                onPress={() => {
-                  void handleCreateList();
-                }}
-              />
-            </View>
-          </Card>
-        </View>
-      ) : null}
-
       {lists.length > 0 ? (
-        <>
-          <SectionTitle
-            title={activeList ? activeList.title : "Shared list"}
-            action={`${shoppingItems.length} items · ${checkedCount} checked`}
-          />
-          <Text style={styles.pickerLabel}>Switch list</Text>
+        <Card>
+          <Text style={styles.fieldLabel}>Your lists</Text>
           <View style={styles.pickerRow}>
             {lists.map((list) => {
               const selected = list.id === selectedListId;
@@ -338,12 +288,14 @@ export function ListsScreen() {
               );
             })}
           </View>
-        </>
+        </Card>
       ) : null}
 
       {activeList ? (
         <Card>
-          <Text style={styles.formTitle}>Add to {activeList.title}</Text>
+          <Text style={styles.formTitle}>Add an item</Text>
+          <Text style={styles.formHint}>Tap return or Add item when you are ready.</Text>
+          <Text style={styles.fieldLabel}>Item</Text>
           <TextInput
             accessibilityLabel="New list item"
             placeholder="e.g. Oat milk"
@@ -374,17 +326,121 @@ export function ListsScreen() {
             />
           </View>
         </Card>
-      ) : (
+      ) : null}
+
+      <View style={styles.actionRow}>
+        <View style={styles.primaryAction}>
+          <PrimaryButton
+            label={showCreateListForm ? "Close new list" : "New list"}
+            icon={showCreateListForm ? "close" : "add-circle"}
+            tone={lists.length === 0 ? "primary" : "soft"}
+            onPress={() => setShowCreateListForm((value) => !value)}
+          />
+        </View>
+        <PrimaryButton
+          label={isHydrating ? "Refreshing..." : "Refresh"}
+          icon="sync"
+          tone="ghost"
+          loading={isHydrating}
+          disabled={isHydrating}
+          onPress={() => void refreshFromBackend()}
+        />
+      </View>
+
+      {checkedCount > 0 ? (
+        <View style={styles.clearRow}>
+          <PrimaryButton
+            label={isSavingLists ? "Clearing..." : `Clear ${checkedCount} checked`}
+            icon="trash"
+            tone="ghost"
+            loading={isSavingLists}
+            disabled={isSavingLists}
+            onPress={() => {
+              void handleClearChecked();
+            }}
+          />
+        </View>
+      ) : null}
+
+      {showCreateListForm || lists.length === 0 ? (
+        <View style={styles.createListShell}>
+          <Card>
+            <Text style={styles.formTitle}>{lists.length === 0 ? "Create your first list" : "New list"}</Text>
+            <Text style={styles.formHint}>
+              {lists.length === 0
+                ? "Start with groceries, errands, or packing for the whole household."
+                : "Add another shared list for errands, packing, or anything else."}
+            </Text>
+            <Text style={styles.fieldLabel}>List name</Text>
+            <TextInput
+              accessibilityLabel="New list title"
+              placeholder="e.g. Camping weekend"
+              placeholderTextColor={colors.muted}
+              value={newListTitle}
+              onChangeText={(value) => {
+                setNewListTitle(value);
+                if (listTitleError) {
+                  setListTitleError(null);
+                }
+              }}
+              style={[styles.input, listTitleError ? styles.inputInvalid : null]}
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                void handleCreateList();
+              }}
+            />
+            <FieldError message={listTitleError} />
+            <Text style={styles.fieldLabel}>Type</Text>
+            <View style={styles.pickerRow}>
+              {listTypeOptions.map((type) => {
+                const selected = type === newListType;
+                return (
+                  <Pressable
+                    key={type}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${selected ? "Selected" : "Select"} ${formatListTypeLabel(type)} list type`}
+                    onPress={() => setNewListType(type)}
+                  >
+                    <Pill label={formatListTypeLabel(type)} tone={selected ? "primary" : "neutral"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.formActions}>
+              <PrimaryButton
+                label={isSavingLists ? "Creating..." : "Create list"}
+                icon="add-circle"
+                loading={isSavingLists}
+                disabled={isSavingLists}
+                onPress={() => {
+                  void handleCreateList();
+                }}
+              />
+            </View>
+          </Card>
+        </View>
+      ) : null}
+
+      {!activeList ? (
         <Card>
           <Text style={styles.emptyTitle}>Add a list to start capturing items.</Text>
           <Text style={styles.emptyText}>
-            Use the new list form above to create groceries, errands, or packing lists for the household.
+            Open the new list form above to create groceries, errands, or packing lists for the household.
           </Text>
         </Card>
-      )}
+      ) : null}
+
+      {activeList && shoppingItems.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyTitle}>Nothing in {activeList.title} yet.</Text>
+          <Text style={styles.emptyText}>
+            Add the first item above so this list is ready the next time someone is shopping.
+          </Text>
+        </Card>
+      ) : null}
 
       {Object.entries(grouped).map(([category, items]) => (
-        <View key={category}>
+        <View key={category} style={styles.categoryBlock}>
           <SectionTitle title={category} />
           <View style={styles.stack}>
             {items.map((item) => {
@@ -398,57 +454,44 @@ export function ListsScreen() {
                   onPress={() => {
                     void handleToggleItem(item.id);
                   }}
+                  style={({ pressed }) => [styles.itemRow, item.checked ? styles.itemRowDone : null, pressed ? styles.itemRowPressed : null]}
                 >
-                  <Card>
-                    <Row>
-                      <View style={[styles.box, item.checked && styles.boxDone]}>
-                        {item.checked ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
-                      </View>
-                      <View style={styles.fill}>
-                        <Text style={[styles.itemTitle, item.checked && styles.doneText]}>{item.title}</Text>
-                        <Text style={styles.meta}>Added by {addedBy}</Text>
-                      </View>
-                      {item.category === "Inbox" ? <Pill label="from text" tone="coral" /> : null}
-                    </Row>
-                  </Card>
+                  <Row>
+                    <View style={[styles.box, item.checked && styles.boxDone]}>
+                      {item.checked ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
+                    </View>
+                    <View style={styles.fill}>
+                      <Text style={[styles.itemTitle, item.checked && styles.doneText]}>{item.title}</Text>
+                      <Text style={styles.meta}>Added by {addedBy}</Text>
+                    </View>
+                    {item.category === "Inbox" ? <Pill label="from text" tone="coral" /> : null}
+                  </Row>
                 </Pressable>
               );
             })}
           </View>
         </View>
       ))}
-      {activeList && shoppingItems.length === 0 ? (
-        <Card>
-          <Text style={styles.emptyTitle}>Nothing in {activeList.title} yet.</Text>
-          <Text style={styles.emptyText}>
-            Add the first item now so this list becomes useful the next time someone is in a store aisle.
-          </Text>
-        </Card>
-      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  title: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: 0,
-    lineHeight: 40
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22,
+  feedbackShell: {
+    gap: spacing.xs,
     marginTop: spacing.sm
   },
   actionRow: {
+    alignItems: "stretch",
     flexDirection: "row",
-    gap: spacing.md,
+    gap: spacing.sm,
     marginTop: spacing.lg
+  },
+  primaryAction: {
+    flex: 1
+  },
+  clearRow: {
+    marginTop: spacing.sm
   },
   formTitle: {
     color: colors.ink,
@@ -457,7 +500,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: spacing.xs
   },
-  createListLead: {
+  formHint: {
     color: colors.muted,
     fontSize: 14,
     fontWeight: "600",
@@ -465,7 +508,14 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   createListShell: {
-    marginBottom: spacing.xl
+    marginTop: spacing.md
+  },
+  fieldLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: spacing.xs,
+    marginTop: spacing.md
   },
   input: {
     backgroundColor: colors.surfaceRaised,
@@ -474,8 +524,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.ink,
     fontSize: 16,
-    padding: spacing.md,
-    marginTop: spacing.sm
+    padding: spacing.md
   },
   inputInvalid: {
     borderColor: colors.coral
@@ -483,32 +532,31 @@ const styles = StyleSheet.create({
   formActions: {
     marginTop: spacing.lg
   },
-  pickerLabel: {
-    color: colors.tertiary,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.md
-  },
   pickerRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
     marginTop: spacing.sm
   },
-  listHint: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.sm
-  },
-  cardHint: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 20
+  categoryBlock: {
+    marginTop: spacing.md
   },
   stack: {
-    gap: spacing.md
+    gap: spacing.sm
+  },
+  itemRow: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md
+  },
+  itemRowDone: {
+    backgroundColor: colors.surfaceRaised
+  },
+  itemRowPressed: {
+    opacity: 0.92
   },
   fill: {
     flex: 1
@@ -538,7 +586,7 @@ const styles = StyleSheet.create({
   meta: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
     marginTop: 2
   },
   emptyTitle: {

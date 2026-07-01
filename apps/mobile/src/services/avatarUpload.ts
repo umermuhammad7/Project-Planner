@@ -37,6 +37,23 @@ function withCacheBust(url: string) {
   return `${url}${separator}v=${Date.now()}`;
 }
 
+function friendlyAvatarUploadError(message: string | undefined) {
+  const raw = message?.trim();
+  if (!raw) {
+    return "Could not upload that profile photo.";
+  }
+
+  if (/bucket|not found/i.test(raw)) {
+    return `Profile photo storage is not ready. The Supabase "${avatarBucket}" bucket needs to be enabled.`;
+  }
+
+  if (/policy|permission|not authorized|unauthorized|forbidden|row-level|rls/i.test(raw)) {
+    return "Profile photo upload is blocked by storage permissions. Check the avatar bucket policies.";
+  }
+
+  return raw;
+}
+
 export async function pickAndUploadAvatar(userId: string): Promise<AvatarUploadFailure | AvatarUploadSuccess> {
   if (!supabaseClient) {
     return {
@@ -91,7 +108,7 @@ export async function pickAndUploadAvatar(userId: string): Promise<AvatarUploadF
   if (uploadError) {
     return {
       ok: false as const,
-      message: uploadError.message || "Could not upload that profile photo."
+      message: friendlyAvatarUploadError(uploadError.message)
     };
   }
 

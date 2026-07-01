@@ -43,14 +43,22 @@ export function ScreenHeader({
         </View>
         <Text style={[styles.title, isAdmin && styles.titleAdmin, isCompact && styles.titleCompact]}>{title}</Text>
         {subtitle ? (
-          <Text style={[styles.subtitle, isAdmin && styles.subtitleAdmin, isCompact && styles.subtitleCompact]}>
+          <Text
+            numberOfLines={2}
+            style={[styles.subtitle, isAdmin && styles.subtitleAdmin, isCompact && styles.subtitleCompact]}
+          >
             {subtitle}
           </Text>
         ) : null}
       </View>
 
       {onActionPress ? (
-        <Pressable accessibilityRole="button" onPress={onActionPress} style={styles.actionButton}>
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onActionPress}
+          style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+        >
           <Ionicons color={colors.primary} name={actionIcon} size={18} />
           <Text style={styles.actionLabel}>{actionLabel ?? "Back"}</Text>
         </Pressable>
@@ -161,8 +169,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.xs,
     minHeight: 44,
+    minWidth: 44,
     justifyContent: "center",
     paddingHorizontal: spacing.md
+  },
+  actionButtonPressed: {
+    backgroundColor: colors.canvas,
+    opacity: 0.92
   },
   actionLabel: {
     color: colors.primary,
