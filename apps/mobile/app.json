@@ -44,7 +44,8 @@
           "photosPermission": "Allow HomeThread to choose a profile photo from your library."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "@sentry/react-native"
     ],
     "experiments": {
       "autolinkingModuleResolution": true
