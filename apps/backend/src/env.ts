@@ -126,6 +126,8 @@ export function getCalendarSyncStatus() {
 }
 
 export function getGoogleOAuthConfig() {
+  const configuredRedirectUri = env.GOOGLE_OAUTH_REDIRECT_URI?.trim();
+
   if (
     !env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
     !env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() ||
@@ -135,13 +137,14 @@ export function getGoogleOAuthConfig() {
   }
 
   const redirectUri =
-    env.GOOGLE_OAUTH_REDIRECT_URI?.trim() ||
+    configuredRedirectUri ||
     `http://localhost:${env.PORT}/api/v1/calendar-sync/google/callback`;
 
   return {
     clientId: env.GOOGLE_OAUTH_CLIENT_ID,
     clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
     redirectUri,
+    hasExplicitRedirectUri: Boolean(configuredRedirectUri),
     scopes: env.GOOGLE_CALENDAR_SCOPES
       .split(/[,\s]+/u)
       .map((scope) => scope.trim())

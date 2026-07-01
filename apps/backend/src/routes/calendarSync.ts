@@ -90,7 +90,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
       return reply.status(501).send(payload);
     }
 
-    const redirectUri = resolveGoogleRedirectUri(request, oauth.redirectUri);
+    const redirectUri = resolveGoogleRedirectUri(request, oauth.redirectUri, oauth.hasExplicitRedirectUri);
 
     const state = signCalendarState(
       {
@@ -165,7 +165,7 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     }
 
     try {
-      const redirectUri = resolveGoogleRedirectUri(request, oauth.redirectUri);
+      const redirectUri = resolveGoogleRedirectUri(request, oauth.redirectUri, oauth.hasExplicitRedirectUri);
       const tokenData = await exchangeGoogleCode({
         code: query.code,
         clientId: oauth.clientId,
@@ -342,20 +342,20 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
 
 function resolveGoogleRedirectUri(
   request: { headers: Record<string, string | string[] | undefined> },
-  configuredRedirectUri: string
+  configuredRedirectUri: string,
+  hasExplicitRedirectUri: boolean
 ) {
   try {
+    if (hasExplicitRedirectUri) {
+      return configuredRedirectUri;
+    }
+
     const forwardedHost = request.headers["x-forwarded-host"];
     const forwardedProto = request.headers["x-forwarded-proto"];
     const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
     const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto ?? "https";
 
     if (!host) {
-      return configuredRedirectUri;
-    }
-
-    const configured = new URL(configuredRedirectUri);
-    if (configured.host === host && configured.pathname === "/api/v1/calendar-sync/google/callback") {
       return configuredRedirectUri;
     }
 

@@ -99,6 +99,36 @@ describe("calendar-sync routes", () => {
     expect(body.authUrl).toContain(encodeURIComponent("http://localhost:3001/api/v1/calendar-sync/google/callback"));
   });
 
+  it("uses the explicit Google redirect uri when configured", async () => {
+    env.GOOGLE_OAUTH_CLIENT_ID = "google-client-id";
+    env.GOOGLE_OAUTH_CLIENT_SECRET = "google-client-secret";
+    env.CALENDAR_TOKEN_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef";
+    env.GOOGLE_OAUTH_REDIRECT_URI = "https://homethread-backend-production.up.railway.app/api/v1/calendar-sync/google/callback";
+
+    const app = buildApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/calendar-sync/google/connect",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`,
+        "x-forwarded-host": "another-host.up.railway.app",
+        "x-forwarded-proto": "https"
+      },
+      payload: {
+        familyId: TEST_FAMILY_ID
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.authUrl).toContain(
+      encodeURIComponent("https://homethread-backend-production.up.railway.app/api/v1/calendar-sync/google/callback")
+    );
+    expect(body.authUrl).not.toContain(encodeURIComponent("https://another-host.up.railway.app/api/v1/calendar-sync/google/callback"));
+
+    await app.close();
+  });
+
   it("stores a google calendar connection after callback exchange", async () => {
     env.GOOGLE_OAUTH_CLIENT_ID = "google-client-id";
     env.GOOGLE_OAUTH_CLIENT_SECRET = "google-client-secret";
