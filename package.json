@@ -1,6 +1,8 @@
 {
   "name": "homethread",
+  "version": "0.1.0",
   "private": true,
+  "main": "apps/mobile/index.js",
   "expo": {
     "autolinking": {
       "searchPaths": [
@@ -29,6 +31,11 @@
     "db:migrate": "npm --workspace apps/backend run db:migrate",
     "test": "npm --workspace apps/backend run test",
     "typecheck": "npm --workspaces --if-present run typecheck"
+  },
+  "dependencies": {
+    "expo": "56.0.13",
+    "react": "19.2.3",
+    "react-native": "0.85.3"
   },
   "overrides": {
     "fast-uri": "3.1.2",
