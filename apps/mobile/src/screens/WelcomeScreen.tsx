@@ -246,6 +246,8 @@ export function WelcomeScreen({
 
   function beginJoinJourney() {
     setFormMessage(null);
+    setEmail("");
+    setPassword("");
     void applySetupIntent("join");
     if ((authMode === "supabase" || authMode === "dev_token") && !familyId) {
       setHasLeftFamilySetup(false);
@@ -258,6 +260,8 @@ export function WelcomeScreen({
 
   function beginCreateJourney() {
     setFormMessage(null);
+    setEmail("");
+    setPassword("");
     void applySetupIntent("create");
     if ((authMode === "supabase" || authMode === "dev_token") && !familyId) {
       setHasLeftFamilySetup(false);

@@ -420,6 +420,11 @@ export const createRecipeSchema = z.object({
   servings: z.number().int().min(1).max(50).optional().nullable()
 });
 
+export const updateRecipeSchema = createRecipeSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one recipe field is required"
+);
+
 export const mealToGrocerySchema = z.object({
   recipeId: uuidSchema.optional(),
   mealPlanItemId: uuidSchema.optional(),
@@ -610,6 +615,7 @@ export type MealPlanItemInput = z.infer<typeof mealPlanItemInputSchema>;
 export type SaveMealPlanInput = z.infer<typeof saveMealPlanSchema>;
 export type RecipeIngredientInput = z.infer<typeof recipeIngredientSchema>;
 export type CreateRecipeInput = z.infer<typeof createRecipeSchema>;
+export type UpdateRecipeInput = z.infer<typeof updateRecipeSchema>;
 export type MealToGroceryInput = z.infer<typeof mealToGrocerySchema>;
 export type MealWeekToGroceryInput = z.infer<typeof mealWeekToGrocerySchema>;
 export type AssistantIntent = z.infer<typeof assistantIntentSchema>;

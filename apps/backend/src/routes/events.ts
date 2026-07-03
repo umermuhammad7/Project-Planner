@@ -168,6 +168,13 @@ export async function eventsRoutes(app: FastifyInstance) {
       where: and(eq(events.familyId, familyId), eq(events.id, eventId))
     });
 
+    if (!event) {
+      return reply.status(404).send({
+        error: "Event not found",
+        code: "EVENT_NOT_FOUND"
+      });
+    }
+
     return { event };
   });
 

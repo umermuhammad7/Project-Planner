@@ -4,7 +4,7 @@ import {
   updateChoreSchema,
   uuidSchema
 } from "@homethread/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -109,7 +109,13 @@ export async function choresRoutes(app: FastifyInstance) {
       .where(
         and(
           eq(chores.familyId, familyId),
-          query.memberId ? eq(choreCompletions.memberId, query.memberId) : undefined
+          query.memberId ? eq(choreCompletions.memberId, query.memberId) : undefined,
+          query.from
+            ? gte(choreCompletions.completedAt, new Date(`${query.from}T00:00:00.000Z`))
+            : undefined,
+          query.to
+            ? lte(choreCompletions.completedAt, new Date(`${query.to}T23:59:59.999Z`))
+            : undefined
         )
       )
       .orderBy(desc(choreCompletions.completedAt));

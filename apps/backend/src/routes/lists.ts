@@ -211,7 +211,15 @@ export async function listsRoutes(app: FastifyInstance) {
       return sendError(reply, 404, "List not found", "LIST_NOT_FOUND");
     }
 
-    await db.delete(listItems).where(and(eq(listItems.listId, listId), eq(listItems.id, itemId)));
+    const deleted = await db
+      .delete(listItems)
+      .where(and(eq(listItems.listId, listId), eq(listItems.id, itemId)))
+      .returning({ id: listItems.id });
+
+    if (deleted.length === 0) {
+      return sendError(reply, 404, "List item not found", "LIST_ITEM_NOT_FOUND");
+    }
+
     return { deleted: true };
   });
 }

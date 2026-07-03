@@ -347,6 +347,18 @@ type HomeThreadState = {
     cookTimeMinutes?: number | null;
     servings?: number | null;
   }) => Promise<SaveOutcome>;
+  updateRecipe: (input: {
+    recipeId: string;
+    title: string;
+    ingredientNames?: string[];
+    ingredients?: Recipe["ingredients"];
+    description?: string | null;
+    instructions?: Recipe["instructions"];
+    prepTimeMinutes?: number | null;
+    cookTimeMinutes?: number | null;
+    servings?: number | null;
+  }) => Promise<SaveOutcome>;
+  deleteRecipe: (recipeId: string) => Promise<SaveOutcome>;
   addMealIngredientsToGrocery: (input: { mealPlanItemId?: string; recipeId?: string }) => Promise<SaveOutcome>;
   addWeekMealsToGrocery: () => Promise<SaveOutcome>;
   removeMeal: (id: string) => Promise<SaveOutcome | null>;
@@ -1963,6 +1975,157 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       saveMessage: outcome.message
     }));
 
+    return outcome;
+  },
+  updateRecipe: async ({
+    recipeId,
+    title,
+    ingredientNames = [],
+    ingredients: structuredIngredients,
+    description,
+    instructions,
+    prepTimeMinutes,
+    cookTimeMinutes,
+    servings
+  }) => {
+    const state = get();
+    const existingRecipe = state.recipes.find((recipe) => recipe.id === recipeId);
+    if (!existingRecipe) {
+      const outcome = makeSaveOutcome("failed", "That recipe is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const trimmedTitle = title.trim();
+    const ingredients =
+      structuredIngredients && structuredIngredients.length > 0
+        ? structuredIngredients
+        : ingredientNames
+            .map((name) => name.trim())
+            .filter(Boolean)
+            .map((name) => ({ name }));
+
+    if (!trimmedTitle) {
+      const outcome = makeSaveOutcome("failed", "Recipe title is required");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    if (ingredients.length === 0) {
+      const outcome = makeSaveOutcome("failed", "Add at least one ingredient");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const requestBody = buildCreateRecipeRequestBody({
+      title: trimmedTitle,
+      description: description ?? existingRecipe.description ?? null,
+      ingredients,
+      instructions: instructions ?? existingRecipe.instructions,
+      prepTimeMinutes: prepTimeMinutes ?? existingRecipe.prepTimeMinutes ?? null,
+      cookTimeMinutes: cookTimeMinutes ?? existingRecipe.cookTimeMinutes ?? null,
+      servings: servings ?? existingRecipe.servings ?? null
+    });
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const localRecipe: Recipe = {
+        ...existingRecipe,
+        title: requestBody.title,
+        description: requestBody.description ?? null,
+        ingredients: requestBody.ingredients,
+        instructions: requestBody.instructions,
+        prepTimeMinutes: requestBody.prepTimeMinutes ?? null,
+        cookTimeMinutes: requestBody.cookTimeMinutes ?? null,
+        servings: requestBody.servings ?? null
+      };
+      const outcome = makeSaveOutcome("local", "Recipe updated on this device.");
+      set((current) => ({
+        recipes: current.recipes.map((recipe) => (recipe.id === recipeId ? localRecipe : recipe)),
+        meals: current.meals.map((meal) =>
+          meal.recipeId === recipeId ? { ...meal, title: localRecipe.title } : meal
+        ),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Saving recipe..." });
+
+    const result = await apiRequest<{ recipe: BackendRecipeRecord }>(
+      `/families/${state.familyId}/recipes/${recipeId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(requestBody)
+      }
+    );
+
+    if (!result.data?.recipe) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to update recipe");
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const updatedRecipe = mapRecipe(result.data.recipe);
+    const outcome = makeSaveOutcome("saved", "Recipe updated.");
+    set((current) => ({
+      recipes: current.recipes.map((recipe) => (recipe.id === recipeId ? updatedRecipe : recipe)),
+      meals: current.meals.map((meal) =>
+        meal.recipeId === recipeId ? { ...meal, title: updatedRecipe.title } : meal
+      ),
+      isSaving: false,
+      saveScope: null,
+      saveMessage: outcome.message
+    }));
+
+    return outcome;
+  },
+  deleteRecipe: async (recipeId) => {
+    const state = get();
+    const existingRecipe = state.recipes.find((recipe) => recipe.id === recipeId);
+    if (!existingRecipe) {
+      const outcome = makeSaveOutcome("failed", "That recipe is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", "Recipe removed from this device.");
+      set((current) => ({
+        recipes: current.recipes.filter((recipe) => recipe.id !== recipeId),
+        meals: current.meals.map((meal) =>
+          meal.recipeId === recipeId
+            ? { ...meal, recipeId: null, title: meal.title || existingRecipe.title }
+            : meal
+        ),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveScope: "meals", saveMessage: "Removing recipe..." });
+
+    const result = await apiRequest<{ deleted: boolean }>(`/families/${state.familyId}/recipes/${recipeId}`, {
+      method: "DELETE"
+    });
+
+    if (!result.data?.deleted) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove recipe.");
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const outcome = makeSaveOutcome("saved", "Recipe removed.");
+    set((current) => ({
+      recipes: current.recipes.filter((recipe) => recipe.id !== recipeId),
+      meals: current.meals.map((meal) =>
+        meal.recipeId === recipeId
+          ? { ...meal, recipeId: null, title: meal.title || existingRecipe.title }
+          : meal
+      ),
+      isSaving: false,
+      saveScope: null,
+      saveMessage: outcome.message
+    }));
     return outcome;
   },
   addMealIngredientsToGrocery: async ({ mealPlanItemId, recipeId }) => {

@@ -9,7 +9,7 @@ import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
-import { MealType, RecipeImportDraft, RecipeImportResponse, RecipeIngredient, SaveOutcome } from "../types";
+import { MealType, Recipe, RecipeImportDraft, RecipeImportResponse, RecipeIngredient, SaveOutcome } from "../types";
 import { feedbackToneForOutcome } from "../utils/saveOutcome";
 
 const ingredientPreviewLimit = 3;
@@ -107,6 +107,8 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
     mealWeekStart,
     createMeal,
     createRecipe,
+    updateRecipe,
+    deleteRecipe,
     addMealIngredientsToGrocery,
     addWeekMealsToGrocery,
     removeMeal,
@@ -131,6 +133,7 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
   const [activeView, setActiveView] = useState<MealsView>("plan");
   const [showImportForm, setShowImportForm] = useState(false);
   const [showManualRecipeForm, setShowManualRecipeForm] = useState(false);
+  const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
   const [showMealForm, setShowMealForm] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -143,6 +146,24 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
     () => recipes.find((recipe) => recipe.id === plannedRecipeId) ?? null,
     [plannedRecipeId, recipes]
   );
+
+  const beginRecipeEdit = (recipe: Recipe) => {
+    setEditingRecipeId(recipe.id);
+    setRecipeTitle(recipe.title);
+    setRecipeIngredients(recipe.ingredients.map((ingredient) => ingredient.name).join("\n"));
+    setRecipeTitleError(null);
+    setShowImportForm(false);
+    setShowManualRecipeForm(true);
+    setActiveView("recipes");
+  };
+
+  const resetRecipeForm = () => {
+    setEditingRecipeId(null);
+    setRecipeTitle("");
+    setRecipeIngredients("");
+    setRecipeTitleError(null);
+    setShowManualRecipeForm(false);
+  };
   const importTimingPreview = useMemo(
     () => (importPreview ? formatRecipeTiming(importPreview) : null),
     [importPreview]
@@ -576,19 +597,42 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
                       <Text style={styles.itemTitle}>{recipe.title}</Text>
                       <Text style={styles.itemMeta}>{formatRecipeIngredientPreview(recipe.ingredients)}</Text>
                     </View>
-                    <PrimaryButton
-                      label="Add to grocery"
-                      icon="basket"
-                      tone="soft"
-                      loading={isSavingMeals}
-                      disabled={isSavingMeals}
-                      onPress={() => {
-                        if (isSavingMeals) return;
-                        void addMealIngredientsToGrocery({ recipeId: recipe.id }).then((outcome) => {
-                          applyOutcome(outcome);
-                        });
-                      }}
-                    />
+                    <View style={styles.recipeActions}>
+                      <PrimaryButton
+                        label="Edit"
+                        icon="create"
+                        tone="ghost"
+                        disabled={isSavingMeals}
+                        onPress={() => beginRecipeEdit(recipe)}
+                      />
+                      <PrimaryButton
+                        label="Delete"
+                        icon="trash"
+                        tone="ghost"
+                        disabled={isSavingMeals}
+                        onPress={() => {
+                          if (isSavingMeals) return;
+                          void deleteRecipe(recipe.id).then((outcome) => {
+                            if (applyOutcome(outcome) && editingRecipeId === recipe.id) {
+                              resetRecipeForm();
+                            }
+                          });
+                        }}
+                      />
+                      <PrimaryButton
+                        label="Add to grocery"
+                        icon="basket"
+                        tone="soft"
+                        loading={isSavingMeals}
+                        disabled={isSavingMeals}
+                        onPress={() => {
+                          if (isSavingMeals) return;
+                          void addMealIngredientsToGrocery({ recipeId: recipe.id }).then((outcome) => {
+                            applyOutcome(outcome);
+                          });
+                        }}
+                      />
+                    </View>
                   </View>
                 </Card>
               ))}
@@ -618,11 +662,12 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
               icon="create"
               tone={showManualRecipeForm ? "soft" : "ghost"}
               onPress={() => {
-                const next = !showManualRecipeForm;
-                setShowManualRecipeForm(next);
-                if (next) {
-                  setShowImportForm(false);
+                if (showManualRecipeForm) {
+                  resetRecipeForm();
+                  return;
                 }
+                setShowManualRecipeForm(true);
+                setShowImportForm(false);
               }}
             />
           </View>
@@ -720,7 +765,7 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
 
           {showManualRecipeForm ? (
             <Card>
-              <Text style={styles.formTitle}>Save recipe</Text>
+              <Text style={styles.formTitle}>{editingRecipeId ? "Edit recipe" : "Save recipe"}</Text>
               <TextInput
                 accessibilityLabel="Recipe title"
                 placeholder="e.g. Sheet-pan chicken fajitas"
@@ -746,7 +791,7 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
               />
               <View style={styles.formActions}>
                 <PrimaryButton
-                  label={isSavingMeals ? "Saving..." : "Save recipe"}
+                  label={isSavingMeals ? "Saving..." : editingRecipeId ? "Update recipe" : "Save recipe"}
                   icon="restaurant-outline"
                   loading={isSavingMeals}
                   disabled={isSavingMeals}
@@ -757,14 +802,16 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
                       return;
                     }
                     setRecipeTitleError(null);
-                    void createRecipe({
+                    const payload = {
                       title: recipeTitle,
                       ingredientNames: parseIngredientNames(recipeIngredients)
-                    }).then((outcome) => {
+                    };
+                    const savePromise = editingRecipeId
+                      ? updateRecipe({ recipeId: editingRecipeId, ...payload })
+                      : createRecipe(payload);
+                    void savePromise.then((outcome) => {
                       if (applyOutcome(outcome)) {
-                        setRecipeTitle("");
-                        setRecipeIngredients("");
-                        setShowManualRecipeForm(false);
+                        resetRecipeForm();
                         setActiveView("recipes");
                       }
                     });
@@ -954,9 +1001,13 @@ const styles = StyleSheet.create({
     gap: spacing.md
   },
   recipeCard: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
     gap: spacing.md
+  },
+  recipeActions: {
+    gap: spacing.xs,
+    alignItems: "stretch"
   },
   helperText: {
     color: colors.muted,
