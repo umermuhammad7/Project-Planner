@@ -91,7 +91,8 @@ export const supabaseClient: SupabaseClient | null = isSupabaseConfigured
         storage: isBrowser ? browserStorage : nativeStorage,
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: isBrowser
+        detectSessionInUrl: isBrowser,
+        flowType: "pkce"
       }
     })
   : null;

@@ -229,6 +229,32 @@ async function createSessionFromUrl(url: string) {
     };
   }
 
+  if (typeof params.error === "string") {
+    return {
+      ok: false as const,
+      message: friendlyAuthError(
+        typeof params.error_description === "string" ? params.error_description : params.error,
+        "Could not finish Google sign-in."
+      )
+    };
+  }
+
+  if (typeof params.code === "string" && params.code.trim()) {
+    const { data, error } = await supabaseClient.auth.exchangeCodeForSession(params.code);
+
+    if (error || !data.session?.access_token) {
+      return {
+        ok: false as const,
+        message: friendlyAuthError(error?.message, "Could not finish Google sign-in.")
+      };
+    }
+
+    return applySupabaseSession(
+      data.session.access_token,
+      data.session.user.app_metadata?.provider ?? "google"
+    );
+  }
+
   const accessToken =
     typeof params.access_token === "string" ? params.access_token : null;
   const refreshToken =
@@ -504,7 +530,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (result.type !== "success" || !result.url) {
       return {
         ok: false,
-        message: "Google sign-in was cancelled before it finished."
+        message:
+          "Google sign-in did not return to HomeThread. If you already picked an account, the mobile callback did not finish."
       };
     }
 
