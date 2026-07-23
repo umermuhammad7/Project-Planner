@@ -13,6 +13,8 @@ const supabase =
       })
     : null;
 
+export const serviceRoleSupabase = supabase;
+
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   const authorization = request.headers.authorization;
   const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;

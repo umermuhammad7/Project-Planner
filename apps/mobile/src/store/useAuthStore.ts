@@ -65,6 +65,7 @@ type AuthState = {
 };
 
 const defaultNotificationPrefs: NotificationPrefs = {
+  notifications_enabled: true,
   daily_digest: true,
   event_reminders: true,
   chore_reminders: true,
@@ -160,6 +161,18 @@ async function getAuthRedirectUrl() {
   });
 }
 
+function sanitizeAvatarUrl(url: string | null | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+
+  if (url.startsWith("blob:") || url.startsWith("data:")) {
+    return null;
+  }
+
+  return url;
+}
+
 async function loadMembership(accessToken: string) {
   const previousToken = useAuthStore.getState().accessToken;
   useAuthStore.setState({ accessToken });
@@ -180,7 +193,7 @@ async function loadMembership(accessToken: string) {
     userId: result.data.user.id,
     email: result.data.user.email ?? null,
     displayName: result.data.user.displayName ?? null,
-    avatarUrl: result.data.user.avatarUrl ?? null,
+    avatarUrl: sanitizeAvatarUrl(result.data.user.avatarUrl),
     familyId: primaryMembership?.family.id ?? null,
     pushToken: result.data.user.pushToken ?? null,
     notificationPrefs: result.data.user.notificationPrefs ?? defaultNotificationPrefs
@@ -623,7 +636,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       method: "POST",
       body: JSON.stringify({
         displayName: trimmedName,
-        avatarUrl: avatarUrl ?? get().avatarUrl ?? null,
+        avatarUrl: sanitizeAvatarUrl(avatarUrl ?? get().avatarUrl),
         phone: null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         locale: Intl.DateTimeFormat().resolvedOptions().locale || "en"
@@ -639,7 +652,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({
       displayName: result.data.user.displayName ?? trimmedName,
-      avatarUrl: result.data.user.avatarUrl ?? avatarUrl ?? null
+      avatarUrl: sanitizeAvatarUrl(result.data.user.avatarUrl ?? avatarUrl)
     });
 
     return { ok: true };

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Pill, SectionTitle } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { colors, fonts, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { MoreDestination } from "../types";
 
@@ -11,9 +11,10 @@ type MoreLink = {
   key: MoreDestination;
   title: string;
   subtitle: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   tone: "primary" | "mint" | "gold" | "coral";
-  meta?: string;
+  meta: string;
+  metaKind: "status" | "cta";
 };
 
 type AdminNavItem = {
@@ -21,7 +22,7 @@ type AdminNavItem = {
   title: string;
   subtitle: string;
   hint?: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   tone: "primary" | "mint" | "gold";
   pill?: string;
   onPress: () => void;
@@ -31,22 +32,25 @@ function AdminNavRow({ item }: { item: AdminNavItem }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${item.title}`}
+      accessibilityLabel={`Open ${item.title}${item.pill ? `, ${item.pill}` : ""}. ${item.subtitle}${item.hint ? `. ${item.hint}` : ""}`}
       onPress={item.onPress}
-      style={({ pressed }) => [styles.linkCard, pressed && styles.linkCardPressed]}
+      style={({ pressed }) => [styles.adminShortcutTile, pressed && styles.linkCardPressed]}
     >
-      <View style={[styles.linkIcon, adminToneStyles[item.tone]]}>
-        <Ionicons color={adminToneColors[item.tone]} name={item.icon} size={20} />
+      <View style={styles.adminShortcutTop}>
+        <View style={[styles.adminShortcutIcon, adminToneStyles[item.tone]]}>
+          <Text style={styles.adminShortcutGlyph}>{item.icon}</Text>
+        </View>
+        <Ionicons color={colors.muted} name="arrow-forward" size={13} />
       </View>
-      <View style={styles.linkCopy}>
+      <View style={styles.adminShortcutCopy}>
         <View style={styles.adminTitleRow}>
-          <Text style={styles.linkTitle}>{item.title}</Text>
+          <Text style={styles.adminShortcutTitle}>{item.title}</Text>
           {item.pill ? <Pill label={item.pill} tone="gold" /> : null}
         </View>
-        <Text style={styles.linkSubtitle}>{item.subtitle}</Text>
-        {item.hint ? <Text style={styles.adminHint}>{item.hint}</Text> : null}
+        <Text numberOfLines={2} style={styles.adminShortcutMeta}>
+          {item.subtitle}
+        </Text>
       </View>
-      <Ionicons color={colors.muted} name="chevron-forward" size={18} />
     </Pressable>
   );
 }
@@ -72,24 +76,28 @@ export function MoreScreen({
       key: "assistant",
       title: "Assistant",
       subtitle: "Draft ideas. You approve every save.",
-      icon: "sparkles",
-      tone: "primary"
+      icon: "✨",
+      tone: "primary",
+      meta: "Draft your first idea",
+      metaKind: "cta"
     },
     {
       key: "meals",
       title: "Meals",
       subtitle: "Plan the week and keep recipes handy.",
-      icon: "restaurant",
+      icon: "🍴",
       tone: "coral",
-      meta: meals.length > 0 ? `${meals.length} planned` : "Open week plan"
+      meta: meals.length > 0 ? `${meals.length} planned` : "Open week plan",
+      metaKind: meals.length > 0 ? "status" : "cta"
     },
     {
       key: "board",
-      title: "Family board",
-      subtitle: "Share updates or import family text.",
-      icon: "chatbubbles",
+      title: "Text & Summaries",
+      subtitle: "Paste a text to save it as a plan, or post a summary to share.",
+      icon: "📋",
       tone: "mint",
-      meta: textUpdates.length > 0 ? `${textUpdates.length} on board` : "Share an update"
+      meta: textUpdates.length > 0 ? `${textUpdates.length} update${textUpdates.length === 1 ? "" : "s"} shared` : "Share an update",
+      metaKind: textUpdates.length > 0 ? "status" : "cta"
     }
   ];
 
@@ -99,8 +107,8 @@ export function MoreScreen({
           {
             key: "settings",
             title: "Settings",
-            subtitle: "Profile, notifications, and sign-out.",
-            icon: "settings-outline" as const,
+            subtitle: "Profile & alerts",
+            icon: "⚙️",
             tone: "primary" as const,
             onPress: onOpenSettings
           }
@@ -111,12 +119,8 @@ export function MoreScreen({
           {
             key: "household",
             title: "Household",
-            subtitle: "Invite adults, child profiles, and KC- pairing.",
-            hint:
-              kidCount > 0
-                ? `${kidCount} child profile${kidCount === 1 ? "" : "s"} ready to pair.`
-                : "Add a child profile before pairing a phone.",
-            icon: "people" as const,
+            subtitle: kidCount > 0 ? `${kidCount} kid${kidCount === 1 ? "" : "s"} to pair` : "Invite & pair",
+            icon: "🧑‍🤝‍🧑",
             tone: "mint" as const,
             onPress: onOpenFamilySettings
           }
@@ -127,8 +131,8 @@ export function MoreScreen({
           {
             key: "insights",
             title: "Insights",
-            subtitle: "Weekly read on plans, chores, and load.",
-            icon: "stats-chart" as const,
+            subtitle: "Weekly summary",
+            icon: "📊",
             tone: "gold" as const,
             pill: "Preview",
             onPress: onOpenInsights
@@ -136,36 +140,45 @@ export function MoreScreen({
         ]
       : [])
   ];
-
   return (
     <View>
       <ScreenHeader
         eyebrow="More"
         title="Tools & household"
         subtitle="Planning tools, settings, and admin live here."
-        icon="grid"
         density="compact"
       />
 
       <SectionTitle title="Planning tools" />
-      <View style={styles.stack}>
-        {links.map((link) => (
+      <View style={styles.linkGroup}>
+        {links.map((link, index) => (
           <Pressable
             key={link.key}
             accessibilityRole="button"
             accessibilityLabel={`Open ${link.title}`}
             onPress={() => onOpen(link.key)}
-            style={({ pressed }) => [styles.linkCard, pressed && styles.linkCardPressed]}
+            style={({ pressed }) => [
+              styles.linkCard,
+              index < links.length - 1 && styles.linkCardDivider,
+              pressed && styles.linkCardPressed
+            ]}
           >
-            <View style={[styles.linkIcon, toneStyles[link.tone]]}>
-              <Ionicons color={toneColors[link.tone]} name={link.icon} size={20} />
+            <View style={styles.linkRowContent}>
+              <View style={[styles.linkAccent, { backgroundColor: toneColors[link.tone] }]} />
+              <View style={[styles.linkIcon, toneStyles[link.tone]]}>
+                <Text style={styles.linkIconGlyph}>{link.icon}</Text>
+              </View>
+              <View style={styles.linkCopy}>
+                <Text style={styles.linkTitle}>{link.title}</Text>
+                <Text style={styles.linkSubtitle}>{link.subtitle}</Text>
+                {link.metaKind === "cta" ? (
+                  <Text style={[styles.linkMetaCta, { color: toneColors[link.tone] }]}>{link.meta}</Text>
+                ) : (
+                  <Text style={[styles.linkMeta, { color: toneColors[link.tone] }]}>{link.meta}</Text>
+                )}
+              </View>
+              <Ionicons color={colors.muted} name="chevron-forward" size={18} />
             </View>
-            <View style={styles.linkCopy}>
-              <Text style={styles.linkTitle}>{link.title}</Text>
-              <Text style={styles.linkSubtitle}>{link.subtitle}</Text>
-              {link.meta ? <Text style={styles.linkMeta}>{link.meta}</Text> : null}
-            </View>
-            <Ionicons color={colors.muted} name="chevron-forward" size={18} />
           </Pressable>
         ))}
       </View>
@@ -173,7 +186,7 @@ export function MoreScreen({
       {adminItems.length > 0 ? (
         <>
           <SectionTitle title="Account & household" />
-          <View style={styles.stack}>
+          <View style={[styles.adminShortcutGrid, styles.adminShortcutGridTrailing]}>
             {adminItems.map((item) => (
               <AdminNavRow key={item.key} item={item} />
             ))}
@@ -215,20 +228,37 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.lg
   },
-  linkCard: {
-    alignItems: "center",
+  linkGroup: {
     backgroundColor: colors.surface,
-    borderColor: colors.line,
+    borderColor: colors.lineStrong,
     borderRadius: radii.lg,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.md,
+    marginBottom: spacing.lg,
+    overflow: "hidden",
+    ...shadow.card
+  },
+  linkCard: {
     minHeight: 72,
-    padding: spacing.md
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md
+  },
+  linkCardDivider: {
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1
   },
   linkCardPressed: {
     backgroundColor: colors.canvas,
     opacity: 0.96
+  },
+  linkRowContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  linkAccent: {
+    alignSelf: "stretch",
+    borderRadius: radii.pill,
+    width: 3
   },
   linkIcon: {
     alignItems: "center",
@@ -242,11 +272,70 @@ const styles = StyleSheet.create({
     gap: 4,
     minWidth: 0
   },
+  linkIconGlyph: {
+    fontSize: 20,
+    lineHeight: 24
+  },
+  adminShortcutGrid: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  adminShortcutGridTrailing: {
+    marginBottom: spacing.lg
+  },
+  adminShortcutTile: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexBasis: "47%",
+    flexGrow: 1,
+    gap: 3,
+    minWidth: 0,
+    padding: spacing.md,
+    ...shadow.card
+  },
+  adminShortcutTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 2
+  },
+  adminShortcutIcon: {
+    alignItems: "center",
+    borderRadius: radii.md,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  adminShortcutCopy: {
+    gap: 1,
+    minWidth: 0
+  },
+  adminShortcutGlyph: {
+    fontSize: 16,
+    lineHeight: 20
+  },
   adminTitleRow: {
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm
+  },
+  adminShortcutTitle: {
+    color: colors.ink,
+    fontSize: 14.5,
+    fontWeight: "800",
+    lineHeight: 18
+  },
+  adminShortcutMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    marginTop: 1
   },
   linkTitle: {
     color: colors.ink,
@@ -261,11 +350,14 @@ const styles = StyleSheet.create({
     lineHeight: 20
   },
   linkMeta: {
-    color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
-    marginTop: 2,
-    textTransform: "uppercase"
+    fontWeight: "700",
+    marginTop: 2
+  },
+  linkMetaCta: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2
   },
   adminHint: {
     color: colors.tertiary,

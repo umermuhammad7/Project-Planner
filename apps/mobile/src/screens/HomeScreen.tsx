@@ -1,22 +1,33 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View, Image } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Image,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions
+} from "react-native";
 
-import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { MemberAvatar } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { HOW_IT_WORKS_SLIDES } from "../constants/howItWorks";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { ScreenDestination } from "../types";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 import { formatNotificationType } from "../utils/notificationLabels";
-import { getSyncPillLabel, getSyncPillTone } from "../utils/syncTrustCopy";
 import { safeText } from "../utils/safeRender";
 
 type HomeHighlight = {
   key: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: string;
   label: string;
   value: string;
   tone: "primary" | "mint" | "gold" | "coral" | "neutral";
@@ -28,13 +39,15 @@ export function HomeScreen({
   onEnterKidsMode,
   onOpenFamilySettings,
   onOpenInsights,
-  onOpenSettings
+  onOpenSettings,
+  pinnedHeader = false
 }: {
   goTo: (destination: ScreenDestination) => void;
   onEnterKidsMode?: () => void;
   onOpenFamilySettings?: () => void;
   onOpenInsights?: () => void;
   onOpenSettings?: () => void;
+  pinnedHeader?: boolean;
 }) {
   const displayName = useAuthStore((state) => state.displayName);
   const email = useAuthStore((state) => state.email);
@@ -114,13 +127,51 @@ export function HomeScreen({
     [avatarUrl]
   );
   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [guideStep, setGuideStep] = useState(0);
+  const guideScrollRef = useRef<ScrollView>(null);
+  const { width: windowWidth } = useWindowDimensions();
+  const guidePageWidth = Math.min(windowWidth - spacing.xl * 2, 360);
 
   useEffect(() => {
     setAvatarImageFailed(false);
   }, [avatarUrl]);
+
+  function openHowItWorks() {
+    setGuideStep(0);
+    setShowHowItWorks(true);
+    requestAnimationFrame(() => {
+      guideScrollRef.current?.scrollTo({ x: 0, animated: false });
+    });
+  }
+
+  function closeHowItWorks() {
+    setShowHowItWorks(false);
+    setGuideStep(0);
+  }
+
+  function handleGuideScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / Math.max(guidePageWidth, 1));
+    if (nextIndex !== guideStep && nextIndex >= 0 && nextIndex < HOW_IT_WORKS_SLIDES.length) {
+      setGuideStep(nextIndex);
+    }
+  }
   const householdSummaryLabel = useMemo(() => {
     const adults = adultMembers.length;
     const kids = kidMembers.length;
+    const householdName = safeText(familyName, "").trim();
+
+    if (householdName) {
+      const members =
+        adults > 0 && kids > 0
+          ? `${adults} adult${adults === 1 ? "" : "s"}, ${kids} kid${kids === 1 ? "" : "s"}`
+          : adults > 0
+            ? `${adults} adult${adults === 1 ? "" : "s"}`
+            : kids > 0
+              ? `${kids} kid${kids === 1 ? "" : "s"}`
+              : null;
+      return members ? `${householdName} · ${members}` : householdName;
+    }
 
     if (adults > 0 && kids > 0) {
       return `${adults} adult${adults === 1 ? "" : "s"}, ${kids} kid${kids === 1 ? "" : "s"}`;
@@ -134,27 +185,87 @@ export function HomeScreen({
       return `${kids} kid${kids === 1 ? "" : "s"}`;
     }
 
-    return "Household";
-  }, [adultMembers.length, kidMembers.length]);
+    return "Your household";
+  }, [adultMembers.length, familyName, kidMembers.length]);
+
+  const attentionCount = useMemo(() => {
+    let count = 0;
+    if (openChores.length > 0) count += 1;
+    if (unreadNotifications.length > 0) count += 1;
+    if (openItems.length > 0) count += 1;
+    if (kidsWithOpenChores.length > 0) count += 1;
+    if (nextEvent && nextUrgency?.label !== "Past") count += 1;
+    return count;
+  }, [
+    kidsWithOpenChores.length,
+    nextEvent,
+    nextUrgency?.label,
+    openChores.length,
+    openItems.length,
+    unreadNotifications.length
+  ]);
+
+  const attentionHeadline = useMemo(() => {
+    if (unreadNotifications.length > 0) {
+      return `${unreadNotifications.length} unread update${unreadNotifications.length === 1 ? "" : "s"}`;
+    }
+    if (openChores.length > 0) {
+      return `${openChores.length} open chore${openChores.length === 1 ? "" : "s"}`;
+    }
+    if (nextEvent) {
+      return `Next up: ${nextEvent.title}`;
+    }
+    if (openItems.length > 0) {
+      return `${openItems.length} item${openItems.length === 1 ? "" : "s"} to pick up`;
+    }
+    if (kidsWithOpenChores.length > 0) {
+      return `${kidsWithOpenChores.length} kid${kidsWithOpenChores.length === 1 ? "" : "s"} to check in on`;
+    }
+    return "You're all caught up";
+  }, [
+    kidsWithOpenChores.length,
+    nextEvent,
+    openChores.length,
+    openItems.length,
+    unreadNotifications.length
+  ]);
+
+  const attentionDetail = useMemo(() => {
+    if (nextEvent && (openChores.length > 0 || unreadNotifications.length > 0)) {
+      return `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` · ${nextEvent.location}` : ""}`;
+    }
+    if (nextEvent) {
+      return `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` · ${nextEvent.location}` : ""}`;
+    }
+    if (todayDinner) {
+      return `Tonight: ${todayDinner.title}`;
+    }
+    if (attentionCount === 0) {
+      return "Nothing urgent is waiting right now.";
+    }
+    return "Tap a card below to jump in.";
+  }, [attentionCount, nextEvent, nextUrgency?.label, openChores.length, todayDinner, unreadNotifications.length]);
+
+  const showSyncNotice = !backendConnected || isHydrating;
 
   const homeHighlights = useMemo<HomeHighlight[]>(() => {
     const entries: HomeHighlight[] = [];
 
-    if (nextEvent) {
+    if (unreadNotifications.length > 0) {
       entries.push({
-        key: "next-event",
-        icon: "calendar-outline",
-        label: "Next plan",
-        value: `${nextEvent.title} at ${nextEvent.time}`,
-        tone: nextUrgency?.tone ?? "primary",
-        tab: "plan"
+        key: "notifications",
+        icon: "🔔",
+        label: "Updates",
+        value: `${unreadNotifications.length} unread`,
+        tone: "primary",
+        tab: "thread"
       });
     }
 
     if (openChores.length > 0) {
       entries.push({
         key: "chores",
-        icon: "checkmark-done-outline",
+        icon: "✅",
         label: "Open chores",
         value: `${openChores.length} open`,
         tone: "gold",
@@ -162,21 +273,10 @@ export function HomeScreen({
       });
     }
 
-    if (todayDinner) {
-      entries.push({
-        key: "dinner",
-        icon: "restaurant-outline",
-        label: "Tonight",
-        value: todayDinner.title,
-        tone: "coral",
-        tab: "meals"
-      });
-    }
-
     if (openItems.length > 0) {
       entries.push({
         key: "shopping",
-        icon: "bag-handle-outline",
+        icon: "🛍️",
         label: "Shopping",
         value: `${openItems.length} to pick up`,
         tone: "mint",
@@ -184,63 +284,97 @@ export function HomeScreen({
       });
     }
 
-    if (unreadNotifications.length > 0) {
+    if (nextEvent) {
       entries.push({
-        key: "notifications",
-        icon: "notifications-outline",
-        label: "Unread",
-        value: `${unreadNotifications.length} waiting`,
-        tone: "primary",
-        tab: "thread"
+        key: "next-event",
+        icon: "🗓️",
+        label: "Next plan",
+        value: `${nextEvent.title} at ${nextEvent.time}`,
+        tone: nextUrgency?.tone ?? "primary",
+        tab: "plan"
+      });
+    }
+
+    if (todayDinner) {
+      entries.push({
+        key: "dinner",
+        icon: "🍽️",
+        label: "Tonight",
+        value: todayDinner.title,
+        tone: "coral",
+        tab: "meals"
       });
     }
 
     return entries.slice(0, 4);
   }, [nextEvent, nextUrgency?.tone, openChores.length, todayDinner, openItems.length, unreadNotifications.length]);
 
-  const dayHeadline = nextEvent
-    ? `${nextEvent.title} is setting the pace today.`
-    : openChores.length > 0
-      ? "A few things still need an owner."
-      : todayDinner
-        ? "Dinner is one less thing to solve tonight."
-        : "The day looks calm from here.";
-
   return (
     <View>
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <ScreenHeader
-            eyebrow="Home"
-            title={`Good day, ${profileLabel}`}
-            subtitle={`${safeText(familyName, "Your household")} · Today · ${todayDateParts.compact}`}
-            density="compact"
-          />
-          <View style={styles.headerMeta}>
-            <Pill label={householdSummaryLabel} tone="neutral" icon="people" />
+      {pinnedHeader ? null : (
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <ScreenHeader
+              eyebrow="Home"
+              title={`Hi, ${profileLabel}`}
+              subtitle={todayDateParts.compact}
+              density="compact"
+            />
+          </View>
+          <View style={styles.headerRail}>
+            {onOpenSettings ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open settings for ${profileLabel}`}
+                onPress={onOpenSettings}
+                style={styles.profileButton}
+              >
+                {avatarSource && !avatarImageFailed ? (
+                  <Image
+                    accessibilityLabel={`${profileLabel} profile photo`}
+                    onError={() => setAvatarImageFailed(true)}
+                    source={avatarSource}
+                    style={styles.profileImage}
+                  />
+                ) : (
+                  <Text style={styles.profileInitials}>{profileInitials}</Text>
+                )}
+              </Pressable>
+            ) : null}
           </View>
         </View>
-        <View style={styles.headerRail}>
-          {onOpenSettings ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Open settings for ${profileLabel}`}
-              onPress={onOpenSettings}
-              style={styles.profileButton}
-            >
-              {avatarSource && !avatarImageFailed ? (
-                <Image
-                  accessibilityLabel={`${profileLabel} profile photo`}
-                  onError={() => setAvatarImageFailed(true)}
-                  source={avatarSource}
-                  style={styles.profileImage}
-                />
-              ) : (
-                <Text style={styles.profileInitials}>{profileInitials}</Text>
-              )}
-            </Pressable>
-          ) : null}
+      )}
+
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryHouseholdRow}>
+          <View style={styles.summaryHouseholdIcon}>
+            <Ionicons name="people" size={16} color={colors.primary} />
+          </View>
+          <Text style={styles.summaryHouseholdText} numberOfLines={1}>
+            {householdSummaryLabel}
+          </Text>
         </View>
+
+        <View style={styles.summaryAttention}>
+          <Text style={styles.summaryEyebrow}>
+            {attentionCount > 0 ? "Needs attention today" : "Today"}
+          </Text>
+          <Text style={styles.summaryHeadline}>{attentionHeadline}</Text>
+          <Text style={styles.summaryDetail}>{attentionDetail}</Text>
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="How it works"
+          onPress={openHowItWorks}
+          style={({ pressed }) => [styles.summaryGuideRow, pressed && styles.summaryGuideRowPressed]}
+        >
+          <View style={styles.summaryGuideIcon}>
+            <Ionicons name="book-outline" size={15} color={colors.primary} />
+          </View>
+          <Text style={styles.summaryGuideText}>How it works</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+        </Pressable>
       </View>
 
       <View style={styles.heroShell}>
@@ -250,32 +384,16 @@ export function HomeScreen({
           end={{ x: 1, y: 1 }}
           style={styles.heroPanel}
         >
-          <View style={styles.heroTop}>
-            <View style={styles.heroCopy}>
-              <Pill
-                label={getSyncPillLabel(syncSource)}
-                tone={getSyncPillTone(syncSource)}
-                icon={backendConnected ? "sparkles" : "information-circle"}
-              />
-              <Text style={styles.heroTitle}>{dayHeadline}</Text>
-              <Text style={styles.heroText}>
-                {nextEvent
-                  ? `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
-                  : todayDinner
-                    ? `${todayDinner.title} is already penciled in for tonight.`
-                    : "Add a plan, list, or chore so nothing lives only in memory."}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.heroActions}>
-            <PrimaryButton label="Ask assistant" icon="sparkles" onPress={() => goTo("add")} />
-            <PrimaryButton label="Family board" icon="chatbubbles" tone="ghost" onPress={() => goTo("thread")} />
-            {onEnterKidsMode && kidMembers.length > 0 ? (
-              <PrimaryButton label="Kids mode" icon="happy" tone="ghost" onPress={onEnterKidsMode} />
-            ) : onEnterKidsMode ? (
-              <Text style={styles.kidsHint}>Add a child profile in Household to use Kids mode on this phone.</Text>
-            ) : null}
+          <View style={styles.actionCluster}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add something quickly"
+              onPress={() => goTo("add")}
+              style={({ pressed }) => [styles.clusterPrimaryCta, pressed && styles.clusterPrimaryCtaPressed]}
+            >
+              <Ionicons name="add-circle-outline" size={17} color={colors.surface} />
+              <Text style={styles.clusterPrimaryCtaText}>Add something quickly</Text>
+            </Pressable>
           </View>
 
           {homeHighlights.length > 0 ? (
@@ -284,7 +402,7 @@ export function HomeScreen({
                 const content = (
                   <>
                     <View style={[styles.highlightIcon, highlightToneStyles[item.tone]]}>
-                      <Ionicons name={item.icon} size={18} color={highlightToneColors[item.tone]} />
+                      <Text style={styles.highlightIconGlyph}>{item.icon}</Text>
                     </View>
                     <Text style={styles.highlightLabel}>{item.label}</Text>
                     <Text style={styles.highlightValue} numberOfLines={2}>
@@ -316,162 +434,332 @@ export function HomeScreen({
             </View>
           ) : (
             <View style={styles.emptyPanel}>
-              <Text style={styles.emptyPanelTitle}>A quiet page is a good sign.</Text>
+              <Text style={styles.emptyPanelTitle}>A quiet day</Text>
               <Text style={styles.emptyPanelText}>
-                Nothing urgent is crowding the day right now. Add the first plan when something actually matters.
+                Nothing urgent is waiting. Add a plan or chore when something comes up.
               </Text>
             </View>
           )}
 
-          <View style={styles.syncRow}>
-            <Text style={styles.syncText}>
-              {isHydrating
-                ? "Refreshing the household page..."
-                : backendConnected
-                  ? syncMessage
+          <View style={styles.secondaryActionPair}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open family board"
+                onPress={() => goTo("thread")}
+                style={({ pressed }) => [
+                  styles.secondaryActionTile,
+                  styles.secondaryActionTileBoard,
+                  pressed && styles.secondaryActionTilePressed
+                ]}
+              >
+                <View style={[styles.secondaryActionIcon, styles.secondaryActionIconBoard]}>
+                  <Ionicons name="chatbubbles-outline" size={16} color={colors.primary} />
+                </View>
+                <View style={styles.secondaryActionCopy}>
+                  <Text style={styles.secondaryActionTitle}>Family board</Text>
+                  <Text style={styles.secondaryActionMeta} numberOfLines={1}>
+                    Household updates
+                  </Text>
+                </View>
+              </Pressable>
+
+              {onEnterKidsMode && kidMembers.length > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Switch to Kid Mode"
+                  onPress={onEnterKidsMode}
+                  style={({ pressed }) => [
+                    styles.secondaryActionTile,
+                    styles.secondaryActionTileKids,
+                    pressed && styles.secondaryActionTilePressed
+                  ]}
+                >
+                  <View style={[styles.secondaryActionIcon, styles.secondaryActionIconKids]}>
+                    <Ionicons name="happy-outline" size={16} color={colors.coral} />
+                  </View>
+                  <View style={styles.secondaryActionCopy}>
+                    <Text style={styles.secondaryActionTitle}>Kid Mode</Text>
+                    <Text style={styles.secondaryActionMeta} numberOfLines={1}>
+                      Hand to a child
+                    </Text>
+                  </View>
+                </Pressable>
+              ) : onEnterKidsMode ? (
+                <View
+                  style={[
+                    styles.secondaryActionTile,
+                    styles.secondaryActionTileKids,
+                    styles.secondaryActionTileMuted
+                  ]}
+                >
+                  <View style={[styles.secondaryActionIcon, styles.secondaryActionIconKids]}>
+                    <Ionicons name="happy-outline" size={16} color={colors.muted} />
+                  </View>
+                  <View style={styles.secondaryActionCopy}>
+                    <Text style={styles.secondaryActionTitleMuted}>Kid Mode</Text>
+                    <Text style={styles.secondaryActionMeta} numberOfLines={2}>
+                      Add a child in Household
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+          </View>
+
+          {showSyncNotice ? (
+            <View style={styles.syncRow}>
+              <Text style={styles.syncText}>
+                {isHydrating
+                  ? "Refreshing household data..."
                   : isSignedIn && syncMessage?.trim()
                     ? syncMessage
-                    : "You're viewing preview data on this device. Sign in to share with your household."}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Refresh household page"
-              onPress={() => {
-                if (isHydrating) return;
-                void refreshFromBackend();
-              }}
-              style={({ pressed }) => [styles.refreshLink, pressed && styles.refreshLinkPressed]}
-            >
-              <Ionicons name="sync" size={14} color={colors.primary} />
-              <Text style={styles.refreshLinkText}>{isHydrating ? "Refreshing" : "Refresh"}</Text>
-            </Pressable>
-          </View>
+                    : "Preview data on this device. Sign in to share with your household."}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Refresh household page"
+                onPress={() => {
+                  if (isHydrating) return;
+                  void refreshFromBackend();
+                }}
+                style={({ pressed }) => [styles.refreshLink, pressed && styles.refreshLinkPressed]}
+              >
+                <Ionicons name="sync" size={14} color={colors.primary} />
+                <Text style={styles.refreshLinkText}>{isHydrating ? "Refreshing" : "Retry"}</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </LinearGradient>
       </View>
 
-      {kidsWithOpenChores.length > 0 ? (
-        <>
-          <SectionTitle title="Kids who need a nudge" action={`${kidStarTotal} stars saved`} />
-          <View style={styles.stack}>
-            {kidsWithOpenChores.map(({ member, openCount }) => (
-              <Pressable
-                key={member.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Open chores for ${member.name}`}
-                onPress={() => goTo("chores")}
-              >
-                <Card>
-                  <Row>
-                    <MemberAvatar member={member} size={40} />
-                    <View style={styles.fill}>
-                      <Text style={styles.itemTitle}>{member.name}</Text>
-                      <Text style={styles.itemMeta}>
-                        {openCount} chore{openCount === 1 ? "" : "s"} open - {member.starBalance} stars waiting
-                      </Text>
-                    </View>
-                    <Pill label={`${member.starBalance} stars`} tone="gold" icon="star" />
-                  </Row>
-                </Card>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      ) : null}
+      <View style={styles.familyDesk}>
+        <View style={styles.familyDeskHeader}>
+          <Text style={styles.familyDeskTitle}>Family desk</Text>
+          <Text style={styles.familyDeskMeta}>
+            {kidsWithOpenChores.length > 0
+              ? `${kidStarTotal} stars earned`
+              : unreadNotifications.length > 0
+                ? `${unreadNotifications.length} unread`
+                : "All caught up"}
+          </Text>
+        </View>
 
-      <SectionTitle
-        title="Recent alerts"
-        action={unreadNotifications.length > 0 ? `${unreadNotifications.length} unread` : "All caught up"}
-      />
-      <View style={styles.stack}>
-        {recentNotifications.length > 0 ? (
-          recentNotifications.map((notification) => (
-            <View key={notification.id} style={styles.boardRow}>
-              <View style={styles.boardRowMain}>
-                <View
-                  style={[
-                    styles.notificationIcon,
-                    notification.readAt ? styles.notificationIconMuted : styles.notificationIconUnread
-                  ]}
+        {kidsWithOpenChores.length > 0 ? (
+          <View style={styles.deskZone}>
+            <Text style={styles.deskZoneLabel}>Check in</Text>
+            <View style={styles.deskFeatureStack}>
+              {kidsWithOpenChores.map(({ member, openCount }) => (
+                <Pressable
+                  key={member.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open chores for ${member.name}`}
+                  onPress={() => goTo("chores")}
+                  style={({ pressed }) => [styles.deskFeatureTile, pressed && styles.deskPressed]}
                 >
-                  <Ionicons
-                    name={notification.readAt ? "notifications-outline" : "notifications"}
-                    size={18}
-                    color={notification.readAt ? colors.muted : colors.primary}
-                  />
-                </View>
-                <View style={styles.fill}>
-                  <View style={styles.boardMetaRow}>
-                    <Text style={styles.boardTypeCue}>{formatNotificationType(notification.type)}</Text>
-                    {!notification.readAt ? (
-                      <View style={styles.boardUnreadCue}>
-                        <Text style={styles.boardUnreadCueText}>Unread</Text>
-                      </View>
-                    ) : null}
+                  <MemberAvatar member={member} size={34} />
+                  <View style={styles.fill}>
+                    <Text style={styles.deskItemTitle}>{member.name}</Text>
+                    <Text style={styles.deskItemMeta}>
+                      {openCount} open chore{openCount === 1 ? "" : "s"} · {member.starBalance} stars
+                    </Text>
                   </View>
-                  <Text style={styles.itemTitle} numberOfLines={1}>
-                    {notification.title}
-                  </Text>
-                  <Text style={styles.itemMeta} numberOfLines={2}>
-                    {notification.body}
-                  </Text>
-                </View>
-              </View>
-              {!notification.readAt ? (
+                  <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {onOpenFamilySettings || onOpenInsights ? (
+          <View style={styles.deskZone}>
+            <Text style={styles.deskZoneLabel}>Shortcuts</Text>
+            <View style={styles.deskShortcutRow}>
+              {onOpenFamilySettings ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Mark notification read"
-                  hitSlop={8}
-                  onPress={() => {
-                    void markNotificationsRead([notification.id]);
-                  }}
-                  style={styles.markReadButton}
+                  accessibilityLabel="Open Household"
+                  onPress={onOpenFamilySettings}
+                  style={({ pressed }) => [styles.deskShortcutTile, pressed && styles.deskPressed]}
                 >
-                  <Text style={styles.markReadLabel}>Read</Text>
+                  <View style={styles.deskShortcutTop}>
+                    <View style={[styles.deskIconTile, styles.deskIconPrimary]}>
+                      <Text style={styles.deskIconGlyph}>🧑‍🤝‍🧑</Text>
+                    </View>
+                    <Ionicons color={colors.muted} name="arrow-forward" size={13} />
+                  </View>
+                  <Text style={styles.deskItemTitle}>Household</Text>
+                  <Text style={styles.deskItemMeta} numberOfLines={1}>
+                    Invite & pair
+                  </Text>
+                </Pressable>
+              ) : null}
+              {onOpenInsights ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Open Insights"
+                  onPress={onOpenInsights}
+                  style={({ pressed }) => [styles.deskShortcutTile, pressed && styles.deskPressed]}
+                >
+                  <View style={styles.deskShortcutTop}>
+                    <View style={[styles.deskIconTile, styles.deskIconSky]}>
+                      <Text style={styles.deskIconGlyph}>📊</Text>
+                    </View>
+                    <Ionicons color={colors.muted} name="arrow-forward" size={13} />
+                  </View>
+                  <Text style={styles.deskItemTitle}>Insights</Text>
+                  <Text style={styles.deskItemMeta} numberOfLines={1}>
+                    Weekly summary
+                  </Text>
                 </Pressable>
               ) : null}
             </View>
-          ))
-        ) : (
-          <View style={styles.boardEmpty}>
-            <Text style={styles.emptyPanelText}>No household alerts yet.</Text>
           </View>
-        )}
+        ) : null}
+
+        <View style={styles.deskZone}>
+          <Text style={styles.deskZoneLabel}>Alerts</Text>
+          {recentNotifications.length > 0 ? (
+            <View style={styles.deskAlertStack}>
+              {recentNotifications.map((notification) => (
+                <View key={notification.id} style={styles.deskStatusStrip}>
+                  <View style={styles.deskIconTile}>
+                    <Ionicons
+                      name={notification.readAt ? "notifications-outline" : "notifications"}
+                      size={14}
+                      color={notification.readAt ? colors.muted : colors.primary}
+                    />
+                  </View>
+                  <View style={styles.fill}>
+                    <Text style={styles.deskItemTitle} numberOfLines={1}>
+                      {notification.title}
+                    </Text>
+                    <Text style={styles.deskItemMeta} numberOfLines={1}>
+                      {notification.body}
+                    </Text>
+                  </View>
+                  {!notification.readAt ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Mark notification read"
+                      hitSlop={8}
+                      onPress={() => {
+                        void markNotificationsRead([notification.id]);
+                      }}
+                      style={styles.markReadButton}
+                    >
+                      <Text style={styles.markReadLabel}>Read</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.deskStatusStrip}>
+              <View style={[styles.deskIconTile, styles.deskIconMint]}>
+                <Ionicons name="checkmark-circle" size={14} color={colors.mint} />
+              </View>
+              <View style={styles.fill}>
+                <Text style={styles.deskItemTitle}>All quiet</Text>
+                <Text style={styles.deskItemMeta}>No household alerts right now.</Text>
+              </View>
+            </View>
+          )}
+        </View>
       </View>
 
-      {onOpenFamilySettings || onOpenInsights ? (
-        <>
-          <SectionTitle title="Quick access" action="Full hub in More" />
-          <View style={styles.adminLinks}>
-            {onOpenFamilySettings ? (
+      <Modal
+        animationType="fade"
+        transparent
+        visible={showHowItWorks}
+        onRequestClose={closeHowItWorks}
+      >
+        <View style={styles.guideOverlay}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss how it works"
+            onPress={closeHowItWorks}
+            style={styles.guideBackdrop}
+          />
+          <View style={[styles.guideSheet, { width: guidePageWidth + spacing.lg * 2 }]}>
+            <View style={styles.guideHeader}>
+              <View style={styles.guideHeaderCopy}>
+                <Text style={styles.guideTitle}>How it works</Text>
+                <Text style={styles.guideProgress}>
+                  {guideStep + 1} of {HOW_IT_WORKS_SLIDES.length}
+                </Text>
+              </View>
               <Pressable
                 accessibilityRole="button"
-                onPress={onOpenFamilySettings}
-                style={({ pressed }) => [styles.adminLinkCard, pressed && styles.adminLinkCardPressed]}
+                accessibilityLabel="Close how it works"
+                hitSlop={8}
+                onPress={closeHowItWorks}
+                style={({ pressed }) => [styles.guideClose, pressed && styles.guideClosePressed]}
               >
-                <View style={styles.adminLinkCopy}>
-                  <Text style={styles.adminLinkTitle}>Household</Text>
-                  <Text style={styles.adminLinkMeta}>Invite adults & pair devices</Text>
-                </View>
-                <Ionicons color={colors.muted} name="chevron-forward" size={16} />
+                <Text style={styles.guideCloseText}>Close</Text>
               </Pressable>
-            ) : null}
-            {onOpenInsights ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={onOpenInsights}
-                style={({ pressed }) => [styles.adminLinkCard, pressed && styles.adminLinkCardPressed]}
-              >
-                <View style={styles.adminLinkCopy}>
-                  <Text style={styles.adminLinkTitle}>Insights</Text>
-                  <Text style={styles.adminLinkMeta}>Preview · weekly summary</Text>
-                </View>
-                <Ionicons color={colors.muted} name="chevron-forward" size={16} />
-              </Pressable>
-            ) : null}
-          </View>
-        </>
-      ) : null}
+            </View>
 
+            <ScrollView
+              ref={guideScrollRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={handleGuideScroll}
+              decelerationRate="fast"
+              style={{ width: guidePageWidth }}
+              contentContainerStyle={styles.guideScrollContent}
+            >
+              {HOW_IT_WORKS_SLIDES.map((step) => (
+                <View key={step.title} style={[styles.guidePage, { width: guidePageWidth }]}>
+                  <View style={[styles.guideSlideCard, { backgroundColor: step.accentSoft }]}>
+                    <View style={[styles.guideIconWrap, { borderColor: step.accent }]}>
+                      <Ionicons name={step.icon} size={24} color={step.accent} />
+                    </View>
+                    <View style={styles.guideSlideCopy}>
+                      <Text style={styles.guideStepTitle} numberOfLines={1}>
+                        {step.title}
+                      </Text>
+                      <Text style={styles.guideStepBody} numberOfLines={3}>
+                        {step.body}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.guideFooter}>
+              <View style={styles.guideSwipeLane}>
+                <View style={styles.guideSwipeTrack}>
+                  <View
+                    style={[
+                      styles.guideSwipeThumb,
+                      {
+                        width: `${100 / HOW_IT_WORKS_SLIDES.length}%`,
+                        left: `${(guideStep / HOW_IT_WORKS_SLIDES.length) * 100}%`,
+                        backgroundColor: HOW_IT_WORKS_SLIDES[guideStep]?.accent ?? colors.primary
+                      }
+                    ]}
+                  />
+                </View>
+              </View>
+              <View style={styles.guideFooterMeta}>
+                <View style={styles.guideDots}>
+                  {HOW_IT_WORKS_SLIDES.map((step, index) => (
+                    <View
+                      key={step.title}
+                      style={[
+                        styles.guideDot,
+                        index === guideStep && [styles.guideDotActive, { backgroundColor: step.accent }]
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.guideHint}>Swipe</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -493,14 +781,6 @@ function formatDateParts(date: Date) {
   };
 }
 
-const highlightToneColors = {
-  primary: colors.primary,
-  mint: colors.mint,
-  gold: "#996A00",
-  coral: colors.coral,
-  neutral: colors.muted
-} as const;
-
 const highlightToneStyles = {
   primary: { backgroundColor: colors.primarySoft },
   mint: { backgroundColor: colors.mintSoft },
@@ -514,15 +794,266 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: spacing.lg
+    marginBottom: spacing.md
   },
   headerCopy: {
     flex: 1,
     gap: spacing.xs,
     minWidth: 0
   },
-  headerMeta: {
-    marginTop: -spacing.sm
+  summaryCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: 4,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  summaryHouseholdRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  summaryHouseholdIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.sm,
+    height: 24,
+    justifyContent: "center",
+    width: 24
+  },
+  summaryHouseholdText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 16
+  },
+  summaryAttention: {
+    gap: 0
+  },
+  summaryEyebrow: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
+  },
+  summaryHeadline: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 24,
+    marginTop: 1
+  },
+  summaryDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 17,
+    marginTop: 1
+  },
+  summaryGuideRow: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4
+  },
+  summaryGuideRowPressed: {
+    opacity: 0.82
+  },
+  summaryGuideIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.sm,
+    height: 22,
+    justifyContent: "center",
+    width: 22
+  },
+  summaryGuideText: {
+    color: colors.primary,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  householdMeta: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    marginTop: -spacing.xs
+  },
+  howItWorksEntry: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    minHeight: 32,
+    paddingVertical: spacing.xs
+  },
+  howItWorksEntryPressed: {
+    opacity: 0.72
+  },
+  howItWorksEntryText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  guideOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(44,36,22,0.42)",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg
+  },
+  guideBackdrop: {
+    ...StyleSheet.absoluteFill
+  },
+  guideSheet: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    maxWidth: 400,
+    padding: spacing.lg
+  },
+  guideHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  guideHeaderCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+    paddingRight: spacing.sm
+  },
+  guideTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
+    lineHeight: 28
+  },
+  guideProgress: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  guideClose: {
+    minHeight: 36,
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs
+  },
+  guideClosePressed: {
+    opacity: 0.72
+  },
+  guideCloseText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  guidePage: {
+    justifyContent: "flex-start"
+  },
+  guideScrollContent: {
+    alignItems: "stretch"
+  },
+  guideSlideCard: {
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    height: 168,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md
+  },
+  guideIconWrap: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  guideSlideCopy: {
+    flex: 1,
+    gap: spacing.xs,
+    justifyContent: "flex-start",
+    minHeight: 90
+  },
+  guideStepTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 26,
+    minHeight: 26
+  },
+  guideStepBody: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 21,
+    minHeight: 63
+  },
+  guideFooter: {
+    gap: spacing.sm
+  },
+  guideSwipeLane: {
+    paddingTop: 2
+  },
+  guideSwipeTrack: {
+    backgroundColor: colors.line,
+    borderRadius: radii.pill,
+    height: 5,
+    overflow: "hidden",
+    position: "relative",
+    width: "100%"
+  },
+  guideSwipeThumb: {
+    borderRadius: radii.pill,
+    height: 5,
+    position: "absolute",
+    top: 0
+  },
+  guideFooterMeta: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  guideDots: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs
+  },
+  guideDot: {
+    backgroundColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    height: 7,
+    width: 7
+  },
+  guideDotActive: {
+    width: 16
+  },
+  guideHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase"
   },
   headerRail: {
     alignItems: "flex-start",
@@ -533,13 +1064,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.xs,
     paddingTop: spacing.xs
-  },
-  kidsHint: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18,
-    marginTop: spacing.xs
   },
   profileButton: {
     alignItems: "center",
@@ -565,38 +1089,44 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.lg,
     borderWidth: 1,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
     overflow: "hidden"
   },
   heroPanel: {
     borderRadius: radii.md,
-    gap: spacing.lg,
-    padding: spacing.lg
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
   },
-  heroTop: {
-    gap: spacing.md
+  heroAttention: {
+    gap: spacing.xs
   },
-  heroCopy: {
-    flex: 1,
-    gap: spacing.sm
+  heroEyebrow: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase"
   },
   heroTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "700",
-    lineHeight: 34
+    lineHeight: 36
   },
   heroText: {
     color: colors.muted,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "600",
-    lineHeight: 22
+    lineHeight: 23,
+    marginTop: spacing.xs
   },
   highlightGrid: {
+    columnGap: spacing.sm,
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md
+    rowGap: spacing.xs
   },
   highlightCard: {
     backgroundColor: "rgba(255,252,248,0.86)",
@@ -606,7 +1136,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     gap: spacing.xs,
     minWidth: "46%",
-    padding: spacing.md
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
   },
   highlightIcon: {
     alignItems: "center",
@@ -615,18 +1146,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 32
   },
+  highlightIconGlyph: {
+    fontSize: 16,
+    lineHeight: 20
+  },
   highlightLabel: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    marginTop: spacing.xs,
+    letterSpacing: 0.3,
+    marginTop: 2,
     textTransform: "uppercase"
   },
   highlightValue: {
     color: colors.ink,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
-    lineHeight: 20
+    lineHeight: 22
   },
   emptyPanel: {
     backgroundColor: "rgba(255,252,248,0.82)",
@@ -634,7 +1170,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     borderWidth: 1,
     gap: spacing.xs,
-    padding: spacing.lg
+    padding: spacing.md
   },
   emptyPanelTitle: {
     color: colors.ink,
@@ -649,10 +1185,103 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 21
   },
-  heroActions: {
+  actionCluster: {
+    gap: spacing.sm
+  },
+  clusterPrimaryCta: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    borderRadius: radii.md,
+    borderWidth: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  clusterPrimaryCtaPressed: {
+    backgroundColor: colors.primaryPressed,
+    opacity: 0.94
+  },
+  clusterPrimaryCtaText: {
+    color: colors.surface,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  secondaryActionPair: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  secondaryActionTile: {
+    alignItems: "flex-start",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 64,
+    minWidth: 0,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  secondaryActionTileBoard: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "rgba(139,107,74,0.18)"
+  },
+  secondaryActionTileKids: {
+    backgroundColor: colors.coralSoft,
+    borderColor: "rgba(160,73,59,0.16)"
+  },
+  secondaryActionTileMuted: {
+    opacity: 0.78
+  },
+  secondaryActionTilePressed: {
+    opacity: 0.9
+  },
+  secondaryActionIcon: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    width: 30
+  },
+  secondaryActionIconBoard: {
+    backgroundColor: colors.surface,
+    borderColor: "rgba(139,107,74,0.18)"
+  },
+  secondaryActionIconKids: {
+    backgroundColor: colors.surface,
+    borderColor: "rgba(160,73,59,0.16)"
+  },
+  secondaryActionCopy: {
+    flex: 1,
+    gap: 2,
+    justifyContent: "center",
+    minWidth: 0
+  },
+  secondaryActionTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18
+  },
+  secondaryActionTitleMuted: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18
+  },
+  secondaryActionMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16
   },
   highlightCardPressable: {},
   highlightCardPressed: {
@@ -667,9 +1296,15 @@ const styles = StyleSheet.create({
   },
   syncRow: {
     alignItems: "center",
+    backgroundColor: "rgba(255,252,248,0.72)",
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
   },
   refreshLink: {
     alignItems: "center",
@@ -687,6 +1322,134 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: spacing.md
+  },
+  familyDesk: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md
+  },
+  familyDeskHeader: {
+    alignItems: "baseline",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  familyDeskTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 24
+  },
+  familyDeskMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  deskZone: {
+    gap: spacing.xs
+  },
+  deskZoneLabel: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
+  },
+  deskFeatureStack: {
+    gap: spacing.xs
+  },
+  deskFeatureTile: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  deskShortcutRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  deskShortcutTile: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  deskShortcutTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 2
+  },
+  deskAlertStack: {
+    gap: spacing.xs
+  },
+  deskStatusStrip: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 48,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  deskIconGlyph: {
+    fontSize: 13,
+    lineHeight: 16
+  },
+  deskIconTile: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28
+  },
+  deskIconPrimary: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "rgba(139,107,74,0.14)"
+  },
+  deskIconSky: {
+    backgroundColor: colors.skySoft,
+    borderColor: "rgba(107,127,173,0.18)"
+  },
+  deskIconMint: {
+    backgroundColor: colors.mintSoft,
+    borderColor: "rgba(92,122,90,0.16)"
+  },
+  deskItemTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18
+  },
+  deskItemMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    marginTop: 1
+  },
+  deskPressed: {
+    opacity: 0.92
   },
   snapshotRow: {
     alignItems: "center",
@@ -715,41 +1478,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 19
-  },
-  adminLinks: {
-    gap: spacing.sm,
-    marginBottom: spacing.sm
-  },
-  adminLinkCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.line,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.md,
-    minHeight: 56,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm
-  },
-  adminLinkCardPressed: {
-    backgroundColor: colors.canvas,
-    opacity: 0.96
-  },
-  adminLinkCopy: {
-    flex: 1,
-    gap: 2
-  },
-  adminLinkTitle: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: "800"
-  },
-  adminLinkMeta: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18
   },
   boardRow: {
     alignItems: "center",
@@ -830,9 +1558,9 @@ const styles = StyleSheet.create({
   },
   itemMeta: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "600",
-    lineHeight: 19,
+    lineHeight: 20,
     marginTop: 2
   },
   notificationIcon: {

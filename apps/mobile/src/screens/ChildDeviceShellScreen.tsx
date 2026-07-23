@@ -1,9 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, MemberAvatar, Pill, SectionTitle } from "../components/Primitives";
+import { Card, Pill, SectionTitle } from "../components/Primitives";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useChildDeviceStore } from "../store/useChildDeviceStore";
 import { FamilyMember } from "../types";
@@ -14,11 +14,13 @@ export function ChildDeviceShellScreen() {
   const chores = useChildDeviceStore((state) => state.chores);
   const isSaving = useChildDeviceStore((state) => state.isSaving);
   const completeChore = useChildDeviceStore((state) => state.completeChore);
+  const uploadAvatar = useChildDeviceStore((state) => state.uploadAvatar);
   const unpair = useChildDeviceStore((state) => state.unpair);
   const refresh = useChildDeviceStore((state) => state.refresh);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"success" | "error">("success");
   const [exitHintVisible, setExitHintVisible] = useState(false);
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
 
   const member = useMemo<FamilyMember | null>(() => {
     if (!session) {
@@ -34,6 +36,10 @@ export function ChildDeviceShellScreen() {
       starBalance: session.starBalance
     };
   }, [session]);
+  const avatarSource = useMemo(
+    () => (session?.avatarUrl ? { uri: session.avatarUrl, cache: "reload" as const } : null),
+    [session?.avatarUrl]
+  );
 
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
   const doneChores = useMemo(() => chores.filter((chore) => chore.completed), [chores]);
@@ -51,8 +57,45 @@ export function ChildDeviceShellScreen() {
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
+  useEffect(() => {
+    setAvatarImageFailed(false);
+  }, [session?.avatarUrl]);
+
   if (!session || !member) {
     return null;
+  }
+
+  async function handleChangePhoto() {
+    const ImagePicker = await import("expo-image-picker");
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setStatusTone("error");
+      setStatusMessage("Allow photo library access before choosing a profile photo.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.78,
+      base64: true
+    });
+
+    if (result.canceled || !result.assets?.[0]) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    if (!asset.base64) {
+      setStatusTone("error");
+      setStatusMessage("HomeThread could not read that photo for upload.");
+      return;
+    }
+
+    const uploadResult = await uploadAvatar(asset.base64, asset.mimeType ?? "image/jpeg");
+    setStatusTone(uploadResult.ok ? "success" : "error");
+    setStatusMessage(uploadResult.message);
   }
 
   return (
@@ -79,11 +122,38 @@ export function ChildDeviceShellScreen() {
           <View style={styles.heroCopy}>
             <Text style={styles.greeting}>{member.name}</Text>
             <Text style={styles.heroNote}>{session.familyName} · kids mode only</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change your profile photo"
+              disabled={isSaving}
+              onPress={() => {
+                void handleChangePhoto();
+              }}
+              style={({ pressed }) => [styles.photoAction, pressed && !isSaving ? styles.photoActionPressed : null]}
+            >
+              <Ionicons name="camera" size={14} color={colors.primary} />
+              <Text style={styles.photoActionText}>{isSaving ? "Uploading..." : "Change your photo"}</Text>
+            </Pressable>
             {exitHintVisible ? (
               <Text style={styles.exitHint}>Keep holding the lock to unpair this device. Ask a parent for a new KC- code to pair again.</Text>
             ) : null}
           </View>
-          <MemberAvatar member={member} size={48} />
+          <View style={styles.avatarShell}>
+            {avatarSource && !avatarImageFailed ? (
+              <Image source={avatarSource} style={styles.avatarImage} onError={() => setAvatarImageFailed(true)} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarFallbackText}>{safeMemberInitials(member.name)}</Text>
+              </View>
+            )}
+            <View style={styles.avatarBadge}>
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={14} color="#FFFFFF" />
+              )}
+            </View>
+          </View>
         </View>
         <View style={styles.summaryGrid}>
           <View style={styles.summaryCard}>
@@ -191,6 +261,25 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.xs
   },
+  photoAction: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  photoActionPressed: {
+    opacity: 0.84
+  },
+  photoActionText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800"
+  },
   greeting: {
     color: colors.ink,
     fontFamily: fonts.display,
@@ -209,6 +298,44 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: spacing.xs
+  },
+  avatarShell: {
+    position: "relative"
+  },
+  avatarImage: {
+    borderColor: colors.surface,
+    borderRadius: radii.pill,
+    borderWidth: 2,
+    height: 72,
+    width: 72
+  },
+  avatarFallback: {
+    alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderColor: colors.surface,
+    borderRadius: radii.pill,
+    borderWidth: 2,
+    height: 72,
+    justifyContent: "center",
+    width: 72
+  },
+  avatarFallbackText: {
+    color: colors.gold,
+    fontSize: 24,
+    fontWeight: "900"
+  },
+  avatarBadge: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderColor: colors.surface,
+    borderRadius: radii.pill,
+    borderWidth: 2,
+    bottom: -2,
+    height: 28,
+    justifyContent: "center",
+    position: "absolute",
+    right: -2,
+    width: 28
   },
   summaryGrid: {
     flexDirection: "row",

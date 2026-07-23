@@ -57,7 +57,8 @@ describe("ai routes", () => {
       mode: "local",
       provider: null,
       message: "AI assistant is not configured on this backend. HomeThread will use local parsing instead.",
-      draft: null
+      draft: null,
+      recipe: null
     });
   });
 

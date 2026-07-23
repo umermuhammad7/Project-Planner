@@ -1,4 +1,5 @@
 import {
+  ChildDeviceAvatarUploadResponse,
   ChildDeviceChoresResponse,
   ChildDeviceMeResponse,
   ChildDevicesListResponse,
@@ -70,6 +71,13 @@ export async function saveChildDevicePushToken(pushToken: string) {
   return childDeviceRequest<{ device: { id: string; pushToken: string | null } }>("/child-devices/push-token", {
     method: "PUT",
     body: JSON.stringify({ pushToken })
+  });
+}
+
+export async function uploadChildDeviceAvatar(imageBase64: string, mimeType: string) {
+  return childDeviceRequest<ChildDeviceAvatarUploadResponse>("/child-devices/me/avatar", {
+    method: "PUT",
+    body: JSON.stringify({ imageBase64, mimeType })
   });
 }
 

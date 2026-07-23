@@ -12,6 +12,7 @@ import {
   saveChildDevicePushToken,
   setChildDeviceTokenProvider,
   setChildDeviceUnauthorizedHandler,
+  uploadChildDeviceAvatar,
   unpairChildDevice
 } from "../services/childDeviceApi";
 import { refreshPushTokenIfAvailable } from "../services/notifications";
@@ -30,6 +31,7 @@ type ChildDeviceSession = {
   familyName: string;
   memberId: string;
   memberName: string;
+  avatarUrl: string | null;
   starBalance: number;
 };
 
@@ -57,6 +59,7 @@ type ChildDeviceState = {
   pairWithCode: (pairingCode: string) => Promise<{ ok: boolean; message?: string }>;
   refresh: () => Promise<void>;
   completeChore: (choreId: string) => Promise<{ ok: boolean; message: string }>;
+  uploadAvatar: (imageBase64: string, mimeType: string) => Promise<{ ok: boolean; message: string }>;
   registerPushToken: () => Promise<void>;
   unpair: () => Promise<void>;
 };
@@ -173,6 +176,7 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
         familyName: result.data.family.name,
         memberId: result.data.member.id,
         memberName: result.data.member.displayName,
+        avatarUrl: result.data.member.avatarUrl ?? null,
         starBalance: result.data.member.starBalance
       };
 
@@ -222,6 +226,7 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
           familyName: result.data.family.name,
           memberId: result.data.member.id,
           memberName: result.data.member.displayName,
+          avatarUrl: null,
           starBalance: result.data.member.starBalance
         },
         chores: []
@@ -248,6 +253,7 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
           ...session,
           familyName: meResult.data.family.name,
           memberName: meResult.data.member.displayName,
+          avatarUrl: meResult.data.member.avatarUrl ?? null,
           starBalance: meResult.data.member.starBalance
         },
         chores: mapChores(choresResult.data)
@@ -270,6 +276,29 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
 
       await get().refresh();
       return { ok: true, message: "Nice work - chore completed." };
+    },
+    uploadAvatar: async (imageBase64, mimeType) => {
+      const session = get().session;
+      if (!session) {
+        return { ok: false, message: "This device is not paired." };
+      }
+
+      set({ isSaving: true });
+      const result = await uploadChildDeviceAvatar(imageBase64, mimeType);
+      set({ isSaving: false });
+
+      if (!result.data?.avatarUrl) {
+        return { ok: false, message: result.error?.message ?? "Could not update that profile photo." };
+      }
+
+      set({
+        session: {
+          ...session,
+          avatarUrl: result.data.avatarUrl
+        }
+      });
+
+      return { ok: true, message: "Profile photo updated." };
     },
     registerPushToken: async () => {
       const refreshed = await refreshPushTokenIfAvailable();

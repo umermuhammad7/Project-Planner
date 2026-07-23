@@ -1,10 +1,12 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChildDeviceRecord } from "@homethread/shared";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
 import type { PurchasesPackage } from "react-native-purchases";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, MemberAvatar, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
+import { useScrollAssist } from "../context/ScrollAssistContext";
+import { Card, MemberAvatar, Pill, PrimaryButton, Row } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
@@ -43,13 +45,6 @@ function formatPairingExpiry(expiresAt: string) {
   return `Expires ${expiry.toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`;
 }
 
-function roleLabel(
-  member: Pick<FamilyMember, "role" | "userId">,
-  effectiveFamilyCreatedBy: string | null
-) {
-  return getMemberAccessLabel(member, effectiveFamilyCreatedBy);
-}
-
 function formatChildDeviceStatus(device: ChildDeviceRecord) {
   if (device.revokedAt) {
     return "Revoked - phone signed out on next use";
@@ -81,12 +76,154 @@ function feedbackTone(message: string): "success" | "error" | "info" {
   return "success";
 }
 
+type CardHeaderTone = "primary" | "mint" | "gold" | "coral";
+type CardHeaderIconName = keyof typeof Ionicons.glyphMap;
+
+const cardHeaderToneStyles = StyleSheet.create({
+  primary: { backgroundColor: colors.primarySoft },
+  mint: { backgroundColor: "rgba(95, 168, 136, 0.14)" },
+  gold: { backgroundColor: "rgba(214, 168, 74, 0.16)" },
+  coral: { backgroundColor: "rgba(224, 122, 95, 0.14)" }
+});
+
+const cardHeaderToneIconColors: Record<CardHeaderTone, string> = {
+  primary: colors.primary,
+  mint: colors.mint,
+  gold: "#996A00",
+  coral: colors.coral
+};
+
+function CardHeader({
+  icon,
+  emoji,
+  tone,
+  title,
+  meta,
+  right
+}: {
+  icon?: CardHeaderIconName;
+  emoji?: string;
+  tone: CardHeaderTone;
+  title: string;
+  meta?: string;
+  right?: ReactNode;
+}) {
+  return (
+    <View style={styles.cardHeaderRow}>
+      <View style={[styles.cardHeaderIcon, cardHeaderToneStyles[tone]]}>
+        {emoji ? (
+          <Text style={styles.cardHeaderEmoji}>{emoji}</Text>
+        ) : icon ? (
+          <Ionicons name={icon} size={17} color={cardHeaderToneIconColors[tone]} />
+        ) : null}
+      </View>
+      <Text style={styles.cardHeaderTitle}>{title}</Text>
+      {meta ? <Text style={styles.cardHeaderMeta}>{meta}</Text> : null}
+      {right}
+    </View>
+  );
+}
+
+function WidgetTile({
+  emoji,
+  tone,
+  label,
+  meta,
+  active,
+  onPress
+}: {
+  emoji: string;
+  tone: CardHeaderTone;
+  label: string;
+  meta: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: active }}
+      accessibilityLabel={`${label}. ${meta}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.widgetTile,
+        cardHeaderToneStyles[tone],
+        active && { borderColor: cardHeaderToneIconColors[tone], borderWidth: 2 },
+        pressed && !active && styles.widgetTilePressed
+      ]}
+    >
+      <View style={[styles.widgetTileIconBadge, active ? { backgroundColor: cardHeaderToneIconColors[tone] } : styles.widgetTileIconBadgeIdle]}>
+        <Text style={styles.widgetTileEmoji}>{emoji}</Text>
+      </View>
+      <Text style={[styles.widgetTileLabel, active && styles.widgetTileLabelActive]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.widgetTileMeta} numberOfLines={1}>
+        {meta}
+      </Text>
+    </Pressable>
+  );
+}
+
+function ActionButton({
+  emoji,
+  label,
+  tone,
+  solid = false,
+  align = "center",
+  fill = true,
+  loading = false,
+  disabled = false,
+  onPress
+}: {
+  emoji: string;
+  label: string;
+  tone: CardHeaderTone;
+  solid?: boolean;
+  align?: "center" | "flex-start";
+  fill?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  const toneColor = cardHeaderToneIconColors[tone];
+  const isDisabled = disabled || loading;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      disabled={isDisabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionButton,
+        { justifyContent: align, flex: fill ? 1 : 0 },
+        solid ? { backgroundColor: toneColor, borderColor: toneColor } : cardHeaderToneStyles[tone],
+        isDisabled && styles.actionButtonDisabled,
+        pressed && !isDisabled && styles.actionButtonPressed
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={solid ? "#FFFFFF" : toneColor} />
+      ) : (
+        <Text style={styles.actionButtonEmoji}>{emoji}</Text>
+      )}
+      <Text style={[styles.actionButtonLabel, { color: solid ? "#FFFFFF" : colors.ink }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function FamilyScreen({
   onClose,
-  onLeaveComplete
+  onLeaveComplete,
+  pinnedHeader = false
 }: {
   onClose: () => void;
   onLeaveComplete?: (result: { needsFamilySetup: boolean }) => void;
+  pinnedHeader?: boolean;
 }) {
   const {
     familyId,
@@ -111,6 +248,9 @@ export function FamilyScreen({
   const [editedFamilyName, setEditedFamilyName] = useState(familyName);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [editingMemberName, setEditingMemberName] = useState("");
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+  const memberRowRefs = useRef<Record<string, View | null>>({});
+  const scrollAssist = useScrollAssist();
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<MobileSubscriptionStatus | null>(null);
@@ -124,6 +264,8 @@ export function FamilyScreen({
   const [activePurchaseId, setActivePurchaseId] = useState<string | null>(null);
   const [showBillingPlans, setShowBillingPlans] = useState(false);
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
+  const [activeWidget, setActiveWidget] = useState<"invite" | "devices" | "people" | null>(null);
+  const [activeAccountWidget, setActiveAccountWidget] = useState<"billing" | "leave" | null>(null);
   const [showAddChildForm, setShowAddChildForm] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
@@ -173,6 +315,7 @@ export function FamilyScreen({
   const effectiveFamilyCreatedBy = getEffectiveFamilyCreatorId(familyCreatedBy, members);
   const householdAdminCount = members.filter((member) => member.role === "parent").length;
   const isSoleAdmin = isFamilyAdmin && householdAdminCount <= 1;
+  const activeDeviceCount = childDevices.filter((device) => !device.revokedAt).length;
   const pendingRemoveDeviceCount = pendingRemoveMemberId
     ? childDevices.filter(
         (device) => device.memberId === pendingRemoveMemberId && !device.revokedAt
@@ -183,6 +326,8 @@ export function FamilyScreen({
     currentUserId,
     familyCreatedBy: effectiveFamilyCreatedBy
   });
+  const heroStackMembers = members.slice(0, 4);
+  const heroStackOverflow = members.length - heroStackMembers.length;
 
   async function handleSaveFamilyName() {
     setFormMessage(null);
@@ -508,6 +653,12 @@ export function FamilyScreen({
   }
 
   useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  useEffect(() => {
     setEditedFamilyName(familyName);
   }, [familyName]);
 
@@ -566,82 +717,171 @@ export function FamilyScreen({
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader
-        eyebrow="Household"
-        title={safeText(familyName, "Your household")}
-        subtitle={
-          backendConnected
-            ? `${currentAccessLabel} · ${adultMembers.length} adults · ${childProfiles.length} child profiles`
-            : "Sign in to manage the household."
-        }
-        variant="admin"
-        actionLabel="Close"
-        onActionPress={onClose}
-      />
+      {pinnedHeader ? null : (
+        <ScreenHeader
+          eyebrow="Household"
+          title={safeText(familyName, "Your household")}
+          subtitle={
+            backendConnected
+              ? `${currentAccessLabel} · ${adultMembers.length} adults · ${childProfiles.length} child profiles`
+              : "Sign in to manage the household."
+          }
+          variant="admin"
+          actionLabel="Close"
+          onActionPress={onClose}
+        />
+      )}
 
-      <View style={styles.summaryStrip}>
-        <View style={styles.summaryTop}>
-          <Pill
-            label={`${currentAccessLabel} access`}
-            tone={accessPillTone(
-              currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
-            )}
-          />
-          <Pill label={backendConnected ? "Connected" : "Local-only"} tone={backendConnected ? "mint" : "neutral"} />
-        </View>
-      </View>
-
-      {isFamilyAdmin ? (
-        <Card>
-          <View style={styles.cardActionsTight}>
-            <PrimaryButton
-              label={showHouseholdDetails ? "Close name editor" : "Edit household name"}
-              icon={showHouseholdDetails ? "chevron-up" : "create"}
-              tone="ghost"
-              onPress={() => setShowHouseholdDetails((value) => !value)}
-            />
+      <View style={styles.heroWidgetGroup}>
+      <Card>
+        <View style={styles.householdHeroPanel}>
+          <View style={styles.householdHero}>
+            {heroStackMembers.length > 0 ? (
+              <View style={styles.memberStackRow}>
+                {heroStackMembers.map((member, index) => (
+                  <View
+                    key={member.id}
+                    style={[styles.memberStackAvatar, index > 0 && styles.memberStackAvatarOverlap]}
+                  >
+                    <MemberAvatar member={member} size={40} />
+                  </View>
+                ))}
+                {heroStackOverflow > 0 ? (
+                  <View style={[styles.memberStackAvatar, styles.memberStackAvatarOverlap, styles.memberStackMore]}>
+                    <Text style={styles.memberStackMoreText}>+{heroStackOverflow}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            <View style={styles.householdHeroCopy}>
+              <View style={styles.summaryTop}>
+                <Pill
+                  label={currentAccessLabel}
+                  tone={accessPillTone(
+                    currentAccessLabel === "Owner" ? "owner" : currentAccessLabel === "Admin" ? "admin" : "member"
+                  )}
+                />
+                <View style={styles.syncStatusRow}>
+                  <View style={[styles.syncDot, backendConnected ? styles.syncDotOn : styles.syncDotOff]} />
+                  <Text style={styles.syncStatusText}>{backendConnected ? "Connected" : "Local-only"}</Text>
+                </View>
+              </View>
+              <Text style={styles.householdHeroMeta} numberOfLines={1}>
+                {adultMembers.length} adult{adultMembers.length === 1 ? "" : "s"} · {childProfiles.length} child profile
+                {childProfiles.length === 1 ? "" : "s"}
+              </Text>
+            </View>
+            {isFamilyAdmin ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={showHouseholdDetails ? "Close name editor" : "Edit household name"}
+                hitSlop={8}
+                onPress={() => setShowHouseholdDetails((value) => !value)}
+                style={({ pressed }) => [styles.householdEditBadge, pressed && styles.householdEditBadgePressed]}
+              >
+                <Ionicons name={showHouseholdDetails ? "close" : "create"} size={15} color={colors.primary} />
+              </Pressable>
+            ) : null}
           </View>
-          {showHouseholdDetails ? (
-            <>
-              <Text style={styles.label}>Household name</Text>
+          {isFamilyAdmin && showHouseholdDetails ? (
+            <View style={styles.householdEditRow}>
               <TextInput
-                style={styles.input}
-                placeholder="Family name"
+                style={styles.householdEditInput}
+                placeholder="Household name"
                 placeholderTextColor={colors.muted}
                 value={editedFamilyName}
                 onChangeText={setEditedFamilyName}
+                autoFocus
               />
-              <View style={styles.cardActions}>
-                <PrimaryButton
-                  label="Save name"
-                  icon="checkmark"
-                  loading={isSavingFamily}
-                  disabled={isSavingFamily || !backendConnected}
-                  onPress={() => {
-                    if (isSavingFamily || !backendConnected) return;
-                    void handleSaveFamilyName();
-                  }}
-                />
-              </View>
-            </>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Save household name"
+                accessibilityState={{ disabled: isSavingFamily || !backendConnected, busy: isSavingFamily }}
+                disabled={isSavingFamily || !backendConnected}
+                onPress={() => {
+                  if (isSavingFamily || !backendConnected) return;
+                  void handleSaveFamilyName();
+                }}
+                style={({ pressed }) => [
+                  styles.householdEditSave,
+                  (isSavingFamily || !backendConnected) && styles.householdEditSaveDisabled,
+                  pressed && !(isSavingFamily || !backendConnected) && styles.householdEditSavePressed
+                ]}
+              >
+                {isSavingFamily ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="checkmark" size={19} color="#FFFFFF" />
+                )}
+              </Pressable>
+            </View>
           ) : null}
-        </Card>
-      ) : null}
-
-      <View style={styles.inviteHero}>
-        <View style={styles.inviteHeroHeader}>
-          <Text style={styles.inviteHeroTitle}>Adult invite</Text>
-          <Pill label="Adults only" tone="primary" />
         </View>
-        <Text selectable style={styles.inviteCode} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-          {inviteCode ?? "Unavailable"}
-        </Text>
+      </Card>
+
+      <Card>
+        <CardHeader emoji="🛠️" tone="primary" title="Quick actions" />
+        <View style={styles.widgetRow}>
+          <WidgetTile
+            emoji="🔑"
+            tone="primary"
+            label="Invite"
+            meta={inviteCode ? "Adults only" : "Unavailable"}
+            active={activeWidget === "invite"}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveWidget((current) => (current === "invite" ? null : "invite"));
+            }}
+          />
+          <WidgetTile
+            emoji="📱"
+            tone="mint"
+            label="Devices"
+            meta={isLoadingDevices ? "Loading" : `${activeDeviceCount} active`}
+            active={activeWidget === "devices"}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveWidget((current) => (current === "devices" ? null : "devices"));
+            }}
+          />
+          <WidgetTile
+            emoji="🧑‍🤝‍🧑"
+            tone="gold"
+            label="People"
+            meta={`${adultMembers.length + childProfiles.length} total`}
+            active={activeWidget === "people"}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveWidget((current) => (current === "people" ? null : "people"));
+            }}
+          />
+        </View>
+      </Card>
+
+      {activeWidget === "invite" ? (
+      <Card>
+      <View style={styles.groupBlockFirst}>
+        <CardHeader emoji="🔑" tone="primary" title="Adult invite" meta="Adults only" />
+        <View style={styles.pairingCodeCard}>
+          <Text style={styles.pairingCodeLabel}>Adult invite code</Text>
+          <Text
+            selectable
+            style={styles.inviteCode}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.65}
+          >
+            {inviteCode ?? "Unavailable"}
+          </Text>
+          <Text style={styles.pairingCodeHint}>Share this with adults joining the household.</Text>
+        </View>
         <View style={styles.inviteActionRow}>
           <View style={styles.invitePrimaryAction}>
-            <PrimaryButton
+            <ActionButton
+              emoji="📋"
               label="Copy code"
-              icon="copy"
-              tone="soft"
+              tone="primary"
+              solid
               disabled={!inviteCode}
               onPress={() => {
                 void handleCopyInvite();
@@ -649,10 +889,10 @@ export function FamilyScreen({
             />
           </View>
           {isFamilyAdmin && !showRegenerateConfirm ? (
-            <PrimaryButton
+            <ActionButton
+              emoji="🔄"
               label="Regenerate"
-              icon="refresh"
-              tone="ghost"
+              tone="gold"
               loading={isRegeneratingInvite}
               disabled={isRegeneratingInvite || !backendConnected}
               onPress={() => {
@@ -666,16 +906,17 @@ export function FamilyScreen({
           <View style={styles.inlineConfirm}>
             <Text style={styles.warningText}>Replaces the current code immediately.</Text>
             <View style={styles.memberButtonRow}>
-              <PrimaryButton
+              <ActionButton
+                emoji="🛡️"
                 label="Keep current"
-                icon="close"
-                tone="soft"
+                tone="mint"
                 onPress={() => setShowRegenerateConfirm(false)}
               />
-              <PrimaryButton
+              <ActionButton
+                emoji="🔄"
                 label="Regenerate"
-                icon="refresh"
-                tone="dark"
+                tone="coral"
+                solid
                 loading={isRegeneratingInvite}
                 disabled={isRegeneratingInvite || !backendConnected}
                 onPress={() => {
@@ -688,12 +929,13 @@ export function FamilyScreen({
         ) : null}
         {inviteFeedback ? <Text style={styles.inviteFeedback}>{inviteFeedback}</Text> : null}
       </View>
+      </Card>
+      ) : null}
 
-      <View style={styles.pairingPanel}>
-        <View style={styles.pairingHeader}>
-          <Text style={styles.pairingTitle}>Child device pairing</Text>
-          <Pill label="KC- codes" tone="gold" icon="key" />
-        </View>
+      {activeWidget === "devices" ? (
+      <Card>
+      <View style={styles.groupBlockFirst}>
+        <CardHeader emoji="📱" tone="mint" title="Child device pairing" meta="KC- codes" />
         <Text style={styles.pairingStat}>
           {isLoadingDevices
             ? "Loading paired devices..."
@@ -717,10 +959,11 @@ export function FamilyScreen({
                     </Text>
                   </View>
                   {isFamilyAdmin && !device.revokedAt ? (
-                    <PrimaryButton
+                    <ActionButton
+                      emoji="🔌"
                       label="Revoke"
-                      icon="close-circle"
-                      tone="ghost"
+                      tone="coral"
+                      fill={false}
                       onPress={() => {
                         void handleRevokeChildDevice(device.id);
                       }}
@@ -731,6 +974,351 @@ export function FamilyScreen({
           </View>
         ) : null}
       </View>
+      </Card>
+      ) : null}
+
+      {activeWidget === "people" ? (
+      <Card>
+      <View style={styles.groupBlockFirst}>
+        <CardHeader
+          emoji="🧑‍🤝‍🧑"
+          tone="gold"
+          title="People"
+          meta={`${adultMembers.length + childProfiles.length}`}
+          right={
+            isFamilyAdmin ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={showAddChildForm ? "Hide add child form" : "Add child profile"}
+                hitSlop={8}
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowAddChildForm((value) => !value);
+                }}
+                style={styles.cardHeaderAction}
+              >
+                <Ionicons
+                  color={colors.primary}
+                  name={showAddChildForm ? "close" : "person-add"}
+                  size={16}
+                />
+              </Pressable>
+            ) : undefined
+          }
+        />
+
+        {isFamilyAdmin && showAddChildForm ? (
+          <View style={styles.addChildPanel}>
+            <View style={styles.compactFormRow}>
+              <TextInput
+                style={styles.householdEditInput}
+                placeholder="Child's name"
+                placeholderTextColor={colors.muted}
+                value={childName}
+                onChangeText={setChildName}
+                autoFocus
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Save child profile"
+                accessibilityState={{ disabled: isAddingChild || !backendConnected, busy: isAddingChild }}
+                disabled={isAddingChild || !backendConnected}
+                onPress={() => {
+                  if (isAddingChild || !backendConnected) return;
+                  void handleAddChild();
+                }}
+                style={({ pressed }) => [
+                  styles.householdEditSave,
+                  (isAddingChild || !backendConnected) && styles.householdEditSaveDisabled,
+                  pressed && !(isAddingChild || !backendConnected) && styles.householdEditSavePressed
+                ]}
+              >
+                {isAddingChild ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="checkmark" size={19} color="#FFFFFF" />
+                )}
+              </Pressable>
+            </View>
+            <ActionFeedback
+              message={childFormMessage ?? ""}
+              tone={feedbackTone(childFormMessage ?? "")}
+              visible={Boolean(childFormMessage)}
+            />
+          </View>
+        ) : null}
+
+        <Text style={styles.peopleGroupLabel}>Adults · {adultMembers.length}</Text>
+        <View style={styles.memberList}>
+          {adultMembers.map((member) => {
+            const canPromote =
+              isFamilyAdmin && member.role === "caregiver" && member.userId && !member.isVirtual;
+            const isExpanded = expandedMemberId === member.id;
+
+            return (
+              <View
+                key={member.id}
+                style={styles.memberRow}
+                ref={(node) => {
+                  memberRowRefs.current[member.id] = node;
+                }}
+              >
+                <Pressable
+                  accessibilityRole={canPromote ? "button" : undefined}
+                  accessibilityState={canPromote ? { expanded: isExpanded } : undefined}
+                  accessibilityLabel={canPromote ? `${member.name}. ${isExpanded ? "Hide" : "Show"} actions` : member.name}
+                  disabled={!canPromote}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    const willExpand = expandedMemberId !== member.id;
+                    setExpandedMemberId((current) => (current === member.id ? null : member.id));
+                    if (willExpand) {
+                      setTimeout(() => scrollAssist.scrollIntoView(memberRowRefs.current[member.id]), 260);
+                    }
+                  }}
+                  style={({ pressed }) => [styles.memberRowMain, pressed && canPromote && styles.memberRowMainPressed]}
+                >
+                  <Row>
+                    <MemberAvatar member={member} size={40} />
+                    <View style={styles.memberCopy}>
+                      <Text style={styles.memberName}>{member.name}</Text>
+                      <Text style={styles.memberMeta}>{getAdultMemberAccountLabel(member)}</Text>
+                    </View>
+                    <View style={styles.accessPillWrap}>
+                      <Pill
+                        label={getMemberAccessLabel(member, effectiveFamilyCreatedBy)}
+                        tone={accessPillTone(getMemberAccessKind(member, effectiveFamilyCreatedBy))}
+                      />
+                    </View>
+                    {canPromote ? (
+                      <Ionicons
+                        color={colors.tertiary}
+                        name={isExpanded ? "chevron-up" : "chevron-forward"}
+                        size={14}
+                      />
+                    ) : null}
+                  </Row>
+                </Pressable>
+                {canPromote && isExpanded ? (
+                  <View style={styles.memberActions}>
+                    <PrimaryButton
+                      label={promotingMemberId === member.id ? "Promoting..." : "Make admin"}
+                      icon="shield"
+                      tone="soft"
+                      loading={promotingMemberId === member.id}
+                      disabled={isSavingFamily || promotingMemberId === member.id || !backendConnected}
+                      onPress={() => {
+                        if (isSavingFamily || promotingMemberId === member.id || !backendConnected) return;
+                        void handlePromoteMember(member.id);
+                      }}
+                    />
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+
+        <Text style={styles.peopleGroupLabel}>Children · {childProfiles.length}</Text>
+        <View style={styles.memberList}>
+          {childProfiles.length === 0 ? (
+            <View style={styles.emptyRow}>
+              <Text style={styles.emptyTitle}>No child profiles yet.</Text>
+            </View>
+          ) : null}
+          {childProfiles.map((member) => {
+            const canManage = isFamilyAdmin && member.isVirtual;
+            const isExpanded = expandedMemberId === member.id;
+
+            return (
+              <View
+                key={member.id}
+                style={styles.memberRow}
+                ref={(node) => {
+                  memberRowRefs.current[member.id] = node;
+                }}
+              >
+                <Pressable
+                  accessibilityRole={canManage ? "button" : undefined}
+                  accessibilityState={canManage ? { expanded: isExpanded } : undefined}
+                  accessibilityLabel={canManage ? `${member.name}. ${isExpanded ? "Hide" : "Show"} actions` : member.name}
+                  disabled={!canManage}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    const willExpand = expandedMemberId !== member.id;
+                    setExpandedMemberId((current) => (current === member.id ? null : member.id));
+                    setPendingRemoveMemberId(null);
+                    if (willExpand) {
+                      setTimeout(() => scrollAssist.scrollIntoView(memberRowRefs.current[member.id]), 260);
+                    }
+                  }}
+                  style={({ pressed }) => [styles.memberRowMain, pressed && canManage && styles.memberRowMainPressed]}
+                >
+                  <Row>
+                    <MemberAvatar member={member} size={40} />
+                    <View style={styles.memberCopy}>
+                      <Text style={styles.memberName}>{member.name}</Text>
+                      <Text style={styles.memberMeta}>{member.userId ? "Signed in" : "Profile only"}</Text>
+                    </View>
+                    <View style={styles.accessPillWrap}>
+                      <Pill label="Child profile" tone="gold" />
+                    </View>
+                    {canManage ? (
+                      <Ionicons
+                        color={colors.tertiary}
+                        name={isExpanded ? "chevron-up" : "chevron-forward"}
+                        size={14}
+                      />
+                    ) : null}
+                  </Row>
+                </Pressable>
+                {canManage && isExpanded ? (
+                  <View style={styles.memberActions}>
+                    {editingMemberId === member.id ? (
+                      <>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Child name"
+                          placeholderTextColor={colors.muted}
+                          value={editingMemberName}
+                          onChangeText={setEditingMemberName}
+                          autoFocus
+                        />
+                        <View style={styles.memberButtonRow}>
+                          <ActionButton
+                            emoji="✅"
+                            label="Save child"
+                            tone="mint"
+                            solid
+                            loading={isSavingFamily}
+                            disabled={isSavingFamily || !backendConnected}
+                            onPress={() => {
+                              if (isSavingFamily || !backendConnected) return;
+                              void handleSaveMember();
+                            }}
+                          />
+                          <ActionButton
+                            emoji="✖️"
+                            label="Cancel"
+                            tone="coral"
+                            onPress={() => {
+                              setEditingMemberId(null);
+                              setEditingMemberName("");
+                            }}
+                          />
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.memberButtonRow}>
+                          <ActionButton
+                            emoji="✏️"
+                            label="Rename"
+                            tone="gold"
+                            align="flex-start"
+                            onPress={() => {
+                              setEditingMemberId(member.id);
+                              setEditingMemberName(member.name);
+                            }}
+                          />
+                          <ActionButton
+                            emoji="🗑️"
+                            label="Remove"
+                            tone="coral"
+                            align="flex-start"
+                            loading={isSavingFamily}
+                            disabled={isSavingFamily || !backendConnected}
+                            onPress={() => {
+                              if (isSavingFamily || !backendConnected) return;
+                              setPendingRemoveMemberId(member.id);
+                            }}
+                          />
+                        </View>
+                        <View style={styles.memberButtonRow}>
+                          <View style={styles.memberPrimaryAction}>
+                            <ActionButton
+                              emoji="📱"
+                              label={pairingMemberId === member.id ? "Generating..." : "Pair device"}
+                              tone="primary"
+                              solid
+                              loading={pairingMemberId === member.id}
+                              disabled={!backendConnected || pairingMemberId === member.id}
+                              onPress={() => {
+                                void handleGeneratePairingCode(member.id, member.name);
+                              }}
+                            />
+                          </View>
+                        </View>
+                        {activePairingCodes[member.id] ? (
+                          <View style={[styles.pairingCodeCard, styles.pairingCodeCardInGroup]}>
+                            <Text style={styles.pairingCodeLabel}>Pairing code · {member.name}</Text>
+                            <Text
+                              selectable
+                              style={styles.pairingCodeValue}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.7}
+                            >
+                              {activePairingCodes[member.id]?.code}
+                            </Text>
+                            <Text style={styles.pairingCodeHint}>
+                              {formatPairingExpiry(activePairingCodes[member.id]?.expiresAt ?? "")} · Enter on
+                              Welcome → Set up child's device
+                            </Text>
+                            <ActionButton
+                              emoji="📋"
+                              label="Copy code"
+                              tone="primary"
+                              onPress={() => {
+                                const code = activePairingCodes[member.id]?.code;
+                                if (code) {
+                                  void handleCopyPairingCode(code);
+                                }
+                              }}
+                            />
+                          </View>
+                        ) : null}
+                      </>
+                    )}
+                    {pendingRemoveMemberId === member.id ? (
+                      <View style={styles.inlineConfirm}>
+                        <Text style={styles.warningText}>
+                          Removing {member.name} deletes this child profile. Any paired phone for this child loses access on
+                          its next use
+                          {pendingRemoveDeviceCount > 0
+                            ? ` (${pendingRemoveDeviceCount} active device${pendingRemoveDeviceCount === 1 ? "" : "s"} paired now).`
+                            : "."}
+                        </Text>
+                        <View style={styles.memberButtonRow}>
+                          <PrimaryButton
+                            label="Keep profile"
+                            icon="close"
+                            tone="soft"
+                            onPress={() => setPendingRemoveMemberId(null)}
+                          />
+                          <PrimaryButton
+                            label="Remove profile"
+                            icon="trash"
+                            tone="dark"
+                            loading={isSavingFamily}
+                            disabled={isSavingFamily || !backendConnected}
+                            onPress={() => {
+                              if (isSavingFamily || !backendConnected) return;
+                              void handleRemoveMember(member.id);
+                            }}
+                          />
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+      </Card>
+      ) : null}
 
       <ActionFeedback
         message={formMessage ?? saveMessage ?? ""}
@@ -738,259 +1326,51 @@ export function FamilyScreen({
         visible={Boolean(formMessage ?? saveMessage)}
       />
 
-      <SectionTitle title="Adults" action={`${adultMembers.length}`} />
-      <View style={styles.memberList}>
-        {adultMembers.map((member) => (
-          <View key={member.id} style={styles.memberRow}>
-            <Row>
-              <MemberAvatar member={member} size={40} />
-              <View style={styles.memberCopy}>
-                <Text style={styles.memberName}>{member.name}</Text>
-                <Text style={styles.memberMeta}>
-                  {roleLabel(member, effectiveFamilyCreatedBy)} · {getAdultMemberAccountLabel(member)}
-                </Text>
-              </View>
-              <View style={styles.accessPillWrap}>
-                <Pill
-                  label={getMemberAccessLabel(member, effectiveFamilyCreatedBy)}
-                  tone={accessPillTone(getMemberAccessKind(member, effectiveFamilyCreatedBy))}
-                />
-              </View>
-            </Row>
-            {isFamilyAdmin &&
-            member.role === "caregiver" &&
-            member.userId &&
-            !member.isVirtual ? (
-              <View style={styles.memberActions}>
-                <PrimaryButton
-                  label={promotingMemberId === member.id ? "Promoting..." : "Make admin"}
-                  icon="shield"
-                  tone="soft"
-                  loading={promotingMemberId === member.id}
-                  disabled={isSavingFamily || promotingMemberId === member.id || !backendConnected}
-                  onPress={() => {
-                    if (isSavingFamily || promotingMemberId === member.id || !backendConnected) return;
-                    void handlePromoteMember(member.id);
-                  }}
-                />
-              </View>
-            ) : null}
-          </View>
-        ))}
-      </View>
-
-      <SectionTitle title="Child profiles" action={`${childProfiles.length}`} />
-      {isFamilyAdmin ? (
-        <View style={styles.addChildPanel}>
-          <View style={styles.cardActions}>
-            <PrimaryButton
-              label={showAddChildForm ? "Hide child form" : "Add child profile"}
-              icon={showAddChildForm ? "chevron-up" : "person-add"}
-              tone="soft"
-              onPress={() => setShowAddChildForm((value) => !value)}
-            />
-          </View>
-          {showAddChildForm ? (
-            <>
-              <Text style={styles.label}>Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Noah"
-                placeholderTextColor={colors.muted}
-                value={childName}
-                onChangeText={setChildName}
-              />
-              <View style={styles.cardActions}>
-                <PrimaryButton
-                  label={isAddingChild ? "Saving..." : "Save child profile"}
-                  icon="checkmark"
-                  loading={isAddingChild}
-                  disabled={isAddingChild || !backendConnected}
-                  onPress={() => {
-                    if (isAddingChild || !backendConnected) return;
-                    void handleAddChild();
-                  }}
-                />
-              </View>
-              <ActionFeedback
-                message={childFormMessage ?? ""}
-                tone={feedbackTone(childFormMessage ?? "")}
-                visible={Boolean(childFormMessage)}
-              />
-            </>
-          ) : null}
-        </View>
-      ) : null}
-      <View style={styles.memberList}>
-        {childProfiles.length === 0 ? (
-          <View style={styles.emptyRow}>
-            <Text style={styles.emptyTitle}>No child profiles yet.</Text>
-          </View>
-        ) : null}
-        {childProfiles.map((member) => (
-          <View key={member.id} style={styles.memberRow}>
-            <Row>
-              <MemberAvatar member={member} size={40} />
-              <View style={styles.memberCopy}>
-                <Text style={styles.memberName}>{member.name}</Text>
-                <Text style={styles.memberMeta}>
-                  {roleLabel(member, effectiveFamilyCreatedBy)} · {member.userId ? "Signed in" : "Profile only"}
-                </Text>
-              </View>
-              <View style={styles.accessPillWrap}>
-                <Pill label="Child profile" tone="gold" />
-              </View>
-            </Row>
-            {isFamilyAdmin && member.isVirtual ? (
-              <View style={styles.memberActions}>
-                {editingMemberId === member.id ? (
-                  <>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Child name"
-                      placeholderTextColor={colors.muted}
-                      value={editingMemberName}
-                      onChangeText={setEditingMemberName}
-                    />
-                    <View style={styles.memberButtonRow}>
-                      <PrimaryButton
-                        label="Save child"
-                        icon="checkmark"
-                        loading={isSavingFamily}
-                        disabled={isSavingFamily || !backendConnected}
-                        onPress={() => {
-                          if (isSavingFamily || !backendConnected) return;
-                          void handleSaveMember();
-                        }}
-                      />
-                      <PrimaryButton
-                        label="Cancel"
-                        icon="close"
-                        tone="dark"
-                        onPress={() => {
-                          setEditingMemberId(null);
-                          setEditingMemberName("");
-                        }}
-                      />
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <View style={styles.memberButtonRow}>
-                      <View style={styles.memberPrimaryAction}>
-                        <PrimaryButton
-                          label={pairingMemberId === member.id ? "Generating..." : "Pair device"}
-                          icon="phone-portrait"
-                          tone="soft"
-                          loading={pairingMemberId === member.id}
-                          disabled={!backendConnected || pairingMemberId === member.id}
-                          onPress={() => {
-                            void handleGeneratePairingCode(member.id, member.name);
-                          }}
-                        />
-                      </View>
-                    </View>
-                    <View style={styles.memberButtonRow}>
-                      <PrimaryButton
-                        label="Rename"
-                        icon="create"
-                        tone="ghost"
-                        onPress={() => {
-                          setEditingMemberId(member.id);
-                          setEditingMemberName(member.name);
-                        }}
-                      />
-                      <PrimaryButton
-                        label="Remove"
-                        icon="trash"
-                        tone="ghost"
-                        loading={isSavingFamily}
-                        disabled={isSavingFamily || !backendConnected}
-                        onPress={() => {
-                          if (isSavingFamily || !backendConnected) return;
-                          setPendingRemoveMemberId(member.id);
-                        }}
-                      />
-                    </View>
-                  </>
-                )}
-                {pendingRemoveMemberId === member.id ? (
-                  <View style={styles.inlineConfirm}>
-                    <Text style={styles.warningText}>
-                      Removing {member.name} deletes this child profile. Any paired phone for this child loses access on
-                      its next use
-                      {pendingRemoveDeviceCount > 0
-                        ? ` (${pendingRemoveDeviceCount} active device${pendingRemoveDeviceCount === 1 ? "" : "s"} paired now).`
-                        : "."}
-                    </Text>
-                    <View style={styles.memberButtonRow}>
-                      <PrimaryButton
-                        label="Keep profile"
-                        icon="close"
-                        tone="soft"
-                        onPress={() => setPendingRemoveMemberId(null)}
-                      />
-                      <PrimaryButton
-                        label="Remove profile"
-                        icon="trash"
-                        tone="dark"
-                        loading={isSavingFamily}
-                        disabled={isSavingFamily || !backendConnected}
-                        onPress={() => {
-                          if (isSavingFamily || !backendConnected) return;
-                          void handleRemoveMember(member.id);
-                        }}
-                      />
-                    </View>
-                  </View>
-                ) : null}
-                {activePairingCodes[member.id] ? (
-                  <View style={styles.pairingCodeCard}>
-                    <Text style={styles.pairingCodeLabel}>Pairing code · {member.name}</Text>
-                    <Text selectable style={styles.pairingCodeValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                      {activePairingCodes[member.id]?.code}
-                    </Text>
-                    <Text style={styles.pairingCodeHint}>
-                      {formatPairingExpiry(activePairingCodes[member.id]?.expiresAt ?? "")} · Enter on Welcome → Set up child's device
-                    </Text>
-                    <PrimaryButton
-                      label="Copy code"
-                      icon="copy"
-                      tone="ghost"
-                      onPress={() => {
-                        const code = activePairingCodes[member.id]?.code;
-                        if (code) {
-                          void handleCopyPairingCode(code);
-                        }
-                      }}
-                    />
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        ))}
-      </View>
-
-      <SectionTitle title="Plans and billing" action="Preview" />
       <Card>
-        <View style={styles.previewBillingHeader}>
-          <Text style={styles.cardTitle}>Billing preview</Text>
-          <Pill label="Preview" tone="gold" icon="card" />
+        <CardHeader emoji="⚙️" tone="primary" title="Account" />
+        <View style={styles.widgetRow}>
+          <WidgetTile
+            emoji="💳"
+            tone="gold"
+            label="Billing"
+            meta="Preview"
+            active={activeAccountWidget === "billing"}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveAccountWidget((current) => (current === "billing" ? null : "billing"));
+            }}
+          />
+          <WidgetTile
+            emoji="🚪"
+            tone="coral"
+            label="Leave"
+            meta={isSoleAdmin ? "Only admin" : "Household"}
+            active={activeAccountWidget === "leave"}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveAccountWidget((current) => (current === "leave" ? null : "leave"));
+            }}
+          />
         </View>
+      </Card>
+
+      {activeAccountWidget === "billing" ? (
+      <Card>
+      <View style={styles.groupBlockFirst}>
+        <CardHeader icon="card" tone="gold" title="Plans and billing" meta="Preview" />
         <Text style={styles.helperText}>
           Plan: {subscriptionStatus?.subscriptionStatus ?? "free preview"} · No payment in this build
         </Text>
         <ActionFeedback
           message={subscriptionMessage ?? ""}
-          tone={feedbackTone(subscriptionMessage ?? "")}
+          tone="info"
           visible={Boolean(subscriptionMessage)}
         />
         <View style={styles.cardActions}>
-          <PrimaryButton
+          <ActionButton
+            emoji="💳"
             label={showBillingPlans ? "Hide planned tiers" : "View planned tiers"}
-            icon="card"
-            tone="soft"
+            tone="gold"
             onPress={() => setShowBillingPlans((value) => !value)}
           />
         </View>
@@ -1013,10 +1393,14 @@ export function FamilyScreen({
             </Text>
           </>
         ) : null}
+      </View>
       </Card>
+      ) : null}
 
-      <SectionTitle title="Leave household" />
+      {activeAccountWidget === "leave" ? (
       <Card>
+      <View style={styles.groupBlockFirst}>
+        <CardHeader icon="exit" tone="coral" title="Leave household" />
         {isSoleAdmin ? (
           <Text style={styles.warningText}>
             Promote another adult to admin before leaving — you are the only admin.
@@ -1024,10 +1408,10 @@ export function FamilyScreen({
         ) : null}
         {!showLeaveConfirm ? (
           <View style={styles.cardActions}>
-            <PrimaryButton
+            <ActionButton
+              emoji="🚪"
               label="Leave household"
-              icon="exit"
-              tone="ghost"
+              tone="coral"
               loading={isSavingFamily}
               disabled={isSavingFamily || !backendConnected || isSoleAdmin}
               onPress={() => {
@@ -1040,16 +1424,17 @@ export function FamilyScreen({
           <>
             <Text style={styles.warningText}>You can rejoin later with an adult invite code.</Text>
             <View style={styles.memberButtonRow}>
-              <PrimaryButton
+              <ActionButton
+                emoji="🛡️"
                 label="Keep me here"
-                icon="close"
-                tone="soft"
+                tone="mint"
                 onPress={() => setShowLeaveConfirm(false)}
               />
-              <PrimaryButton
+              <ActionButton
+                emoji="🚪"
                 label="Confirm leave"
-                icon="exit"
-                tone="dark"
+                tone="coral"
+                solid
                 loading={isSavingFamily}
                 disabled={isSavingFamily || !backendConnected}
                 onPress={() => {
@@ -1060,7 +1445,10 @@ export function FamilyScreen({
             </View>
           </>
         )}
+      </View>
       </Card>
+      ) : null}
+      </View>
     </View>
   );
 }
@@ -1113,39 +1501,217 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700"
   },
-  summaryStrip: {
-    gap: spacing.sm
-  },
   summaryTop: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm
   },
-  cardActionsTight: {
-    marginTop: 0
-  },
-  inviteHero: {
-    backgroundColor: colors.surfaceRaised,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    gap: spacing.xs,
+  householdHeroPanel: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.xl,
     padding: spacing.md
   },
-  inviteHeroHeader: {
+  householdHero: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    justifyContent: "space-between"
+    gap: spacing.md
   },
-  previewBillingHeader: {
+  compactFormRow: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
+    gap: spacing.sm
+  },
+  householdEditRow: {
+    alignItems: "center",
+    borderTopColor: "rgba(139,107,74,0.16)",
+    borderTopWidth: 1,
+    flexDirection: "row",
     gap: spacing.sm,
-    justifyContent: "space-between",
-    marginBottom: spacing.xs
+    marginTop: spacing.md,
+    paddingTop: spacing.md
+  },
+  householdEditInput: {
+    backgroundColor: colors.surface,
+    borderColor: "rgba(139,107,74,0.2)",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    color: colors.ink,
+    flex: 1,
+    fontSize: 16,
+    minHeight: 48,
+    paddingHorizontal: spacing.md
+  },
+  householdEditSave: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: radii.md,
+    height: 48,
+    justifyContent: "center",
+    width: 48
+  },
+  householdEditSavePressed: {
+    backgroundColor: colors.primaryPressed
+  },
+  householdEditSaveDisabled: {
+    opacity: 0.6
+  },
+  memberStackRow: {
+    flexDirection: "row"
+  },
+  memberStackAvatar: {
+    borderRadius: radii.pill
+  },
+  memberStackAvatarOverlap: {
+    marginLeft: -12
+  },
+  memberStackMore: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceRaised,
+    borderColor: "rgba(255,255,255,0.9)",
+    borderRadius: radii.pill,
+    borderWidth: 2,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  memberStackMoreText: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  syncStatusRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6
+  },
+  syncDot: {
+    borderRadius: radii.pill,
+    height: 8,
+    width: 8
+  },
+  syncDotOn: {
+    backgroundColor: colors.mint
+  },
+  syncDotOff: {
+    backgroundColor: colors.tertiary
+  },
+  syncStatusText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  householdHeroMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  householdHeroCopy: {
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 0
+  },
+  householdEditBadge: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  householdEditBadgePressed: {
+    backgroundColor: colors.line
+  },
+  heroWidgetGroup: {
+    gap: spacing.sm
+  },
+  widgetRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  widgetTileIconBadge: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 32,
+    justifyContent: "center",
+    marginBottom: 2,
+    width: 32
+  },
+  widgetTileIconBadgeIdle: {
+    backgroundColor: colors.surface
+  },
+  widgetTileEmoji: {
+    fontSize: 16,
+    lineHeight: 19
+  },
+  widgetTile: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: radii.lg,
+    borderWidth: 2,
+    flex: 1,
+    gap: 3,
+    minHeight: 76,
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm
+  },
+  widgetTilePressed: {
+    opacity: 0.85
+  },
+  widgetTileLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  widgetTileLabelActive: {
+    color: colors.primary
+  },
+  widgetTileMeta: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "600"
+  },
+  groupBlockFirst: {
+    paddingBottom: spacing.md
+  },
+  groupBlockDivider: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingBottom: spacing.md,
+    paddingTop: spacing.md
+  },
+  cardHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md
+  },
+  cardHeaderIcon: {
+    alignItems: "center",
+    borderRadius: radii.md,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  cardHeaderEmoji: {
+    fontSize: 17,
+    lineHeight: 20
+  },
+  cardHeaderTitle: {
+    color: colors.ink,
+    flex: 1,
+    fontFamily: fonts.display,
+    fontSize: 17,
+    fontWeight: "700"
+  },
+  cardHeaderMeta: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase"
   },
   previewBillingNote: {
     color: colors.muted,
@@ -1153,13 +1719,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 19,
     marginTop: spacing.md
-  },
-  inviteHeroTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 24
   },
   secondaryPanel: {
     backgroundColor: colors.canvas,
@@ -1189,7 +1748,32 @@ const styles = StyleSheet.create({
   memberRow: {
     borderBottomColor: colors.line,
     borderBottomWidth: 1,
-    paddingVertical: spacing.sm
+    paddingVertical: spacing.xs
+  },
+  memberRowMain: {
+    borderRadius: radii.md,
+    paddingVertical: spacing.xs
+  },
+  memberRowMainPressed: {
+    backgroundColor: colors.canvas
+  },
+  peopleGroupLabel: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+    textTransform: "uppercase"
+  },
+  cardHeaderAction: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    height: 28,
+    justifyContent: "center",
+    marginLeft: spacing.xs,
+    width: 28
   },
   emptyRow: {
     gap: spacing.xs,
@@ -1209,12 +1793,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     textTransform: "uppercase"
   },
-  cardTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700"
-  },
   cardText: {
     color: colors.muted,
     fontSize: 15,
@@ -1227,8 +1805,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "900",
     letterSpacing: 1.2,
-    lineHeight: 30,
-    marginTop: spacing.xs
+    lineHeight: 30
   },
   inviteCodeHint: {
     color: colors.muted,
@@ -1251,27 +1828,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginTop: spacing.sm
-  },
-  pairingPanel: {
-    backgroundColor: colors.surface,
-    borderColor: colors.line,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.md
-  },
-  pairingHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    justifyContent: "space-between"
-  },
-  pairingTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 18,
-    fontWeight: "700"
   },
   pairingStat: {
     color: colors.muted,
@@ -1311,6 +1867,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontWeight: "600"
+  },
+  pairingCodeCardInGroup: {
+    marginTop: 0
   },
   pairingCodeCard: {
     backgroundColor: colors.canvas,
@@ -1469,7 +2028,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   memberActions: {
-    gap: spacing.md,
+    gap: spacing.sm,
     marginTop: spacing.md
   },
   memberButtonRow: {
@@ -1480,6 +2039,32 @@ const styles = StyleSheet.create({
   memberPrimaryAction: {
     flex: 1,
     minWidth: 140
+  },
+  actionButton: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: "transparent",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    minHeight: 52,
+    paddingHorizontal: spacing.lg
+  },
+  actionButtonPressed: {
+    opacity: 0.85
+  },
+  actionButtonDisabled: {
+    opacity: 0.6
+  },
+  actionButtonEmoji: {
+    fontSize: 16,
+    lineHeight: 19
+  },
+  actionButtonLabel: {
+    fontSize: 15,
+    fontWeight: "700"
   },
   memberCopy: {
     flex: 1,
@@ -1498,13 +2083,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     lineHeight: 18
-  },
-  label: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: spacing.xs,
-    marginTop: spacing.md
   },
   input: {
     backgroundColor: colors.surfaceRaised,

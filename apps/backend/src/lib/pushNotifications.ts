@@ -1,9 +1,11 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
+import { env } from "../env.js";
 import { db } from "../db/client.js";
 import { childDevices, familyMembers, notifications, users } from "../db/schema.js";
 
 type NotificationPrefs = {
+  notifications_enabled: boolean;
   daily_digest: boolean;
   event_reminders: boolean;
   chore_reminders: boolean;
@@ -42,6 +44,10 @@ export type HouseholdNotificationDelivery = {
 };
 
 function shouldDeliverNotification(prefs: NotificationPrefs, type: string) {
+  if (!prefs.notifications_enabled) {
+    return false;
+  }
+
   if (type === "daily_digest") {
     return prefs.daily_digest;
   }
@@ -94,9 +100,13 @@ export async function sendNotificationToFamilyMembers(input: SendFamilyNotificat
     });
     createdNotifications += 1;
 
-    const sent = await sendExpoPush(profile.pushToken!, input.title, input.body);
-    if (sent) {
+    const result = await sendExpoPush(profile.pushToken!, input.title, input.body);
+    if (result.delivered) {
       delivered += 1;
+    }
+
+    if (result.staleToken) {
+      await clearPushToken(profile.id);
     }
   }
 
@@ -116,9 +126,13 @@ export async function sendNotificationToChildDevices(input: SendChildDeviceNotif
   let delivered = 0;
 
   for (const device of activeDevices) {
-    const sent = await sendExpoPush(device.pushToken!, input.title, input.body);
-    if (sent) {
+    const result = await sendExpoPush(device.pushToken!, input.title, input.body);
+    if (result.delivered) {
       delivered += 1;
+    }
+
+    if (result.staleToken) {
+      await clearChildDevicePushToken(device.id);
     }
   }
 
@@ -211,12 +225,25 @@ export async function clearChildDevicePushToken(deviceId: string) {
   await db.update(childDevices).set({ pushToken: null }).where(eq(childDevices.id, deviceId));
 }
 
-async function sendExpoPush(pushToken: string, title: string, body: string) {
+type ExpoPushTicket = {
+  status: "ok" | "error";
+  message?: string;
+  details?: { error?: string };
+};
+
+type ExpoPushResult = {
+  delivered: boolean;
+  staleToken: boolean;
+};
+
+async function sendExpoPush(pushToken: string, title: string, body: string): Promise<ExpoPushResult> {
   try {
+    const accessToken = env.EXPO_PUSH_ACCESS_TOKEN?.trim();
     const response = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
       },
       body: JSON.stringify({
         to: pushToken,
@@ -226,8 +253,22 @@ async function sendExpoPush(pushToken: string, title: string, body: string) {
       })
     });
 
-    return response.ok;
+    if (!response.ok) {
+      return { delivered: false, staleToken: false };
+    }
+
+    const payload = (await response.json()) as { data?: ExpoPushTicket | ExpoPushTicket[] };
+    const ticket = Array.isArray(payload.data) ? payload.data[0] : payload.data;
+
+    if (!ticket || ticket.status === "ok") {
+      return { delivered: true, staleToken: false };
+    }
+
+    return {
+      delivered: false,
+      staleToken: ticket.details?.error === "DeviceNotRegistered"
+    };
   } catch {
-    return false;
+    return { delivered: false, staleToken: false };
   }
 }

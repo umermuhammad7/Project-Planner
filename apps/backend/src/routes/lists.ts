@@ -109,6 +109,23 @@ export async function listsRoutes(app: FastifyInstance) {
     return { list };
   });
 
+  app.delete("/:listId", async (request, reply) => {
+    const { familyId, listId } = listParamsSchema.parse(request.params);
+    const membership = await requireFamilyAdmin(request, reply, familyId);
+    if (!membership) return;
+
+    const deleted = await db
+      .delete(lists)
+      .where(and(eq(lists.familyId, familyId), eq(lists.id, listId)))
+      .returning({ id: lists.id });
+
+    if (deleted.length === 0) {
+      return sendError(reply, 404, "List not found", "LIST_NOT_FOUND");
+    }
+
+    return { deleted: true };
+  });
+
   app.post("/:listId/items", async (request, reply) => {
     const currentUser = request.currentUser!;
     const { familyId, listId } = listParamsSchema.parse(request.params);

@@ -36,6 +36,7 @@ export const users = pgTable("users", {
   notificationPrefs: jsonb("notification_prefs")
     .notNull()
     .default({
+      notifications_enabled: true,
       daily_digest: true,
       event_reminders: true,
       chore_reminders: true,

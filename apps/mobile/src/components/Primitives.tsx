@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { PropsWithChildren, useRef } from "react";
-import { ActivityIndicator, Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { PropsWithChildren, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { FamilyMember } from "../types";
@@ -70,25 +70,58 @@ export function Pill({
 }
 
 export function MemberAvatar({ member, size = 38 }: { member: FamilyMember; size?: number }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showPhoto = Boolean(member.avatarUrl) && !imageFailed;
+
   return (
     <View style={[styles.avatar, { width: size, height: size, backgroundColor: member.color }]}>
-      <Text style={styles.avatarText}>{member.initials}</Text>
+      {showPhoto ? (
+        <Image
+          accessibilityLabel={`${member.name} profile photo`}
+          onError={() => setImageFailed(true)}
+          source={{ uri: member.avatarUrl!, cache: "reload" }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+        />
+      ) : (
+        <Text style={[styles.avatarText, { fontSize: size * 0.32 }]}>{member.initials}</Text>
+      )}
     </View>
   );
 }
+
+type IconButtonTone = "primary" | "mint" | "coral" | "gold" | "sky";
+
+const iconButtonToneColors: Record<IconButtonTone, string> = {
+  primary: colors.primary,
+  mint: colors.mint,
+  coral: colors.coral,
+  gold: colors.gold,
+  sky: colors.sky
+};
+
+const iconButtonToneSoft: Record<IconButtonTone, string> = {
+  primary: colors.primarySoft,
+  mint: colors.mintSoft,
+  coral: colors.coralSoft,
+  gold: colors.goldSoft,
+  sky: colors.skySoft
+};
 
 export function IconButton({
   icon,
   label,
   onPress,
-  selected
+  selected,
+  tone = "primary"
 }: {
-  icon: IconName;
+  icon: string;
   label: string;
   onPress: () => void;
   selected?: boolean;
+  tone?: IconButtonTone;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const toneColor = iconButtonToneColors[tone];
 
   return (
     <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
@@ -100,12 +133,15 @@ export function IconButton({
         onPressOut={() => animatePress(scale, 1)}
         style={({ pressed }) => [
           styles.iconButton,
-          selected && styles.iconButtonSelected,
+          selected && { backgroundColor: iconButtonToneSoft[tone] },
           pressed && styles.iconButtonPressed
         ]}
       >
-        <Ionicons name={icon} size={20} color={selected ? colors.primary : colors.muted} />
-        <Text style={[styles.iconButtonText, selected && styles.iconButtonTextSelected]} numberOfLines={1}>
+        <Text style={styles.iconButtonGlyph}>{icon}</Text>
+        <Text
+          style={[styles.iconButtonText, selected && { color: toneColor, fontWeight: "800" }]}
+          numberOfLines={1}
+        >
           {label}
         </Text>
       </Pressable>
@@ -124,7 +160,7 @@ export function PrimaryButton({
   label: string;
   icon?: IconName;
   onPress: () => void;
-  tone?: "primary" | "dark" | "soft" | "ghost";
+  tone?: "primary" | "dark" | "soft" | "ghost" | "mint";
   loading?: boolean;
   disabled?: boolean;
 }) {
@@ -151,6 +187,7 @@ export function PrimaryButton({
           tone === "dark" && styles.darkButton,
           tone === "soft" && styles.softButton,
           tone === "ghost" && styles.ghostButton,
+          tone === "mint" && styles.mintButton,
           pressed && !isDisabled && styles[pressedToneStyleName(tone)]
         ]}
       >
@@ -173,16 +210,18 @@ function toneColor(tone: "neutral" | "primary" | "mint" | "coral" | "gold") {
   return colors.muted;
 }
 
-function buttonForeground(tone: "primary" | "dark" | "soft" | "ghost") {
+function buttonForeground(tone: "primary" | "dark" | "soft" | "ghost" | "mint") {
   if (tone === "soft") return colors.primary;
   if (tone === "ghost") return colors.ink;
+  if (tone === "mint") return colors.mint;
   return "#FFFFFF";
 }
 
-function pressedToneStyleName(tone: "primary" | "dark" | "soft" | "ghost") {
+function pressedToneStyleName(tone: "primary" | "dark" | "soft" | "ghost" | "mint") {
   if (tone === "dark") return "darkButtonPressed";
   if (tone === "soft") return "softButtonPressed";
   if (tone === "ghost") return "ghostButtonPressed";
+  if (tone === "mint") return "mintButtonPressed";
   return "primaryButtonPressed";
 }
 
@@ -304,7 +343,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderColor: "rgba(255,255,255,0.9)",
     borderWidth: 2,
-    justifyContent: "center"
+    justifyContent: "center",
+    overflow: "hidden"
   },
   avatarText: {
     color: "#FFFFFF",
@@ -323,6 +363,10 @@ const styles = StyleSheet.create({
   },
   iconButtonSelected: {
     backgroundColor: colors.primarySoft
+  },
+  iconButtonGlyph: {
+    fontSize: 20,
+    lineHeight: 24
   },
   iconButtonPressed: {
     opacity: 0.84
@@ -380,6 +424,15 @@ const styles = StyleSheet.create({
   },
   ghostButtonPressed: {
     backgroundColor: "#F5EFE7",
+    opacity: 0.98
+  },
+  mintButton: {
+    backgroundColor: colors.mintSoft,
+    borderColor: "rgba(92,122,90,0.24)",
+    shadowOpacity: 0.03
+  },
+  mintButtonPressed: {
+    backgroundColor: "#D9E6D4",
     opacity: 0.98
   },
   primaryButtonText: {

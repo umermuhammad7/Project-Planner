@@ -89,6 +89,46 @@ describe("lists route", () => {
     });
   });
 
+  it("deletes an existing list", async () => {
+    const app = buildApp();
+    const listResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${parkerFamilyId}/lists`,
+      headers: authHeaders,
+      payload: {
+        title: "AW-159 delete list probe",
+        type: "todo"
+      }
+    });
+
+    expect(listResponse.statusCode).toBe(201);
+    const listId = listResponse.json().list.id as string;
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${parkerFamilyId}/lists/${listId}`,
+      headers: authHeaders
+    });
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({ deleted: true });
+  });
+
+  it("returns 404 when deleting a missing list", async () => {
+    const app = buildApp();
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${parkerFamilyId}/lists/00000000-0000-4000-8000-00000000d159`,
+      headers: authHeaders
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "List not found",
+      code: "LIST_NOT_FOUND"
+    });
+  });
+
   it("returns 404 when deleting from a missing list", async () => {
     const app = buildApp();
     const response = await app.inject({

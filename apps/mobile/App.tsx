@@ -5,16 +5,20 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
+  findNodeHandle,
   useWindowDimensions,
   View
 } from "react-native";
 
-import { IconButton } from "./src/components/Primitives";
+import { IconButton, Pill } from "./src/components/Primitives";
 import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
 import { colors, fonts, radii, spacing } from "./src/constants/theme";
 import { ScrollAssistContext } from "./src/context/ScrollAssistContext";
@@ -44,15 +48,19 @@ import { useHomeThreadStore, resetHomeThreadStoreForSignedOut } from "./src/stor
 import { startFamilyRealtimeSync, stopFamilyRealtimeSync } from "./src/services/familyRealtimeSync";
 import { isSupabaseConfigured, supabaseClient } from "./src/services/supabase";
 import { TabKey, MoreDestination, ScreenDestination } from "./src/types";
+import { safeText } from "./src/utils/safeRender";
 
-type IconName = keyof typeof Ionicons.glyphMap;
-
-const tabs: { key: TabKey; label: string; icon: IconName }[] = [
-  { key: "home", label: "Home", icon: "home" },
-  { key: "plan", label: "Plan", icon: "calendar" },
-  { key: "chores", label: "Chores", icon: "star" },
-  { key: "lists", label: "Lists", icon: "bag" },
-  { key: "more", label: "More", icon: "grid" }
+const tabs: {
+  key: TabKey;
+  label: string;
+  icon: string;
+  tone: "primary" | "mint" | "coral" | "gold" | "sky";
+}[] = [
+  { key: "home", label: "Home", icon: "🏠", tone: "mint" },
+  { key: "plan", label: "Plan", icon: "🗓️", tone: "coral" },
+  { key: "chores", label: "Chores", icon: "⭐", tone: "gold" },
+  { key: "lists", label: "Lists", icon: "🛍️", tone: "sky" },
+  { key: "more", label: "More", icon: "🧭", tone: "primary" }
 ];
 
 function resolveNavigation(destination: ScreenDestination): { tab: TabKey; more: MoreDestination } {
@@ -87,13 +95,73 @@ function AppShell() {
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const screenTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const handleScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: false
+      }),
+    [scrollY]
+  );
+  const pinnedHeaderElevation = scrollY.interpolate({
+    inputRange: [0, 28],
+    outputRange: [0, 1],
+    extrapolate: "clamp"
+  });
+  const chores = useHomeThreadStore((state) => state.chores);
+  const completedChoreCount = useMemo(() => chores.filter((chore) => chore.completed).length, [chores]);
+  const homeNotifications = useHomeThreadStore((state) => state.notifications);
+  const homeUnreadCount = useMemo(
+    () => homeNotifications.filter((item) => !item.readAt).length,
+    [homeNotifications]
+  );
+  const homeDisplayName = useAuthStore((state) => state.displayName);
+  const homeEmail = useAuthStore((state) => state.email);
+  const homeAvatarUrl = useAuthStore((state) => state.avatarUrl);
+  const homeProfileLabel = useMemo(
+    () => homeDisplayName?.trim() || homeEmail?.split("@")[0] || "there",
+    [homeDisplayName, homeEmail]
+  );
+  const homeProfileInitials = useMemo(
+    () =>
+      homeProfileLabel
+        .split(/\s+/u)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase(),
+    [homeProfileLabel]
+  );
+  const homeAvatarSource = useMemo(
+    () => (homeAvatarUrl ? { uri: homeAvatarUrl, cache: "reload" as const } : null),
+    [homeAvatarUrl]
+  );
+  const [homeAvatarImageFailed, setHomeAvatarImageFailed] = useState(false);
+  useEffect(() => {
+    setHomeAvatarImageFailed(false);
+  }, [homeAvatarUrl]);
   const entryHydrateSettled = useRef(false);
   const wasHydratingForEntry = useRef(false);
   const scrollAssist = useMemo(
     () => ({
       scrollToTop: () => scrollRef.current?.scrollTo({ y: 0, animated: true }),
       scrollToOffset: (offset: number) => scrollRef.current?.scrollTo({ y: offset, animated: true }),
-      scrollToBottom: () => scrollRef.current?.scrollToEnd({ animated: true })
+      scrollToBottom: () => scrollRef.current?.scrollToEnd({ animated: true }),
+      scrollIntoView: (node: unknown, extraOffset = 24) => {
+        const scrollView = scrollRef.current;
+        if (!scrollView || !node) return;
+        const scrollHandle = findNodeHandle(scrollView);
+        const targetHandle = findNodeHandle(node as never);
+        if (!scrollHandle || !targetHandle) return;
+        UIManager.measureLayout(
+          targetHandle,
+          scrollHandle,
+          () => {},
+          (_x: number, y: number) => {
+            scrollView.scrollTo({ y: Math.max(0, y - extraOffset), animated: true });
+          }
+        );
+      }
     }),
     []
   );
@@ -110,6 +178,7 @@ function AppShell() {
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
   const syncSource = useHomeThreadStore((state) => state.syncSource);
   const familyId = useHomeThreadStore((state) => state.familyId);
+  const familyName = useHomeThreadStore((state) => state.familyName);
   const lists = useHomeThreadStore((state) => state.lists);
   const listIdsKey = useMemo(
     () =>
@@ -302,9 +371,72 @@ function AppShell() {
     setShowKidsModePicker(false);
   }, []);
 
+  // Mirrors the priority the render tree below checks each layer in, so a left-edge swipe
+  // closes whatever's currently on top the same way its own visible Back/Close button would.
+  const goBack = useCallback(() => {
+    if (showKidsModePicker || (kidsMode && kidsModeMemberId)) {
+      handleExitKidsMode();
+      return;
+    }
+
+    if (insightsOpen) {
+      setInsightsOpen(false);
+      return;
+    }
+
+    if (settingsOpen) {
+      setSettingsOpen(false);
+      return;
+    }
+
+    if (familySettingsOpen) {
+      setFamilySettingsOpen(false);
+      return;
+    }
+
+    if (activeTab === "more" && moreDestination !== "hub") {
+      setMoreDestination("hub");
+    }
+  }, [
+    activeTab,
+    familySettingsOpen,
+    handleExitKidsMode,
+    insightsOpen,
+    kidsMode,
+    kidsModeMemberId,
+    moreDestination,
+    settingsOpen,
+    showKidsModePicker
+  ]);
+
+  const goBackRef = useRef(goBack);
+  useEffect(() => {
+    goBackRef.current = goBack;
+  }, [goBack]);
+
+  // Left-edge swipe-to-go-back: additive to the existing visible Back buttons, not a
+  // replacement. Edge-only detection keeps it from hijacking horizontal scroll content
+  // (chip rows, etc.) that starts away from the screen's left edge.
+  const edgeSwipeBackResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: (event) => event.nativeEvent.pageX < 24,
+        onMoveShouldSetPanResponder: (event, gesture) =>
+          event.nativeEvent.pageX - gesture.dx < 24 &&
+          gesture.dx > 10 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dx > 60 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5) {
+            goBackRef.current();
+          }
+        }
+      }),
+    []
+  );
+
   const content = useMemo(() => {
     if (activeTab === "plan") return <PlanScreen />;
-    if (activeTab === "chores") return <ChoresScreen />;
+    if (activeTab === "chores") return <ChoresScreen pinnedHeader />;
     if (activeTab === "lists") return <ListsScreen />;
     if (activeTab === "more") {
       if (moreDestination === "meals") {
@@ -336,6 +468,7 @@ function AppShell() {
         onOpenFamilySettings={() => setFamilySettingsOpen(true)}
         onOpenInsights={() => setInsightsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        pinnedHeader
       />
     );
   }, [activeTab, handleEnterKidsMode, moreDestination, navigateTo]);
@@ -455,17 +588,109 @@ function AppShell() {
     );
   }
 
+  const canShowPinnedBar =
+    enteredApp &&
+    authMode !== "signed_out" &&
+    !kidsMode &&
+    !showKidsModePicker &&
+    !familySettingsOpen &&
+    !insightsOpen &&
+    !settingsOpen;
+  const showChoresPinnedBar = canShowPinnedBar && activeTab === "chores";
+  const showHomePinnedBar = canShowPinnedBar && activeTab === "home";
+  const showFamilyPinnedBar = enteredApp && authMode !== "signed_out" && familySettingsOpen;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} {...edgeSwipeBackResponder.panHandlers}>
       <StatusBar style="dark" />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboardView}
       >
+        {showChoresPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <View style={styles.pinnedHeaderIcon}>
+                <Text style={styles.pinnedHeaderGlyph}>🧺</Text>
+              </View>
+              <Text style={styles.pinnedHeaderTitle}>Chores</Text>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pill label={`${completedChoreCount}/${chores.length}`} tone="primary" />
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showHomePinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open settings for ${homeProfileLabel}`}
+                hitSlop={6}
+                onPress={() => setSettingsOpen(true)}
+                style={styles.pinnedHeaderAvatar}
+              >
+                {homeAvatarSource && !homeAvatarImageFailed ? (
+                  <Image
+                    accessibilityLabel={`${homeProfileLabel} profile photo`}
+                    onError={() => setHomeAvatarImageFailed(true)}
+                    source={homeAvatarSource}
+                    style={styles.pinnedHeaderAvatarImage}
+                  />
+                ) : (
+                  <Text style={styles.pinnedHeaderAvatarText}>{homeProfileInitials}</Text>
+                )}
+              </Pressable>
+              <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                Hi, {homeProfileLabel}
+              </Text>
+              <View style={styles.pinnedHeaderSpacer} />
+              {homeUnreadCount > 0 ? (
+                <Pill label={`${homeUnreadCount} new`} tone="coral" icon="notifications" />
+              ) : null}
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showFamilyPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <View style={styles.pinnedHeaderIcon}>
+                <Text style={styles.pinnedHeaderGlyph}>🏠</Text>
+              </View>
+              <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                {safeText(familyName, "Household")}
+              </Text>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close household settings"
+                hitSlop={8}
+                onPress={() => setFamilySettingsOpen(false)}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="close" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Close</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
         >
           <ScrollAssistContext.Provider value={scrollAssist}>
@@ -551,6 +776,7 @@ function AppShell() {
               />
             ) : familySettingsOpen ? (
               <FamilyScreen
+                pinnedHeader
                 onClose={() => setFamilySettingsOpen(false)}
                 onLeaveComplete={({ needsFamilySetup }) => {
                   setFamilySettingsOpen(false);
@@ -573,11 +799,23 @@ function AppShell() {
         </ScrollView>
         {enteredApp && authMode !== "signed_out" && !kidsMode && !showKidsModePicker && !familySettingsOpen && !insightsOpen && !settingsOpen ? (
           <View style={styles.tabBar}>
+            {activeTab === "home" ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Ask HomeThread Assistant"
+                hitSlop={8}
+                onPress={() => navigateTo("assistant")}
+                style={styles.assistantShortcut}
+              >
+                <Text style={styles.assistantShortcutGlyph}>✨</Text>
+              </Pressable>
+            ) : null}
             {tabs.map((tab) => (
               <IconButton
                 key={tab.key}
                 icon={tab.icon}
                 label={tab.label}
+                tone={tab.tone}
                 onPress={() => {
                   if (tab.key === "more") {
                     setMoreDestination("hub");
@@ -620,6 +858,84 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingVertical: spacing.lg,
     paddingBottom: 168
+  },
+  pinnedHeaderBar: {
+    backgroundColor: colors.canvas,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs
+  },
+  pinnedHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  pinnedHeaderIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 30,
+    justifyContent: "center",
+    width: 30
+  },
+  pinnedHeaderGlyph: {
+    fontSize: 15
+  },
+  pinnedHeaderTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 19,
+    fontWeight: "700"
+  },
+  pinnedHeaderSpacer: {
+    flex: 1
+  },
+  pinnedHeaderClose: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 30,
+    paddingHorizontal: spacing.xs
+  },
+  pinnedHeaderCloseLabel: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  pinnedHeaderAvatar: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    height: 30,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 30
+  },
+  pinnedHeaderAvatarImage: {
+    height: "100%",
+    width: "100%"
+  },
+  pinnedHeaderAvatarText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  pinnedHeaderElevation: {
+    backgroundColor: colors.canvas,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    bottom: 0,
+    elevation: 3,
+    height: "100%",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    top: 0,
+    zIndex: -1
   },
   screenContainer: {
     alignSelf: "center",
@@ -675,6 +991,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: spacing.sm
+  },
+  assistantShortcut: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    height: 44,
+    justifyContent: "center",
+    position: "absolute",
+    right: 18,
+    top: -48,
+    width: 44,
+    zIndex: 20
+  },
+  assistantShortcutGlyph: {
+    fontSize: 30,
+    textShadowColor: "rgba(0,0,0,0.18)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4
   },
   tabBar: {
     backgroundColor: "rgba(255,252,248,0.96)",

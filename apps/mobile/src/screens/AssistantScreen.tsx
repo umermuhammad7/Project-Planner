@@ -1,7 +1,10 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,16 +32,43 @@ import {
   AssistantDraft,
   AssistantIntent,
   AssistantMealSuggestResponse,
-  AssistantMealSuggestion
+  AssistantMealSuggestion,
+  RecipeImportDraft
 } from "../types";
 import { parseFamilyText } from "../utils/textParser";
 import { compareEventsByStartAt, getEventUrgency } from "../utils/eventUrgency";
 import { safeArray, safeText } from "../utils/safeRender";
 
+type IconName = keyof typeof Ionicons.glyphMap;
+
 const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function greetingForNow() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatRecipeIngredientPreview(ingredients: RecipeImportDraft["ingredients"]) {
+  return ingredients
+    .slice(0, 6)
+    .map((ingredient) => {
+      const amount = [ingredient.amount, ingredient.unit].filter(Boolean).join(" ");
+      return amount ? `${amount} ${ingredient.name}` : ingredient.name;
+    })
+    .join(", ");
+}
 
 function mealSuggestionKey(suggestion: AssistantMealSuggestion) {
   return `${suggestion.dayOfWeek}-${suggestion.mealType}-${suggestion.title}`;
+}
+
+function destinationLabel(kind: AssistantDraft["kind"]) {
+  if (kind === "event") return "Plan";
+  if (kind === "chore") return "Chores";
+  if (kind === "list") return "Lists";
+  return "HomeThread";
 }
 
 type ChatMessage = StoredAssistantMessage;
@@ -104,6 +134,33 @@ function looksLikeGroceryCapture(message: string) {
   );
 }
 
+function looksLikeImportedText(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed.includes("\n") || trimmed.length > 80) {
+    return true;
+  }
+
+  return /\b\d{1,2}[:.]\d{2}\s?(am|pm)?\b/i.test(trimmed) && /\b(moved|rescheduled|cancelled|canceled|reminder|pickup|drop off|dropoff)\b/i.test(trimmed);
+}
+
+const recipeRequestPattern = /\brecipe\b|\bhow (?:do i|to|do you) (?:make|cook|bake)\b/i;
+
+function looksLikeRecipeRequest(message: string) {
+  return recipeRequestPattern.test(message.trim());
+}
+
+function resolveIntentForInput(message: string): AssistantIntent {
+  if (looksLikeRecipeRequest(message)) {
+    return "recipe";
+  }
+
+  return looksLikeImportedText(message) ? "import_text" : "general";
+}
+
 function shouldUseLocalParse(message: string, intent?: AssistantIntent) {
   const trimmed = message.trim();
   if (!trimmed) {
@@ -137,39 +194,72 @@ function resolveLocalDraft(message: string, intent?: AssistantIntent) {
   return parseFamilyText(message);
 }
 
-const quickPrompts: Array<{ label: string; intent: AssistantIntent; text: string }> = [
+const quickPrompts: Array<{ label: string; hint: string; icon: IconName; intent: AssistantIntent; text: string }> = [
   {
-    label: "Import family text",
+    label: "Import a family text",
+    hint: "Paste a message and HomeThread drafts it for you",
+    icon: "clipboard-outline",
     intent: "import_text",
     text: "Soccer moved to 5:30 Friday at Field 2"
   },
   {
     label: "Suggest a meal plan",
+    hint: "Get simple dinner ideas for the week",
+    icon: "restaurant-outline",
     intent: "meal_plan",
     text: "Suggest a simple dinner plan for our family this week."
   },
   {
     label: "Make a grocery list",
+    hint: "Turn what you need into a shared list",
+    icon: "cart-outline",
     intent: "grocery_list",
     text: "Add milk, eggs, bread, and bananas to the grocery list."
   },
   {
-    label: "Turn into chores",
+    label: "Turn into a chore",
+    hint: "Assign a task to someone in the household",
+    icon: "checkbox-outline",
     intent: "chores",
     text: "Remind Jules to unload the dishwasher tonight."
   },
   {
+    label: "Get a recipe",
+    hint: "Saves to Meals with a one-tap grocery add",
+    icon: "book-outline",
+    intent: "recipe",
+    text: "Give me a recipe for brownies."
+  },
+  {
     label: "What's on today?",
+    hint: "A quick summary of plans and open chores",
+    icon: "today-outline",
     intent: "day_summary",
     text: "What's on today?"
   }
 ];
 
 const NEAR_BOTTOM_THRESHOLD = 120;
-const COMPOSER_ESTIMATED_HEIGHT = 220;
+// Matches App.tsx's outer ScrollView chrome: content paddingVertical (spacing.lg) above the
+// screen, the fixed tab bar's reserved paddingBottom (168) below it, plus this screen's own
+// compact header + gap. Keeping this in sync with that chrome is what lets the panel actually
+// fill the visible viewport instead of guessing a height ratio that leaves dead space.
+const CHROME_ABOVE_PANEL = spacing.lg + 108;
+const CHROME_BELOW_PANEL = 168;
 
 export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
-  const { commitDraft, createMeal, familyId, familyName, members, events, chores, syncSource } = useHomeThreadStore();
+  const {
+    commitDraft,
+    createMeal,
+    createRecipe,
+    addMealIngredientsToGrocery,
+    familyId,
+    familyName,
+    members,
+    events,
+    chores,
+    syncSource
+  } = useHomeThreadStore();
   const isSavingBoard = useHomeThreadStore(isHomeThreadSavingScope("board"));
   const isSavingMeals = useHomeThreadStore(isHomeThreadSavingScope("meals"));
   const { height: windowHeight } = useWindowDimensions();
@@ -177,6 +267,11 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
   const pinnedToBottomRef = useRef(true);
   const [prompt, setPrompt] = useState("");
   const [draft, setDraft] = useState<AssistantDraft | null>(null);
+  const [recipeDraft, setRecipeDraft] = useState<RecipeImportDraft | null>(null);
+  const [savedRecipeId, setSavedRecipeId] = useState<string | null>(null);
+  const [groceryAdded, setGroceryAdded] = useState(false);
+  const [isSavingRecipe, setIsSavingRecipe] = useState(false);
+  const [isAddingGroceries, setIsAddingGroceries] = useState(false);
   const [mealSuggestions, setMealSuggestions] = useState<AssistantMealSuggestion[] | null>(null);
   const [savedMealKeys, setSavedMealKeys] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([ASSISTANT_WELCOME_MESSAGE]);
@@ -189,9 +284,11 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
   const [assistantNote, setAssistantNote] = useState<string | null>(null);
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus | null>(null);
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | null>(null);
-  const [showPrompts, setShowPrompts] = useState(false);
-  const panelHeight = Math.min(Math.max(windowHeight * 0.62, 420), 680);
-  const conversationHeight = Math.max(240, panelHeight - COMPOSER_ESTIMATED_HEIGHT);
+  const hasUserMessages = useMemo(() => messages.some((message) => message.role === "user"), [messages]);
+  const panelHeight = Math.min(
+    Math.max(windowHeight - CHROME_ABOVE_PANEL - CHROME_BELOW_PANEL, 380),
+    820
+  );
 
   const scrollConversationToBottom = useCallback((animated = true) => {
     conversationScrollRef.current?.scrollToEnd({ animated });
@@ -251,7 +348,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
 
     if (syncSource !== "api") {
       setAssistantStatus(null);
-      setAssistantStatusMessage("Sign in to use cloud AI. Preview mode can still draft simple text on this device.");
+      setAssistantStatusMessage("Sign in to your household to get full answers. This device can still draft simple text.");
       return () => {
         cancelled = true;
       };
@@ -272,13 +369,11 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
       setAssistantStatus(result.data);
 
       if (result.data.configured) {
-        setAssistantStatusMessage("Cloud AI is available for this household.");
+        setAssistantStatusMessage(null);
         return;
       }
 
-      setAssistantStatusMessage(
-        "This build can parse simple family text. Cloud AI is not configured on the server yet."
-      );
+      setAssistantStatusMessage("Full answers aren't set up yet. HomeThread can still draft simple text for you.");
     })();
 
     return () => {
@@ -344,6 +439,9 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
     setDraftFeedback(null);
     setAssistantNote(null);
     setDraft(null);
+    setRecipeDraft(null);
+    setSavedRecipeId(null);
+    setGroceryAdded(false);
     setMealSuggestions(null);
     setSavedMealKeys([]);
     pinnedToBottomRef.current = true;
@@ -382,6 +480,19 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
         return;
       }
 
+      if (intent === "recipe") {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            body: "Recipes need a signed-in household. For now, add recipes on the Meals tab."
+          }
+        ]);
+        setIsThinking(false);
+        return;
+      }
+
       const localDraft = resolveLocalDraft(trimmed, intent);
       setDraft(localDraft);
       setMessages((current) => [
@@ -414,8 +525,12 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
 
     if (result.data?.mode === "ai") {
       const assistantData = result.data;
-      const nextDraft = assistantData.draft ?? resolveLocalDraft(trimmed, intent);
-      setDraft(nextDraft);
+      if (assistantData.recipe) {
+        setRecipeDraft(assistantData.recipe);
+      } else {
+        const nextDraft = assistantData.draft ?? resolveLocalDraft(trimmed, intent);
+        setDraft(nextDraft);
+      }
       setAssistantNote(
         assistantData.provider
           ? `Suggestion from ${assistantData.provider}.`
@@ -501,14 +616,63 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
     setIsThinking(false);
   }
 
+  async function handleSaveRecipe() {
+    if (!recipeDraft || isSavingRecipe || savedRecipeId) {
+      return;
+    }
+
+    setIsSavingRecipe(true);
+    const outcome = await createRecipe({
+      title: recipeDraft.title,
+      description: recipeDraft.description,
+      ingredients: recipeDraft.ingredients,
+      instructions: recipeDraft.instructions,
+      prepTimeMinutes: recipeDraft.prepTimeMinutes,
+      cookTimeMinutes: recipeDraft.cookTimeMinutes,
+      servings: recipeDraft.servings
+    });
+    setIsSavingRecipe(false);
+
+    if (outcome.kind === "failed") {
+      setDraftFeedback({ message: outcome.message, tone: "error" });
+      return;
+    }
+
+    const saved = useHomeThreadStore
+      .getState()
+      .recipes.filter((recipe) => recipe.title === recipeDraft.title)
+      .at(-1);
+    setSavedRecipeId(saved?.id ?? null);
+    setDraftFeedback({
+      message: outcome.message || "Added to Meals → Saved Recipes.",
+      tone: outcome.kind === "local" ? "info" : "success"
+    });
+  }
+
+  async function handleAddRecipeGroceries() {
+    if (!savedRecipeId || isAddingGroceries || groceryAdded) {
+      return;
+    }
+
+    setIsAddingGroceries(true);
+    const outcome = await addMealIngredientsToGrocery({ recipeId: savedRecipeId });
+    setIsAddingGroceries(false);
+
+    if (outcome.kind === "failed") {
+      setDraftFeedback({ message: outcome.message, tone: "error" });
+      return;
+    }
+
+    setGroceryAdded(true);
+    setDraftFeedback({ message: outcome.message, tone: outcome.kind === "local" ? "info" : "success" });
+  }
+
   return (
     <View style={styles.screen}>
       <ScreenHeader
         eyebrow="Assistant"
-        title="Ask HomeThread"
-        subtitle="Draft here. Nothing saves until you approve."
-        badgeLabel={syncSource === "api" ? (assistantStatus?.configured ? "Cloud AI" : "Local draft") : "Preview"}
-        badgeTone={syncSource === "api" ? (assistantStatus?.configured ? "mint" : "gold") : "neutral"}
+        title="Assistant"
+        subtitle={hasUserMessages ? undefined : "Ask a question or add something quickly."}
         density="compact"
         actionLabel={onBack ? "Back" : undefined}
         onActionPress={onBack}
@@ -517,7 +681,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
       <View style={[styles.surface, { height: panelHeight }]}>
         <ScrollView
           ref={conversationScrollRef}
-          style={[styles.conversationScroll, { maxHeight: conversationHeight }]}
+          style={styles.conversationScroll}
           contentContainerStyle={styles.conversationContent}
           keyboardShouldPersistTaps="handled"
           onScroll={handleConversationScroll}
@@ -543,6 +707,35 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
             </View>
           ) : null}
 
+          {!hasUserMessages ? (
+            <View style={styles.suggestionBlock}>
+              <Text style={styles.suggestionGreeting}>
+                {greetingForNow()}
+                {familyName ? `, ${familyName}` : ""}
+              </Text>
+              {quickPrompts.map((entry) => (
+                <Pressable
+                  key={entry.label}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setPrompt(entry.text);
+                    void runAssistant(entry.text, entry.intent);
+                  }}
+                  style={({ pressed }) => [styles.suggestionCard, pressed && styles.suggestionCardPressed]}
+                >
+                  <View style={styles.suggestionIcon}>
+                    <Ionicons color={colors.primary} name={entry.icon} size={18} />
+                  </View>
+                  <View style={styles.suggestionCopy}>
+                    <Text style={styles.suggestionLabel}>{entry.label}</Text>
+                    <Text numberOfLines={1} style={styles.suggestionHint}>{entry.hint}</Text>
+                  </View>
+                  <Ionicons color={colors.muted} name="chevron-forward" size={18} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
           {mealSuggestions && mealSuggestions.length > 0 ? (
             <View style={styles.resultBlock}>
               <Text style={styles.resultLabel}>Meal suggestions</Text>
@@ -561,7 +754,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
                     <PrimaryButton
                       label={added ? "Added to meals" : isSavingMeals ? "Saving..." : "Add to meals"}
                       icon={added ? "checkmark" : "restaurant"}
-                      tone={added ? "ghost" : "soft"}
+                      tone={added ? "mint" : "soft"}
                       onPress={() => {
                         if (added || isSavingMeals) {
                           return;
@@ -593,17 +786,72 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
             </View>
           ) : null}
 
+          {recipeDraft ? (
+            <View style={styles.resultBlock}>
+              <Text style={styles.resultLabel}>Recipe to review</Text>
+              <View style={[styles.resultCard, savedRecipeId && styles.resultCardSaved]}>
+                <View style={styles.resultTop}>
+                  {savedRecipeId ? (
+                    <Pill label="Saved" tone="mint" icon="checkmark-circle" />
+                  ) : (
+                    <Pill label="Draft — not saved yet" tone="mint" icon="sparkles" />
+                  )}
+                  <Pill label="Meals" tone="primary" />
+                </View>
+                <Text style={styles.resultTitle}>{recipeDraft.title}</Text>
+                <Text style={styles.resultMeta}>{formatRecipeIngredientPreview(recipeDraft.ingredients)}</Text>
+                {assistantNote ? <Text style={styles.resultNote}>{assistantNote}</Text> : null}
+                <ActionFeedback
+                  message={draftFeedback?.message ?? ""}
+                  tone={draftFeedback?.tone ?? "success"}
+                  visible={Boolean(draftFeedback?.message)}
+                />
+                <PrimaryButton
+                  label={
+                    isSavingRecipe
+                      ? "Saving..."
+                      : savedRecipeId
+                        ? "Added to Saved Recipes"
+                        : "Save to Meals"
+                  }
+                  icon={isSavingRecipe ? "sync" : savedRecipeId ? "checkmark" : "restaurant"}
+                  tone={savedRecipeId ? "mint" : "primary"}
+                  disabled={isSavingRecipe || Boolean(savedRecipeId)}
+                  onPress={() => void handleSaveRecipe()}
+                />
+                {savedRecipeId ? (
+                  <PrimaryButton
+                    label={
+                      isAddingGroceries
+                        ? "Adding..."
+                        : groceryAdded
+                          ? "Added to groceries"
+                          : "Add ingredients to groceries"
+                    }
+                    icon={isAddingGroceries ? "sync" : groceryAdded ? "checkmark" : "cart"}
+                    tone={groceryAdded ? "mint" : "soft"}
+                    disabled={isAddingGroceries || groceryAdded}
+                    onPress={() => void handleAddRecipeGroceries()}
+                  />
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
           {draft ? (
             <View style={styles.resultBlock}>
               <Text style={styles.resultLabel}>Draft to review</Text>
-              <View style={styles.resultCard}>
+              <View style={[styles.resultCard, savedKind && styles.resultCardSaved]}>
                 <View style={styles.resultTop}>
-                  <Pill label="Suggested draft" tone="mint" icon="sparkles" />
+                  {savedKind ? (
+                    <Pill label="Saved" tone="mint" icon="checkmark-circle" />
+                  ) : (
+                    <Pill label="Draft — not saved yet" tone="mint" icon="sparkles" />
+                  )}
                   <Pill
-                    label={draft.kind}
+                    label={destinationLabel(draft.kind)}
                     tone={draft.kind === "event" ? "primary" : draft.kind === "chore" ? "gold" : "mint"}
                   />
-                  <Text style={styles.confidence}>{Math.round(draft.confidence * 100)}%</Text>
                 </View>
                 <Text style={styles.resultTitle}>{draft.title}</Text>
                 <Text style={styles.resultMeta}>{draft.detail}</Text>
@@ -617,7 +865,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
                   {isSavingBoard
                     ? "Saving..."
                     : savedKind === "saved"
-                      ? "Saved to your household."
+                      ? `Added to ${destinationLabel(draft.kind)}.`
                       : savedKind === "local"
                         ? "Saved on this device only. Pull to refresh when the connection is steady."
                         : ""}
@@ -627,14 +875,15 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
                     isSavingBoard
                       ? "Saving..."
                       : savedKind === "saved"
-                        ? "Saved"
+                        ? `Added to ${destinationLabel(draft.kind)}`
                         : savedKind === "local"
                           ? "Saved locally"
-                          : "Save to HomeThread"
+                          : `Add to ${destinationLabel(draft.kind)}`
                   }
                   icon={
                     isSavingBoard ? "sync" : savedKind === "saved" || savedKind === "local" ? "checkmark" : "add"
                   }
+                  tone={savedKind ? "mint" : "primary"}
                   disabled={isSavingBoard || savedKind !== null}
                   onPress={() => {
                     if (isSavingBoard || savedKind !== null) return;
@@ -649,7 +898,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
                         message:
                           outcome.kind === "local"
                             ? "Saved on this device only. Pull to refresh when the connection is steady."
-                            : "Saved to your household.",
+                            : outcome.message || `Added to ${destinationLabel(draft.kind)}.`,
                         tone: outcome.kind === "local" ? "info" : "success"
                       });
                       setSavedKind(outcome.kind === "local" ? "local" : "saved");
@@ -661,50 +910,38 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
           ) : null}
         </ScrollView>
 
-        <View style={styles.composer}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setShowPrompts((value) => !value)}
-            style={styles.promptToggle}
-          >
-            <Text style={styles.promptToggleLabel}>{showPrompts ? "Hide suggestions" : "Try a suggestion"}</Text>
-          </Pressable>
-          {showPrompts ? (
-            <View style={styles.promptRow}>
-              {quickPrompts.map((entry) => (
-                <Pressable
-                  key={entry.label}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setPrompt(entry.text);
-                    void runAssistant(entry.text, entry.intent);
-                  }}
-                >
-                  <Pill label={entry.label} tone="neutral" />
-                </Pressable>
-              ))}
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={styles.composer}>
+            <View style={styles.composerRow}>
+              <TextInput
+                accessibilityLabel="Assistant message"
+                multiline
+                onChangeText={setPrompt}
+                placeholder="Ask HomeThread or paste a family text..."
+                placeholderTextColor={colors.muted}
+                style={styles.input}
+                value={prompt}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send"
+                disabled={!canSend}
+                onPress={() => {
+                  if (!canSend) return;
+                  void runAssistant(prompt, resolveIntentForInput(prompt));
+                }}
+                style={({ pressed }) => [
+                  styles.sendButton,
+                  (!canSend || isThinking) && styles.sendButtonDisabled,
+                  pressed && canSend && styles.sendButtonPressed
+                ]}
+              >
+                <Ionicons color="#FFFFFF" name={isThinking ? "hourglass-outline" : "send"} size={18} />
+              </Pressable>
             </View>
-          ) : null}
-          <TextInput
-            accessibilityLabel="Assistant message"
-            multiline
-            onChangeText={setPrompt}
-            placeholder="Paste family text or ask for help"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            value={prompt}
-          />
-          <PrimaryButton
-            label={isThinking ? "Thinking..." : "Ask assistant"}
-            icon="sparkles"
-            disabled={!canSend}
-            onPress={() => {
-              if (!canSend) return;
-              void runAssistant(prompt, "general");
-            }}
-          />
-          {assistantStatusMessage ? <Text style={styles.statusNote}>{assistantStatusMessage}</Text> : null}
-        </View>
+            {assistantStatusMessage ? <Text style={styles.statusNote}>{assistantStatusMessage}</Text> : null}
+          </View>
+        </KeyboardAvoidingView>
       </View>
     </View>
   );
@@ -746,39 +983,47 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   conversationScroll: {
-    flexGrow: 0,
-    flexShrink: 1
+    flex: 1
   },
   conversationContent: {
+    flexGrow: 1,
     gap: spacing.sm,
+    justifyContent: "flex-end",
     padding: spacing.md
   },
   bubble: {
-    borderRadius: radii.md,
-    maxWidth: "92%",
-    padding: spacing.md
+    borderRadius: radii.lg,
+    maxWidth: "88%",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    shadowColor: colors.ink,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6
   },
   userBubble: {
     alignSelf: "flex-end",
-    backgroundColor: colors.primary
+    backgroundColor: colors.primary,
+    borderBottomRightRadius: 4
   },
   assistantBubble: {
     alignSelf: "flex-start",
-    backgroundColor: colors.canvas,
+    backgroundColor: colors.surface,
+    borderBottomLeftRadius: 4,
     borderColor: colors.line,
     borderWidth: 1
   },
   userBubbleText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 21
   },
   assistantBubbleText: {
     color: colors.ink,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 21
   },
   resultBlock: {
     gap: spacing.sm,
@@ -793,12 +1038,23 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   resultCard: {
-    backgroundColor: colors.canvas,
+    backgroundColor: colors.surface,
     borderColor: colors.line,
-    borderRadius: radii.md,
+    borderLeftColor: colors.primary,
+    borderLeftWidth: 3,
+    borderRadius: radii.lg,
     borderWidth: 1,
     gap: spacing.sm,
-    padding: spacing.md
+    padding: spacing.md,
+    shadowColor: colors.ink,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12
+  },
+  resultCardSaved: {
+    backgroundColor: colors.mintSoft,
+    borderColor: "rgba(92,122,90,0.2)",
+    borderLeftColor: colors.mint
   },
   resultTop: {
     alignItems: "center",
@@ -825,49 +1081,99 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 17
   },
-  confidence: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "900"
-  },
   saveStatus: {
     color: colors.primary,
     fontSize: 12,
     fontWeight: "700"
   },
-  composer: {
-    backgroundColor: colors.surfaceRaised,
+  suggestionBlock: {
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  suggestionGreeting: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: spacing.xs
+  },
+  suggestionCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
     borderColor: colors.line,
-    borderTopWidth: 1,
-    flexShrink: 0,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
     gap: spacing.sm,
     padding: spacing.md
   },
-  promptToggle: {
-    alignSelf: "flex-start",
-    minHeight: 32,
-    justifyContent: "center"
+  suggestionCardPressed: {
+    backgroundColor: colors.canvas,
+    opacity: 0.9
   },
-  promptToggleLabel: {
-    color: colors.primary,
-    fontSize: 13,
+  suggestionIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  suggestionCopy: {
+    flex: 1,
+    gap: 2
+  },
+  suggestionLabel: {
+    color: colors.ink,
+    fontSize: 15,
     fontWeight: "700"
   },
-  promptRow: {
+  suggestionHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16
+  },
+  composer: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderTopWidth: 1,
+    flexShrink: 0,
+    gap: spacing.xs,
+    padding: spacing.sm
+  },
+  composerRow: {
+    alignItems: "flex-end",
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.sm
   },
   input: {
     backgroundColor: colors.surface,
     borderColor: colors.lineStrong,
-    borderRadius: radii.md,
+    borderRadius: radii.pill,
     borderWidth: 1,
     color: colors.ink,
-    fontSize: 16,
-    minHeight: 72,
-    padding: spacing.md,
-    textAlignVertical: "top"
+    flex: 1,
+    fontSize: 15,
+    maxHeight: 100,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    textAlignVertical: "center"
+  },
+  sendButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: radii.pill,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  sendButtonDisabled: {
+    opacity: 0.5
+  },
+  sendButtonPressed: {
+    backgroundColor: colors.primaryPressed
   },
   statusNote: {
     color: colors.tertiary,

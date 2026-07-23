@@ -73,6 +73,7 @@ function detectKind(lower: string): DraftKind {
 
 function titleFromText(text: string, kind: DraftKind): string {
   const cleaned = text
+    .replace(/\s+/g, " ")
     .replace(/^please\s+/i, "")
     .replace(/^(can you|could you|remember to|remind me to)\s+/i, "")
     .replace(/[.?!]$/u, "")

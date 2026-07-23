@@ -1,4 +1,6 @@
 import {
+  childDeviceAvatarUploadResponseSchema,
+  childDeviceAvatarUploadSchema,
   childDeviceChoresResponseSchema,
   childDeviceMeResponseSchema,
   childDevicePushTokenSchema,
@@ -27,11 +29,38 @@ import { sendError } from "../lib/http.js";
 import { clearChildDevicePushToken } from "../lib/pushNotifications.js";
 import { logSafeError, redactForLog } from "../lib/redactLog.js";
 import { cancelChoreReminderForDate } from "../lib/reminderScheduling.js";
+import { serviceRoleSupabase } from "../plugins/auth.js";
 import { requireChildDeviceAuth } from "../plugins/childDeviceAuth.js";
 
 const choreParamsSchema = z.object({
   choreId: uuidSchema
 });
+
+const avatarBucket = "avatars";
+
+function extensionFromMimeType(mimeType: string | null | undefined) {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
+}
+
+function withCacheBust(url: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${Date.now()}`;
+}
+
+async function resolveAvatarUrl(path: string) {
+  if (!serviceRoleSupabase) {
+    return null;
+  }
+
+  const publicUrl = serviceRoleSupabase.storage.from(avatarBucket).getPublicUrl(path).data.publicUrl;
+  const signedUrlResult = await serviceRoleSupabase.storage
+    .from(avatarBucket)
+    .createSignedUrl(path, 60 * 60 * 24 * 365);
+
+  return withCacheBust(signedUrlResult.data?.signedUrl ?? publicUrl);
+}
 
 async function getMemberStarBalance(familyId: string, memberId: string) {
   const [row] = await db
@@ -328,9 +357,110 @@ export async function childDevicesRoutes(app: FastifyInstance) {
         member: {
           id: member.id,
           displayName: member.displayName,
+          avatarUrl: member.avatarUrl,
           starBalance
         }
       });
+    });
+
+    scoped.put("/me/avatar", async (request, reply) => {
+      const device = request.childDevice!;
+      const body = childDeviceAvatarUploadSchema.parse(request.body);
+
+      if (!serviceRoleSupabase) {
+        return sendError(
+          reply,
+          503,
+          "Child profile photo upload is not ready on this server yet.",
+          "CHILD_AVATAR_UPLOAD_NOT_READY"
+        );
+      }
+
+      let stage = "decode_avatar";
+
+      try {
+        const member = await db.query.familyMembers.findFirst({
+          where: and(eq(familyMembers.id, device.memberId), eq(familyMembers.familyId, device.familyId))
+        });
+
+        if (!member) {
+          return sendError(reply, 404, "Child profile not found.", "CHILD_MEMBER_NOT_FOUND");
+        }
+
+        const normalizedBase64 = body.imageBase64.replace(/^data:[^;]+;base64,/u, "");
+        const imageBytes = Buffer.from(normalizedBase64, "base64");
+
+        if (imageBytes.length === 0) {
+          return sendError(reply, 400, "HomeThread could not read that photo for upload.", "CHILD_AVATAR_INVALID");
+        }
+
+        const extension = extensionFromMimeType(body.mimeType);
+        const path = `${device.memberId}/avatar-${Date.now()}.${extension}`;
+
+        stage = "upload_avatar";
+        const { error: uploadError } = await serviceRoleSupabase.storage
+          .from(avatarBucket)
+          .upload(path, imageBytes, {
+            contentType: body.mimeType === "image/jpg" ? "image/jpeg" : body.mimeType,
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error(
+            redactForLog({
+              scope: "child_device_avatar_upload",
+              stage,
+              familyId: device.familyId,
+              memberId: device.memberId,
+              deviceId: device.id
+            })
+          );
+          logSafeError(uploadError);
+          return sendError(
+            reply,
+            503,
+            "Child profile photo upload is not ready right now.",
+            "CHILD_AVATAR_UPLOAD_UNAVAILABLE"
+          );
+        }
+
+        stage = "resolve_avatar_url";
+        const avatarUrl = await resolveAvatarUrl(path);
+        if (!avatarUrl) {
+          return sendError(
+            reply,
+            503,
+            "Child profile photo upload is not ready right now.",
+            "CHILD_AVATAR_UPLOAD_UNAVAILABLE"
+          );
+        }
+
+        stage = "persist_avatar_url";
+        await db
+          .update(familyMembers)
+          .set({ avatarUrl })
+          .where(and(eq(familyMembers.id, device.memberId), eq(familyMembers.familyId, device.familyId)));
+
+        return reply.send(childDeviceAvatarUploadResponseSchema.parse({ avatarUrl }));
+      } catch (error) {
+        console.error(
+          redactForLog({
+            scope: "child_device_avatar_upload",
+            stage,
+            familyId: device.familyId,
+            memberId: device.memberId,
+            deviceId: device.id
+          })
+        );
+        logSafeError(error);
+
+        return sendError(
+          reply,
+          500,
+          "Child profile photo upload is temporarily unavailable.",
+          "CHILD_AVATAR_UPLOAD_FAILED"
+        );
+      }
     });
 
     scoped.put("/push-token", async (request, reply) => {

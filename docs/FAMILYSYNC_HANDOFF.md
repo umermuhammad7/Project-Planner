@@ -4,6 +4,119 @@
 
 ---
 
+# Current Working Handoff
+> Updated Sunday, July 19, 2026. Read this section first. If anything below conflicts with this handoff, follow this handoff.
+
+## Current Scope
+
+- Work only in `E:\project planner\Project-Planner`.
+- Focus only on the HomeThread app.
+- Do not touch `E:\project tax tracker`.
+- Do not open the UI or browser yourself.
+- We are now working with Claude Code, not Cursor.
+
+## Working Style
+
+- Use a supervisor-style workflow with short, strict prompts to the coding agent.
+- Let the coding agent make the change, then verify the result.
+- Use ponytail rules: prefer reuse, the smallest safe diff, and no unnecessary abstractions.
+- Use GitNexus before any logic-touching work or risky auth, calendar, or backend work.
+
+## Main Docs To Follow
+
+- `final corrections/FINAL_TODO.md`
+- `final corrections/information from the devaloper .md`
+- `final corrections/refined.md`
+- `final corrections/screens critigue by me.txt`
+- `docs/FAMILYSYNC_HANDOFF.md`
+
+## Current Product Status
+
+- Welcome screen: paused, good enough for now.
+- Home screen: paused, good enough for now.
+- Plan screen: closed-state UI is now acceptable enough.
+- Remaining Plan UI work: final form-focus pass for Add/Edit plan.
+- Deferred Plan logic work: weather incorrectly becoming plan items, and real calendar sync/auth truth.
+
+## Plan Screen Decisions Already Made
+
+- Stop redesigning the closed-state top/header/list.
+- Many-plan usability was addressed enough for now.
+- Upcoming groups first.
+- Earlier moved to bottom.
+- Earlier can be collapsed when large.
+- Search appears for larger plan counts.
+- No more visual churn on the closed-state list unless there is a serious defect.
+
+## What Is Still Wrong On The Plan Form
+
+- Add/Edit form still does not feel like a true focused compose flow.
+- Bottom tab bar is still visible in the screenshot.
+- Form still feels embedded in the screen instead of becoming the active task.
+- Primary action is not clearly anchored in a bottom footer.
+- Lower part of the form collides with bottom chrome.
+- Date/time controls still feel too large and awkward.
+- Assignee area gets cramped low in the screen.
+
+## Next Task
+
+Do a final safe UI pass for the Plan form only.
+
+## Allowed Files
+
+- `apps/mobile/src/screens/PlanScreen.tsx`
+- optionally `apps/mobile/src/components/DateField.tsx`
+- optionally `apps/mobile/src/components/TimeField.tsx`
+
+## Do Not Touch
+
+- create/update/delete logic
+- sorting/search/grouping logic
+- calendar auth/sync logic
+- backend/store logic
+- package files
+
+## Required Outcome Of The Next Pass
+
+- `showForm` should behave like a true focused compose state.
+- No week card, agenda, travel tip, or calendar footer should be visible while the form is open.
+- The form should read as 3 zones: top header, scrollable field body, anchored bottom action footer.
+- If there is a safe existing way to hide the tab bar, use it.
+- Otherwise the compose layer must visually cover the lower area cleanly.
+- Do not falsely claim the tab bar is hidden if it is still visible.
+- Date/time controls should match the rhythm of normal inputs, not oversized blocks.
+- Assignee chips must remain fully usable and not crushed near the bottom.
+
+## Calendar Intent
+
+- Calendar sync is for connecting external calendars like Google Calendar and iCal.
+- The purpose is to bring outside events into HomeThread.
+- It is not about importing events from a geographic area.
+- Location, weather, and travel reminders are separate concerns.
+- Safe future direction: read-in sync first, push-back later.
+- A later logic pass should verify timezone handling, duplicates, imported-event updates, and honest connection state, with GitNexus first.
+
+## Honest Closed-State Calendar Footer Copy
+
+- Title: `Calendar`
+- Body: `Connect a calendar to bring outside events into your family plan`
+- Action: `Connect` or `Manage`
+
+## Required Verification After The Next Pass
+
+Run these checks after the coding agent finishes:
+
+- `git status --short`
+- `git diff -- apps/mobile/src/screens/PlanScreen.tsx apps/mobile/src/components/DateField.tsx apps/mobile/src/components/TimeField.tsx`
+- `npm run typecheck` from `E:\project planner\Project-Planner\apps\mobile`
+
+## Stop Condition
+
+- Once the form pass is done well, stop Plan UI work.
+- The next Plan work after that should be logic-only debugging for weather/calendar, using GitNexus first.
+
+---
+
 ## 0. Project Overview
 
 **App name:** FamilySync  

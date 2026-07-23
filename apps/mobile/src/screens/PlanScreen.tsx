@@ -1,55 +1,95 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, LayoutAnimation, Platform, Pressable, StyleSheet, Text, TextInput, UIManager, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  UIManager,
+  useWindowDimensions,
+  View
+} from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { DateField } from "../components/DateField";
-import { Card, FieldError, Pill, PrimaryButton, Row, SectionTitle } from "../components/Primitives";
-import { ScreenHeader } from "../components/ScreenHeader";
-import { SyncStatusRow } from "../components/SyncStatusRow";
+import { FieldError, MemberAvatar, PrimaryButton } from "../components/Primitives";
 import { TimeField } from "../components/TimeField";
-import { colors, fonts, radii, spacing } from "../constants/theme";
+import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
 import { apiRequest } from "../services/api";
 import { useHomeThreadStore, isHomeThreadSavingScope } from "../store/useHomeThreadStore";
 import { TravelReminderStatus } from "../types";
 import { compareEventsByStartAt, describeImportedEventSource, getEventUrgency } from "../utils/eventUrgency";
-import { getMemberProfileLabel } from "../utils/memberAccessLabel";
 import { safeText } from "../utils/safeRender";
 import { CalendarSyncScreen } from "./CalendarSyncScreen";
 import type { PlanEvent } from "../types";
 
-function eventStatusLabel(
-  event: PlanEvent,
-  urgency: ReturnType<typeof getEventUrgency>,
-  importedSource: string | null
-) {
-  if (urgency?.label && urgency.label !== "Past") {
-    return urgency.label;
+function calendarDayDiff(value: Date, now: Date) {
+  const start = new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((start - today) / 86400000);
+}
+
+function agendaDividerLabel(event: Pick<PlanEvent, "startAt">, now = new Date()) {
+  if (!event.startAt) {
+    return "Later";
   }
 
-  if (event.countdownLabel) {
-    return event.countdownLabel;
+  const startsAt = new Date(event.startAt);
+  if (Number.isNaN(startsAt.getTime())) {
+    return "Later";
   }
 
-  if (importedSource) {
-    return importedSource;
+  const dayDiff = calendarDayDiff(startsAt, now);
+  if (dayDiff === 0) {
+    return "Today";
+  }
+  if (dayDiff === 1) {
+    return "Tomorrow";
+  }
+  if (dayDiff < 0) {
+    return "Earlier";
   }
 
-  if (event.source === "assistant") {
-    return "Assistant";
+  return startsAt.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function formatNextSchedule(event: Pick<PlanEvent, "startAt" | "time" | "dateLabel">) {
+  if (event.startAt) {
+    const startsAt = new Date(event.startAt);
+    if (!Number.isNaN(startsAt.getTime())) {
+      const datePart = startsAt.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric"
+      });
+      const timeText = typeof event.time === "string" ? event.time.trim() : "";
+      if (timeText && timeText.toLowerCase() !== "anytime") {
+        return `${datePart} - ${timeText}`;
+      }
+      return datePart;
+    }
   }
 
-  if (event.source === "text") {
-    return "From text";
-  }
-
-  return null;
+  return [event.dateLabel, event.time].filter(Boolean).join(" - ") || "Soon";
 }
 
 export function PlanScreen() {
-  const { events, members, createEvent, updateEvent, deleteEvent, refreshFromBackend, isHydrating, saveMessage, syncSource, syncMessage, realtimeStatus, realtimeMessage } =
-    useHomeThreadStore();
+  const { events, members, createEvent, updateEvent, deleteEvent, syncSource } = useHomeThreadStore();
   const isSavingPlan = useHomeThreadStore(isHomeThreadSavingScope("plan"));
+  const { width: windowWidth } = useWindowDimensions();
+  const composePanelMaxWidth = Math.min(windowWidth - spacing.md * 2, 440);
   const { scrollToOffset, scrollToTop } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -60,15 +100,15 @@ export function PlanScreen() {
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [showCalendarSync, setShowCalendarSync] = useState(false);
   const [travelStatus, setTravelStatus] = useState<TravelReminderStatus | null>(null);
-  const [travelMessage, setTravelMessage] = useState<string>("Travel reminders need an upcoming event with map coordinates.");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [showEarlierPlans, setShowEarlierPlans] = useState(false);
+  const [planQuery, setPlanQuery] = useState("");
   const [titleError, setTitleError] = useState<string | null>(null);
   const [startDateError, setStartDateError] = useState<string | null>(null);
   const [startTimeError, setStartTimeError] = useState<string | null>(null);
-  const formOpacity = useRef(new Animated.Value(0)).current;
 
   const canSubmit = useMemo(() => title.trim().length > 0, [title]);
   const sortedEvents = useMemo(() => [...events].sort(compareEventsByStartAt), [events]);
@@ -76,33 +116,51 @@ export function PlanScreen() {
     () => sortedEvents.find((event) => event.startAt && event.location),
     [sortedEvents]
   );
-  const nextEvent = useMemo(
-    () => sortedEvents.find((event) => getEventUrgency(event)?.label !== "Past") ?? null,
-    [sortedEvents]
-  );
   const upcomingCount = useMemo(
     () => sortedEvents.filter((event) => getEventUrgency(event)?.label !== "Past").length,
     [sortedEvents]
   );
+  const nextEvent = useMemo(
+    () => sortedEvents.find((event) => getEventUrgency(event)?.label !== "Past") ?? null,
+    [sortedEvents]
+  );
+  const showPlanSearch = sortedEvents.length > 8;
+  const filteredEvents = useMemo(() => {
+    const query = planQuery.trim().toLowerCase();
+    if (!showPlanSearch || !query) {
+      return sortedEvents;
+    }
+
+    return sortedEvents.filter((event) => {
+      const titleText = safeText(event.title, "").toLowerCase();
+      const locationText = (event.location ?? "").toLowerCase();
+      return titleText.includes(query) || locationText.includes(query);
+    });
+  }, [planQuery, showPlanSearch, sortedEvents]);
+  const agendaGroups = useMemo(() => {
+    const groups: Array<{ label: string; events: typeof sortedEvents }> = [];
+
+    for (const event of filteredEvents) {
+      const label = agendaDividerLabel(event);
+      const last = groups[groups.length - 1];
+      if (!last || last.label !== label) {
+        groups.push({ label, events: [event] });
+      } else {
+        last.events.push(event);
+      }
+    }
+
+    const upcoming = groups.filter((group) => group.label !== "Earlier");
+    const earlier = groups.filter((group) => group.label === "Earlier");
+    return [...upcoming, ...earlier];
+  }, [filteredEvents]);
+  const searchingPlans = showPlanSearch && planQuery.trim().length > 0;
 
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
-
-  useEffect(() => {
-    if (!showForm) {
-      formOpacity.setValue(0);
-      return;
-    }
-
-    Animated.timing(formOpacity, {
-      toValue: 1,
-      duration: 220,
-      useNativeDriver: Platform.OS !== "web"
-    }).start();
-  }, [formOpacity, showForm]);
 
   useEffect(() => {
     if (!successMessage && !infoMessage) {
@@ -119,6 +177,15 @@ export function PlanScreen() {
   const toggleMember = (id: string) => {
     setMemberIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
   };
+
+  function closeForm() {
+    if (isSavingPlan) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowForm(false);
+    resetForm();
+  }
 
   function resetForm() {
     setTitle("");
@@ -179,7 +246,7 @@ export function PlanScreen() {
     setStartTimeError(null);
 
     if (!title.trim()) {
-      setTitleError("Event title is required.");
+      setTitleError("Plan title is required.");
       return;
     }
 
@@ -222,8 +289,8 @@ export function PlanScreen() {
       return;
     }
 
-    Alert.alert("Delete event?", `Remove "${titleText}" from the household plan?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(`Delete "${titleText}"?`, "This removes it from the household plan.", [
+      { text: "Keep plan", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
@@ -252,14 +319,12 @@ export function PlanScreen() {
     async function loadTravelStatus() {
       if (syncSource !== "api") {
         setTravelStatus(null);
-        setTravelMessage("Travel reminders need a signed-in household.");
         return;
       }
 
       const familyId = useHomeThreadStore.getState().familyId;
       if (!familyId || !travelCandidate) {
         setTravelStatus(null);
-        setTravelMessage("Travel reminders need an upcoming event with map coordinates.");
         return;
       }
 
@@ -268,12 +333,10 @@ export function PlanScreen() {
       );
       if (!result.data) {
         setTravelStatus(null);
-        setTravelMessage(result.error?.message ?? "Could not load travel reminder status.");
         return;
       }
 
       setTravelStatus(result.data);
-      setTravelMessage(result.data.reason);
     }
 
     void loadTravelStatus();
@@ -284,582 +347,911 @@ export function PlanScreen() {
   }
 
   return (
-    <View>
-      <ScreenHeader
-        eyebrow="Plan"
-        title="This week"
-        subtitle="See what's ahead and add the next household plan."
-        badgeLabel={`${upcomingCount} upcoming`}
-        badgeTone={upcomingCount > 0 ? "mint" : "neutral"}
-        density="compact"
-      />
-
-      <SyncStatusRow
-        syncSource={syncSource}
-        syncMessage={syncMessage}
-        isHydrating={isHydrating}
-        realtimeStatus={realtimeStatus}
-        realtimeMessage={realtimeMessage}
-        showLiveNote
-      />
-
-      <View style={styles.actionRow}>
-        <View style={styles.primaryAction}>
-          <PrimaryButton
-            label={showForm ? "Close event form" : "Add event"}
-            icon={showForm ? "close" : "add"}
-            tone={showForm ? "soft" : "primary"}
+    <View style={styles.screen}>
+      <View style={styles.plannerCard}>
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.headerTitle}>This week</Text>
+            <Text style={styles.headerMeta} numberOfLines={1}>
+              {upcomingCount > 0
+                ? `${upcomingCount} plan${upcomingCount === 1 ? "" : "s"} coming up`
+                : "Nothing planned yet"}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add plan"
             onPress={toggleForm}
-          />
+            style={({ pressed }) => [styles.addPlanButton, pressed && styles.addPlanButtonPressed]}
+          >
+            <Ionicons name="add" size={17} color="#FFFFFF" />
+            <Text style={styles.addPlanButtonText}>Add plan</Text>
+          </Pressable>
         </View>
-        <PrimaryButton
-          label={isHydrating ? "Refreshing..." : "Refresh"}
-          icon="sync"
-          tone="ghost"
-          loading={isHydrating}
-          disabled={isHydrating}
-          onPress={() => void refreshFromBackend()}
-        />
+        <View style={styles.nextBar}>
+          <View style={styles.nextAccent} />
+          <View style={styles.nextIcon}>
+            <Text style={styles.nextIconGlyph}>⏰</Text>
+          </View>
+          <View style={styles.nextCopy}>
+            <Text style={styles.nextLabel}>Next</Text>
+            <Text style={styles.nextTitle} numberOfLines={1}>
+              {nextEvent ? safeText(nextEvent.title, "Untitled plan") : "Add a plan to get started"}
+            </Text>
+            {nextEvent ? (
+              <Text style={styles.nextSchedule} numberOfLines={1}>
+                {formatNextSchedule(nextEvent)}
+              </Text>
+            ) : null}
+            {nextEvent?.location ? (
+              <Text style={styles.nextLocation} numberOfLines={1}>
+                {nextEvent.location}
+              </Text>
+            ) : null}
+          </View>
+        </View>
       </View>
 
       <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
-      {!showForm ? (
-        <>
-          <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
-          <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
-        </>
-      ) : null}
+      <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+      <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
 
-      {showForm ? (
-        <Animated.View style={{ opacity: formOpacity }}>
-          <Card>
-            <Text style={styles.formTitle}>{editingEventId ? "Edit event" : "Create event"}</Text>
-            <Text style={styles.formHint}>Pick the day, add a time if needed, then save.</Text>
-            <Text style={styles.fieldLabel}>Title</Text>
+      <View style={styles.agendaArea}>
+        {showPlanSearch ? (
+          <View style={styles.searchWrap}>
+            <Ionicons name="search-outline" size={16} color={colors.muted} />
             <TextInput
-              accessibilityLabel="Event title"
-              placeholder="Title"
+              accessibilityLabel="Search plans"
+              placeholder="Search by title or place"
               placeholderTextColor={colors.muted}
-              value={title}
+              value={planQuery}
               onChangeText={(value) => {
-                setTitle(value);
-                if (titleError) {
-                  setTitleError(null);
-                }
+                setPlanQuery(value);
+                setExpandedEventId(null);
               }}
-              style={[styles.input, titleError ? styles.inputInvalid : null]}
+              style={styles.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              clearButtonMode="while-editing"
             />
-            <FieldError message={titleError} />
-            <TextInput
-              accessibilityLabel="Event location"
-              placeholder="Location (optional)"
-              placeholderTextColor={colors.muted}
-              value={location}
-              onChangeText={setLocation}
-              style={styles.input}
-            />
-            <DateField
-              label="Day"
-              value={startDate}
-              onChange={(value) => {
-                setStartDate(value);
-                if (startDateError) {
-                  setStartDateError(null);
-                }
-              }}
-            />
-            <FieldError message={startDateError} />
-            <TimeField
-              label="Start time (optional)"
-              value={startTime}
-              onChange={(value) => {
-                setStartTime(value);
-                if (startTimeError) {
-                  setStartTimeError(null);
-                }
-              }}
-              placeholder="Choose a time"
-            />
-            <FieldError message={startTimeError} />
-            <Text style={styles.pickerLabel}>Assign to</Text>
-            <View style={styles.pickerRow}>
-              {members.map((member) => {
-                const selected = memberIds.includes(member.id);
-                return (
-                  <Pressable
-                    key={member.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${selected ? "Remove" : "Add"} ${member.name} to event`}
-                    onPress={() => toggleMember(member.id)}
-                  >
-                    <Pill label={member.name} tone={selected ? "primary" : "neutral"} />
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={styles.formActions}>
-              <PrimaryButton
-                label={isSavingPlan ? (editingEventId ? "Saving..." : "Creating...") : editingEventId ? "Save changes" : "Create event"}
-                icon="checkmark"
-                loading={isSavingPlan}
-                disabled={isSavingPlan || !canSubmit}
-                onPress={() => {
-                  void handleCreateEvent();
-                }}
-              />
-              {editingEventId ? (
-                <PrimaryButton
-                  label="Cancel edit"
-                  icon="close"
-                  tone="ghost"
-                  disabled={isSavingPlan}
-                  onPress={() => {
-                    if (isSavingPlan) return;
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    setShowForm(false);
-                    resetForm();
-                  }}
-                />
-              ) : null}
-            </View>
-            <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
-            <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
-          </Card>
-        </Animated.View>
-      ) : null}
-
-      <View style={styles.utilityRow}>
-        <PrimaryButton label="Google Calendar" icon="calendar" tone="soft" onPress={() => setShowCalendarSync(true)} />
-      </View>
-
-      <Card>
-        <View style={styles.snapshotRow}>
-          <View style={styles.snapshotBlock}>
-            <Text style={styles.snapshotLabel}>Next up</Text>
-            <Text style={styles.snapshotValue}>{nextEvent ? nextEvent.title : "The week is still open"}</Text>
-            <Text style={styles.snapshotMeta}>
-              {nextEvent
-                ? `${nextEvent.time}${nextEvent.location ? ` - ${nextEvent.location}` : ""}`
-                : "Add the first anchor point for the week."}
-            </Text>
           </View>
-          <View style={styles.snapshotStats}>
-            <Text style={styles.snapshotNumber}>{upcomingCount}</Text>
-            <Text style={styles.snapshotStatLabel}>upcoming plans</Text>
-          </View>
-        </View>
-      </Card>
-
-      <Card>
-        <Text style={styles.foundationTitle}>Travel reminders</Text>
-        <Text style={styles.foundationText}>
-          {travelStatus?.supported
-            ? `Leave about ${travelStatus.recommendedLeadMinutes} minutes early for ${travelCandidate?.title ?? "the next event"}.`
-            : travelMessage}
-        </Text>
-        {travelStatus?.estimatedTravelMinutes ? (
-          <Text style={styles.foundationMeta}>
-            Estimated drive time: {travelStatus.estimatedTravelMinutes} minutes via {travelStatus.provider === "google_maps" ? "Google Maps" : "unavailable"}.
-          </Text>
         ) : null}
-      </Card>
 
-      <SectionTitle title="Household" />
-      <View style={styles.peopleRow}>
-        {members.map((member) => (
-          <Card key={member.id}>
-            <View style={styles.personCard}>
-              <View style={[styles.avatarDot, { backgroundColor: member.color }]}>
-                <Text style={styles.avatarText}>{member.initials}</Text>
-              </View>
-              <Text style={styles.personName}>{member.name}</Text>
-              <Pill label={getMemberProfileLabel(member)} tone="neutral" />
-            </View>
-          </Card>
-        ))}
-      </View>
-
-      <SectionTitle title="Plans ahead" action={`${upcomingCount} upcoming`} />
-      <View style={styles.stack}>
         {sortedEvents.length > 0 ? (
-          sortedEvents.map((event) => {
-            const assignedTo = Array.isArray(event.assignedTo) ? event.assignedTo : [];
-            const assigned = assignedTo
-              .map((id) => members.find((member) => member.id === id)?.name)
-              .filter(Boolean)
-              .join(", ");
-            const urgency = getEventUrgency(event);
-            const importedSource = describeImportedEventSource(event);
-            const eventColor =
-              members.find((member) => member.id === assignedTo[0])?.color ?? colors.primary;
-            const isExpanded = expandedEventId === event.id;
-            const eventTitle = safeText(event.title, "Untitled plan");
-            const eventTime = safeText(event.time, "Time TBD");
-            const scheduleLabel = event.dateLabel ? `${event.dateLabel} at ${eventTime}` : eventTime;
-            const statusLabel = eventStatusLabel(event, urgency, importedSource);
+          agendaGroups.length > 0 ? (
+            agendaGroups.map((group) => {
+              const isEarlierGroup = group.label === "Earlier";
+              const earlierCollapsible = isEarlierGroup && group.events.length > 1;
+              const earlierCollapsed = earlierCollapsible && !showEarlierPlans && !searchingPlans;
 
-            return (
-              <Card key={event.id}>
-                <Row align="flex-start">
-                  <View style={styles.rail}>
-                    <View style={[styles.dot, { backgroundColor: eventColor }]} />
-                    <View style={[styles.line, { backgroundColor: `${eventColor}33` }]} />
+              return (
+                <View key={group.label} style={styles.dateGroup}>
+                  <View style={styles.dateHeader}>
+                    <Text style={styles.dateHeading}>{group.label}</Text>
+                    <View style={styles.dateHeaderRule} />
                   </View>
-                  <View style={styles.fill}>
-                    <View style={styles.eventTopRow}>
-                      <Text style={styles.time}>{eventTime}</Text>
-                      {statusLabel ? <Pill label={statusLabel} tone={urgency?.tone ?? "neutral"} /> : null}
+                  {earlierCollapsed ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Show earlier plans, ${group.events.length}`}
+                      onPress={() => {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                        setShowEarlierPlans(true);
+                      }}
+                      style={({ pressed }) => [styles.earlierToggle, pressed && styles.earlierTogglePressed]}
+                    >
+                      <Text style={styles.earlierToggleText}>
+                        Show earlier plans ({group.events.length})
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.dateGroupRows}>
+                      {group.events.map((event) => {
+                        const assignedTo = Array.isArray(event.assignedTo) ? event.assignedTo : [];
+                        const assignedMembers = assignedTo
+                          .map((id) => members.find((member) => member.id === id))
+                          .filter((member): member is (typeof members)[number] => Boolean(member));
+                        const assignedNames = assignedMembers.map((member) => member.name).join(", ");
+                        const importedSource = describeImportedEventSource(event);
+                        const isExpanded = expandedEventId === event.id;
+                        const eventTitle = safeText(event.title, "Untitled plan");
+                        const eventTime = safeText(event.time, "Anytime");
+                        const metaLine = [eventTime, event.location, assignedNames].filter(Boolean).join(" - ");
+                        const firstAssignee = assignedMembers[0] ?? null;
+
+                        return (
+                          <View
+                            key={event.id}
+                            style={[styles.eventRow, isExpanded ? styles.eventRowExpanded : null]}
+                          >
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityState={{ expanded: isExpanded }}
+                              accessibilityLabel={`${eventTitle}. ${metaLine}. ${isExpanded ? "Hide" : "Show"} details`}
+                              onPress={() => {
+                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                setExpandedEventId((current) => (current === event.id ? null : event.id));
+                              }}
+                              style={({ pressed }) => [styles.eventMainHit, pressed && styles.eventRowPressed]}
+                            >
+                              <View style={styles.eventBody}>
+                                <Text style={styles.eventTitle} numberOfLines={2}>
+                                  {eventTitle}
+                                </Text>
+                                <Text style={styles.eventMeta} numberOfLines={1}>
+                                  {metaLine}
+                                </Text>
+                              </View>
+                              <View style={styles.eventTrailing}>
+                                {firstAssignee ? <MemberAvatar member={firstAssignee} size={18} /> : null}
+                                <Ionicons
+                                  name={isExpanded ? "chevron-up" : "chevron-forward"}
+                                  size={14}
+                                  color={colors.tertiary}
+                                />
+                              </View>
+                            </Pressable>
+
+                            {isExpanded ? (
+                              <View style={styles.expandedBlock}>
+                                {importedSource ? (
+                                  <Text style={styles.expandedText}>From {importedSource}</Text>
+                                ) : null}
+                                <View style={styles.expandedActions}>
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Edit ${eventTitle}`}
+                                    disabled={isSavingPlan}
+                                    onPress={() => populateForm(event)}
+                                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                                    style={({ pressed }) => [
+                                      styles.expandedActionHit,
+                                      pressed && styles.expandedActionHitPressed
+                                    ]}
+                                  >
+                                    <Text style={styles.expandedActionText}>Edit</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Delete ${eventTitle}`}
+                                    disabled={isSavingPlan}
+                                    onPress={() => {
+                                      void handleDeleteEvent(event.id, eventTitle);
+                                    }}
+                                    style={({ pressed }) => [
+                                      styles.deleteHit,
+                                      pressed && styles.expandedActionHitPressed
+                                    ]}
+                                  >
+                                    <Text style={styles.deleteText}>Delete</Text>
+                                  </Pressable>
+                                </View>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                      {earlierCollapsible && showEarlierPlans ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Hide earlier plans"
+                          onPress={() => {
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setShowEarlierPlans(false);
+                            setExpandedEventId(null);
+                          }}
+                          style={({ pressed }) => [styles.earlierToggle, pressed && styles.earlierTogglePressed]}
+                        >
+                          <Text style={styles.earlierToggleText}>Hide earlier plans</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
-                    <Text style={styles.eventTitle}>{eventTitle}</Text>
-                    <Text style={styles.schedule}>{scheduleLabel}</Text>
-                    {assigned ? <Text style={styles.meta}>{assigned}</Text> : null}
-                    {event.location ? <Text style={styles.location}>{event.location}</Text> : null}
-                    <View style={styles.eventActionRow}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Edit ${eventTitle}`}
-                        disabled={isSavingPlan}
-                        onPress={() => populateForm(event)}
-                        style={styles.eventActionLink}
-                      >
-                        <Text style={styles.eventActionLinkText}>Edit</Text>
-                      </Pressable>
-                      <Text style={styles.eventActionDivider}>·</Text>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Delete ${eventTitle}`}
-                        disabled={isSavingPlan}
-                        onPress={() => {
-                          void handleDeleteEvent(event.id, eventTitle);
-                        }}
-                        style={styles.eventActionLink}
-                      >
-                        <Text style={[styles.eventActionLinkText, styles.eventActionLinkDanger]}>Delete</Text>
-                      </Pressable>
-                      <Text style={styles.eventActionDivider}>·</Text>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={isExpanded ? "Hide event details" : "Show event details"}
-                        onPress={() => {
-                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                          setExpandedEventId((current) => (current === event.id ? null : event.id));
-                        }}
-                        style={styles.eventActionLink}
-                      >
-                        <Text style={styles.eventActionLinkText}>{isExpanded ? "Hide" : "Details"}</Text>
-                      </Pressable>
-                    </View>
-                    {isExpanded ? (
-                      <View style={styles.expandedMeta}>
-                        <Text style={styles.expandedMetaText}>
-                          {assigned ? `Assigned to ${assigned}. ` : ""}
-                          {event.location ? `Location: ${event.location}. ` : ""}
-                          Source: {importedSource ?? event.source}.
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                </Row>
-              </Card>
-            );
-          })
+                  )}
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.emptyBlock}>
+              <Text style={styles.emptyTitle}>No matching plans</Text>
+              <Text style={styles.emptyText}>Try a different title or place.</Text>
+            </View>
+          )
         ) : (
-          <Card>
-            <Text style={styles.emptyTitle}>Nothing is on the family calendar yet.</Text>
-            <Text style={styles.emptyText}>
-              Add the first event or import a calendar so this becomes the place everyone checks each morning.
-            </Text>
-          </Card>
+          <View style={styles.emptyBlock}>
+            <Text style={styles.emptyTitle}>No plans yet</Text>
+            <Text style={styles.emptyText}>Add one so the week has a clear starting point.</Text>
+          </View>
         )}
       </View>
+
+      {travelStatus?.supported ? (
+        <Text style={styles.leaveTip}>
+          Leave about {travelStatus.recommendedLeadMinutes} min early for{" "}
+          {travelCandidate?.title ?? "the next plan"}
+          {travelStatus.estimatedTravelMinutes
+            ? ` - ~${travelStatus.estimatedTravelMinutes} min travel`
+            : ""}
+          .
+        </Text>
+      ) : null}
+
+      <View style={styles.calendarSection}>
+        <View style={styles.calendarCopy}>
+          <Text style={styles.calendarLabel}>Calendar</Text>
+          <Text style={styles.calendarStatus}>
+            Connect a calendar to bring outside events into your family plan
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Connect calendars"
+          onPress={() => setShowCalendarSync(true)}
+          style={({ pressed }) => [styles.calendarAction, pressed && styles.calendarActionPressed]}
+        >
+          <Text style={styles.calendarActionText}>Connect</Text>
+        </Pressable>
+      </View>
+
+      <Modal
+        visible={showForm}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={closeForm}
+      >
+        <SafeAreaView style={styles.composeSafe}>
+          <KeyboardAvoidingView
+            style={styles.composeRoot}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={styles.composeStage}>
+              <View style={[styles.composePanel, { maxWidth: composePanelMaxWidth }]}>
+                <View style={styles.composeHeader}>
+                  <View style={styles.composeHeaderMark}>
+                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={styles.composeHeaderCopy}>
+                    <Text style={styles.composeTitle}>{editingEventId ? "Edit plan" : "Add plan"}</Text>
+                    <Text style={styles.composeHint}>Add the essentials, then save.</Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                    disabled={isSavingPlan}
+                    onPress={closeForm}
+                    style={styles.composeCancelHit}
+                  >
+                    <Text style={styles.composeCancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+
+                <ScrollView
+                  style={styles.composeScroll}
+                  contentContainerStyle={styles.composeScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.formField}>
+                    <Text style={styles.fieldLabel}>What is it?</Text>
+                    <TextInput
+                      accessibilityLabel="Plan title"
+                      placeholder="Soccer practice, dinner out..."
+                      placeholderTextColor={colors.muted}
+                      value={title}
+                      onChangeText={(value) => {
+                        setTitle(value);
+                        if (titleError) {
+                          setTitleError(null);
+                        }
+                      }}
+                      style={[styles.input, titleError ? styles.inputInvalid : null]}
+                    />
+                    <FieldError message={titleError} />
+                  </View>
+
+                  <View style={styles.formField}>
+                    <Text style={styles.fieldLabel}>Where? · optional</Text>
+                    <TextInput
+                      accessibilityLabel="Plan location"
+                      placeholder="Home, school, park..."
+                      placeholderTextColor={colors.muted}
+                      value={location}
+                      onChangeText={setLocation}
+                      style={styles.input}
+                    />
+                  </View>
+
+                  <View style={styles.scheduleRow}>
+                    <View style={styles.scheduleCol}>
+                      <DateField
+                        label="Date"
+                        value={startDate}
+                        onChange={(value) => {
+                          setStartDate(value);
+                          if (startDateError) {
+                            setStartDateError(null);
+                          }
+                        }}
+                      />
+                      <FieldError message={startDateError} />
+                    </View>
+                    <View style={styles.scheduleCol}>
+                      <TimeField
+                        label="Time · optional"
+                        value={startTime}
+                        onChange={(value) => {
+                          setStartTime(value);
+                          if (startTimeError) {
+                            setStartTimeError(null);
+                          }
+                        }}
+                        placeholder="Anytime"
+                      />
+                      <FieldError message={startTimeError} />
+                    </View>
+                  </View>
+
+                  <View style={styles.formField}>
+                    <Text style={styles.fieldLabel}>Who is involved?</Text>
+                    <View style={styles.pickerRow}>
+                      {members.map((member) => {
+                        const selected = memberIds.includes(member.id);
+                        return (
+                          <Pressable
+                            key={member.id}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            accessibilityLabel={`${selected ? "Remove" : "Add"} ${member.name} to plan`}
+                            onPress={() => toggleMember(member.id)}
+                            style={[styles.assignChip, selected ? styles.assignChipSelected : styles.assignChipIdle]}
+                          >
+                            <MemberAvatar member={member} size={22} />
+                            <Text
+                              style={[styles.assignChipName, selected && styles.assignChipNameSelected]}
+                              numberOfLines={1}
+                            >
+                              {member.name}
+                            </Text>
+                            {selected ? (
+                              <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                </ScrollView>
+
+                <View style={styles.composeFooter}>
+                  <PrimaryButton
+                    label={
+                      isSavingPlan
+                        ? "Saving..."
+                        : editingEventId
+                          ? "Save changes"
+                          : "Add plan"
+                    }
+                    icon="checkmark"
+                    loading={isSavingPlan}
+                    disabled={isSavingPlan || !canSubmit}
+                    onPress={() => {
+                      void handleCreateEvent();
+                    }}
+                  />
+                  <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
+                  <ActionFeedback message={infoMessage ?? ""} tone="info" visible={Boolean(infoMessage)} />
+                </View>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  title: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: 0,
-    lineHeight: 40
+  screen: {
+    gap: 0,
+    paddingBottom: 96
   },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22,
-    marginTop: spacing.sm
+  plannerCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    overflow: "hidden",
+    ...shadow.card
   },
-  actionRow: {
-    alignItems: "stretch",
+  header: {
+    alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.lg
+    paddingBottom: 10,
+    paddingHorizontal: spacing.md,
+    paddingTop: 12
   },
-  primaryAction: {
+  headerCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  headerTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+    lineHeight: 26
+  },
+  headerMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 17,
+    marginTop: 2
+  },
+  nextBar: {
+    alignItems: "flex-start",
+    backgroundColor: colors.mintSoft,
+    borderTopColor: "rgba(92,122,90,0.14)",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10
+  },
+  nextAccent: {
+    backgroundColor: colors.mint,
+    borderRadius: 2,
+    marginTop: 2,
+    minHeight: 36,
+    width: 3
+  },
+  nextIcon: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    height: 24,
+    justifyContent: "center",
+    marginTop: 1,
+    width: 24
+  },
+  nextIconGlyph: {
+    fontSize: 12,
+    lineHeight: 15
+  },
+  nextCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 2
+  },
+  nextLabel: {
+    color: colors.mint,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
+  },
+  nextTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    lineHeight: 19,
+    marginTop: 2
+  },
+  nextSchedule: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 17,
+    marginTop: 3,
+    opacity: 0.78
+  },
+  nextLocation: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+    marginTop: 2
+  },
+  addPlanButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: radii.pill,
+    flexDirection: "row",
+    gap: 3,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  addPlanButtonPressed: {
+    backgroundColor: colors.primaryPressed
+  },
+  addPlanButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  composeSafe: {
+    backgroundColor: "#EDE4D6",
     flex: 1
   },
-  utilityRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md,
-    marginTop: spacing.md
+  composeRoot: {
+    flex: 1
   },
-  foundationTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700"
-  },
-  foundationText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: spacing.sm
-  },
-  foundationMeta: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: spacing.sm
-  },
-  snapshotRow: {
+  composeStage: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md
-  },
-  snapshotBlock: {
     flex: 1,
-    gap: spacing.xs
-  },
-  snapshotLabel: {
-    color: colors.tertiary,
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase"
-  },
-  snapshotValue: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 23,
-    fontWeight: "700",
-    lineHeight: 29
-  },
-  snapshotMeta: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19
-  },
-  snapshotStats: {
-    alignItems: "center",
-    backgroundColor: colors.primarySoft,
-    borderRadius: radii.md,
-    minWidth: 92,
+    justifyContent: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md
+    paddingVertical: spacing.sm
   },
-  snapshotNumber: {
-    color: colors.primary,
-    fontFamily: fonts.display,
-    fontSize: 26,
-    fontWeight: "700"
+  composePanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    flex: 1,
+    overflow: "hidden",
+    width: "100%",
+    ...shadow.card
   },
-  snapshotStatLabel: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: spacing.xs,
-    textAlign: "center",
-    textTransform: "uppercase"
+  composeHeader: {
+    alignItems: "flex-start",
+    backgroundColor: colors.primarySoft,
+    borderBottomColor: "rgba(139,107,74,0.14)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingBottom: 14,
+    paddingHorizontal: spacing.md,
+    paddingTop: 14
   },
-  formTitle: {
+  composeHeaderMark: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: "rgba(139,107,74,0.18)",
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
+    justifyContent: "center",
+    marginTop: 2,
+    width: 36
+  },
+  composeHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: spacing.xs
+  },
+  composeTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
     fontSize: 22,
     fontWeight: "700",
-    marginBottom: spacing.xs
+    letterSpacing: -0.3,
+    lineHeight: 26
   },
-  formHint: {
+  composeHint: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18,
-    marginBottom: spacing.md
+    fontWeight: "500",
+    lineHeight: 17,
+    marginTop: 3
+  },
+  composeCancelHit: {
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 2,
+    paddingVertical: 4
+  },
+  composeCancelText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: "700"
+  },
+  composeScroll: {
+    backgroundColor: colors.surface,
+    flex: 1
+  },
+  composeScrollContent: {
+    gap: 12,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: 12
+  },
+  composeFooter: {
+    backgroundColor: colors.surface,
+    borderTopColor: colors.line,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: spacing.sm,
+    paddingBottom: Platform.OS === "ios" ? spacing.md : spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: 12
+  },
+  formField: {
+    gap: 6
+  },
+  scheduleRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  scheduleCol: {
+    flex: 1,
+    minWidth: 0
   },
   fieldLabel: {
     color: colors.ink,
     fontSize: 13,
     fontWeight: "700",
-    marginBottom: spacing.xs,
-    marginTop: spacing.md
+    letterSpacing: -0.1
   },
   input: {
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.canvas,
     borderColor: colors.lineStrong,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     color: colors.ink,
     fontSize: 16,
-    padding: spacing.md,
-    marginTop: spacing.xs
+    fontWeight: "500",
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10
   },
   inputInvalid: {
     borderColor: colors.coral
   },
-  formActions: {
-    gap: spacing.sm,
-    marginTop: spacing.lg
-  },
-  pickerLabel: {
-    color: colors.tertiary,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: spacing.lg
-  },
   pickerRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.sm
+    gap: 8
   },
-  peopleRow: {
+  assignChip: {
+    alignItems: "center",
+    borderRadius: radii.md,
+    borderWidth: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md
+    gap: 8,
+    maxWidth: "100%",
+    minHeight: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 6
   },
-  personCard: {
-    alignItems: "center",
-    gap: spacing.sm,
-    minWidth: 112
+  assignChipIdle: {
+    backgroundColor: colors.canvas,
+    borderColor: colors.lineStrong
   },
-  avatarDot: {
-    alignItems: "center",
-    borderRadius: 999,
-    height: 38,
-    justifyContent: "center",
-    width: 38
+  assignChipSelected: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary
   },
-  avatarText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  personName: {
+  assignChipName: {
     color: colors.ink,
-    fontSize: 15,
-    fontWeight: "800"
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    maxWidth: 110
   },
-  stack: {
-    gap: spacing.sm
+  assignChipNameSelected: {
+    color: colors.primary
   },
-  rail: {
+  agendaArea: {
+    gap: spacing.lg,
+    marginBottom: spacing.lg
+  },
+  searchWrap: {
     alignItems: "center",
-    width: 18
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8
   },
-  dot: {
-    backgroundColor: colors.primary,
-    borderRadius: 7,
-    height: 14,
-    width: 14
+  searchInput: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    minHeight: 28,
+    paddingVertical: 0
   },
-  line: {
+  dateGroup: {
+    gap: 10
+  },
+  dateHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: 2
+  },
+  dateHeading: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+    lineHeight: 18
+  },
+  dateHeaderRule: {
     backgroundColor: colors.line,
     flex: 1,
-    marginTop: 4,
-    minHeight: 58,
-    width: 2
+    height: StyleSheet.hairlineWidth
   },
-  fill: {
-    flex: 1,
-    gap: spacing.sm
+  dateGroupRows: {
+    gap: 8
   },
-  time: {
+  earlierToggle: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 2,
+    paddingVertical: 6
+  },
+  earlierTogglePressed: {
+    opacity: 0.65
+  },
+  earlierToggleText: {
     color: colors.primary,
-    fontSize: 14,
-    fontWeight: "700"
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  eventRow: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden"
+  },
+  eventRowExpanded: {
+    borderColor: colors.lineStrong
+  },
+  eventMainHit: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 11
+  },
+  eventRowPressed: {
+    backgroundColor: "rgba(247,243,238,0.72)"
+  },
+  eventBody: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
   },
   eventTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700"
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    lineHeight: 19
   },
-  schedule: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  meta: {
+  eventMeta: {
     color: colors.muted,
-    fontSize: 14,
-    fontWeight: "700"
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 15
   },
-  location: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  eventActionRow: {
+  eventTrailing: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-    marginTop: spacing.sm
+    gap: 8,
+    justifyContent: "flex-end"
   },
-  eventTopRow: {
+  expandedBlock: {
+    backgroundColor: colors.canvas,
+    borderTopColor: colors.line,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+    paddingBottom: 10,
+    paddingHorizontal: 14,
+    paddingTop: 8
+  },
+  expandedText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14
+  },
+  expandedActions: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
+    gap: spacing.md
   },
-  eventActionLink: {
+  expandedActionHit: {
     justifyContent: "center",
-    minHeight: 44,
-    paddingVertical: spacing.xs
+    minHeight: 28,
+    paddingVertical: 2
   },
-  eventActionLinkText: {
+  expandedActionHitPressed: {
+    opacity: 0.65
+  },
+  expandedActionText: {
     color: colors.primary,
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  eventActionLinkDanger: {
-    color: colors.coral
-  },
-  eventActionDivider: {
-    color: colors.muted,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700"
   },
-  expandedMeta: {
-    backgroundColor: colors.surfaceRaised,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    marginTop: spacing.xs,
-    padding: spacing.sm
+  deleteHit: {
+    justifyContent: "center",
+    minHeight: 28,
+    paddingVertical: 2
   },
-  expandedMetaText: {
-    color: colors.muted,
+  deleteText: {
+    color: colors.coral,
     fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18
+    fontWeight: "700"
+  },
+  emptyBlock: {
+    paddingHorizontal: 2,
+    paddingVertical: 12
   },
   emptyTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: "700"
   },
   emptyText: {
     color: colors.muted,
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 20,
-    marginTop: spacing.sm
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 18,
+    marginTop: 4
+  },
+  leaveTip: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 17,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2
+  },
+  calendarSection: {
+    alignItems: "center",
+    borderTopColor: colors.line,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.xs,
+    paddingTop: spacing.md
+  },
+  calendarCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
+  },
+  calendarLabel: {
+    color: colors.tertiary,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
+  },
+  calendarStatus: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 17
+  },
+  calendarAction: {
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 4,
+    paddingVertical: 8
+  },
+  calendarActionPressed: {
+    opacity: 0.7
+  },
+  calendarActionText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700"
   }
 });
 

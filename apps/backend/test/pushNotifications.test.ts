@@ -15,7 +15,10 @@ describe("household notification routing", () => {
 
   beforeEach(async () => {
     fetchMock.mockReset();
-    fetchMock.mockResolvedValue({ ok: true });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { status: "ok" } })
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await db
@@ -23,6 +26,7 @@ describe("household notification routing", () => {
       .set({
         pushToken: "ExponentPushToken[adult-test]",
         notificationPrefs: {
+          notifications_enabled: true,
           daily_digest: true,
           event_reminders: true,
           chore_reminders: true,
@@ -110,5 +114,58 @@ describe("household notification routing", () => {
     expect(pushTargets).toEqual(
       expect.arrayContaining(["ExponentPushToken[adult-test]", "ExponentPushToken[child-event-test]"])
     );
+  });
+
+  it("suppresses all adult delivery when the master notifications toggle is off", async () => {
+    await db
+      .update(users)
+      .set({
+        notificationPrefs: {
+          notifications_enabled: false,
+          daily_digest: true,
+          event_reminders: true,
+          chore_reminders: true,
+          family_activity: true
+        }
+      })
+      .where(eq(users.id, devUserId));
+
+    const delivery = await deliverHouseholdNotification({
+      familyId: parkerFamilyId,
+      title: "Daily family digest",
+      body: "Two events today.",
+      type: "daily_digest"
+    });
+
+    expect(delivery.adultNotificationsCreated).toBe(0);
+    expect(delivery.adultDelivered).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale push token when Expo reports DeviceNotRegistered", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: {
+            status: "error",
+            message: "not a registered push notification recipient",
+            details: { error: "DeviceNotRegistered" }
+          }
+        })
+    });
+
+    const delivery = await deliverHouseholdNotification({
+      familyId: parkerFamilyId,
+      title: "Daily family digest",
+      body: "Two events today.",
+      type: "daily_digest"
+    });
+
+    expect(delivery.adultDelivered).toBe(0);
+    expect(delivery.adultNotificationsCreated).toBe(1);
+
+    const updatedUser = await db.query.users.findFirst({ where: eq(users.id, devUserId) });
+    expect(updatedUser?.pushToken).toBeNull();
   });
 });

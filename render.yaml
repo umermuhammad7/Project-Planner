@@ -53,7 +53,7 @@ services:
       - key: CALENDAR_TOKEN_ENCRYPTION_KEY
         sync: false
       - key: JOBS_ENABLED
-        value: "false"
+        value: "true"
       - key: EXPO_PUSH_ACCESS_TOKEN
         sync: false
       - key: RESEND_API_KEY

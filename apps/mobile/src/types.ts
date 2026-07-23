@@ -9,6 +9,7 @@ export type FamilyMember = {
   role: MemberRole;
   isVirtual?: boolean;
   starBalance: number;
+  avatarUrl?: string | null;
 };
 
 export type PlanEvent = {
@@ -223,7 +224,7 @@ export type AssistantDraft = {
   rawText: string;
 };
 
-export type AssistantIntent = "general" | "import_text" | "meal_plan" | "grocery_list" | "chores" | "day_summary";
+export type AssistantIntent = "general" | "import_text" | "meal_plan" | "grocery_list" | "chores" | "day_summary" | "recipe";
 
 export type AssistantContext = {
   familyName?: string;
@@ -248,6 +249,7 @@ export type AssistantAssistResponse = {
   provider: string | null;
   message: string;
   draft: AssistantDraft | null;
+  recipe?: RecipeImportDraft | null;
 };
 
 export type AssistantMealSuggestion = {
@@ -289,6 +291,7 @@ export type SaveOutcome = {
 export type RealtimeSyncStatus = "inactive" | "connecting" | "connected" | "unavailable" | "error";
 
 export type NotificationPrefs = {
+  notifications_enabled: boolean;
   daily_digest: boolean;
   event_reminders: boolean;
   chore_reminders: boolean;

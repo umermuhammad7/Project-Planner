@@ -4,7 +4,7 @@ import {
   updateFamilySchema,
   uuidSchema
 } from "@homethread/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -81,10 +81,19 @@ export async function familiesRoutes(app: FastifyInstance) {
 
     const starBalanceByMemberId = new Map(rewardRows.map((row) => [row.memberId, Number(row.stars ?? 0)]));
 
+    const linkedUserIds = members
+      .map((member) => member.userId)
+      .filter((userId): userId is string => Boolean(userId));
+    const linkedUsers = linkedUserIds.length
+      ? await db.query.users.findMany({ where: inArray(users.id, linkedUserIds) })
+      : [];
+    const avatarUrlByUserId = new Map(linkedUsers.map((user) => [user.id, user.avatarUrl]));
+
     return {
       family,
       members: members.map((member) => ({
         ...member,
+        avatarUrl: (member.userId ? avatarUrlByUserId.get(member.userId) : undefined) ?? member.avatarUrl,
         starBalance: starBalanceByMemberId.get(member.id) ?? 0
       }))
     };

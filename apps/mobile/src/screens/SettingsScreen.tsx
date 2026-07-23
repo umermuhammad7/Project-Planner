@@ -1,20 +1,18 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, Pill, PrimaryButton, SectionTitle } from "../components/Primitives";
+import { Card, PrimaryButton } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
-import { apiRequest } from "../services/api";
 import { pickAndUploadAvatar } from "../services/avatarUpload";
-import { getClientBuildReadiness } from "../utils/buildReadiness";
 import {
   getNotificationCapability,
   requestNotificationPermissionAndToken
 } from "../services/notifications";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
-import { NotificationPermissionState } from "../types";
 
 function buildInitials(displayName: string | null, email: string | null) {
   const source = (displayName?.trim() || email?.split("@")[0] || "Home").trim();
@@ -26,31 +24,13 @@ function buildInitials(displayName: string | null, email: string | null) {
     .toUpperCase();
 }
 
-function describePushSetupStatus(
-  permission: NotificationPermissionState,
-  pushToken: string | null
-): string {
-  if (permission === "denied") {
-    return "Notification permission is denied on this device. Turn it on in iOS Settings if you want alerts.";
-  }
-
-  if (permission === "unsupported") {
-    return "Push notifications are not supported in this build.";
-  }
-
-  if (permission === "undetermined") {
-    return "Notification permission has not been requested on this device yet.";
-  }
-
-  if (pushToken) {
-    return "Permission is granted and this device's push token is saved. HomeThread has not confirmed delivery from Settings.";
-  }
-
-  if (permission === "granted") {
-    return "Permission is granted, but this device's push token is not saved yet.";
-  }
-
-  return "Enable notifications to request permission and save this device's token.";
+function GroupCaption({ icon, title, tone = "muted" }: { icon: string; title: string; tone?: "muted" | "danger" }) {
+  return (
+    <View style={styles.groupCaption}>
+      <Text style={styles.groupCaptionGlyph}>{icon}</Text>
+      <Text style={[styles.groupCaptionText, tone === "danger" && styles.groupCaptionTextDanger]}>{title}</Text>
+    </View>
+  );
 }
 
 function feedbackTone(message: string): "success" | "error" | "info" {
@@ -80,7 +60,6 @@ export function SettingsScreen({
   const displayName = useAuthStore((state) => state.displayName);
   const avatarUrl = useAuthStore((state) => state.avatarUrl);
   const authProvider = useAuthStore((state) => state.authProvider);
-  const pushToken = useAuthStore((state) => state.pushToken);
   const notificationPrefs = useAuthStore((state) => state.notificationPrefs);
   const notificationPermission = useAuthStore((state) => state.notificationPermission);
   const updateProfile = useAuthStore((state) => state.updateProfile);
@@ -97,7 +76,6 @@ export function SettingsScreen({
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
-  const [notificationCapabilityMessage, setNotificationCapabilityMessage] = useState<string | null>(null);
   const [isRegisteringNotifications, setIsRegisteringNotifications] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -106,14 +84,11 @@ export function SettingsScreen({
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [cloudAiReady, setCloudAiReady] = useState<boolean | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(avatarUrl);
   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
 
   const backendConnected = syncSource === "api";
   const initials = useMemo(() => buildInitials(displayName, email), [displayName, email]);
-  const buildReadiness = useMemo(() => getClientBuildReadiness(), []);
   const avatarSource = useMemo(
     () => (avatarPreviewUrl ? { uri: avatarPreviewUrl, cache: "reload" as const } : null),
     [avatarPreviewUrl]
@@ -141,21 +116,8 @@ export function SettingsScreen({
     void (async () => {
       const capability = await getNotificationCapability();
       setNotificationPermission(capability.permission);
-      setNotificationCapabilityMessage(capability.message);
     })();
   }, [setNotificationPermission]);
-
-  useEffect(() => {
-    if (!backendConnected) {
-      setCloudAiReady(null);
-      return;
-    }
-
-    void (async () => {
-      const result = await apiRequest<{ configured: boolean }>("/ai/status");
-      setCloudAiReady(result.data?.configured ?? false);
-    })();
-  }, [backendConnected]);
 
   async function handleSaveProfile() {
     setFormMessage(null);
@@ -207,11 +169,6 @@ export function SettingsScreen({
         return;
       }
 
-      const savedAvatarUrl = useAuthStore.getState().avatarUrl ?? upload.avatarUrl;
-      if (upload.localPreviewUrl) {
-        useAuthStore.setState({ avatarUrl: upload.localPreviewUrl });
-      }
-      setAvatarPreviewUrl(upload.localPreviewUrl ?? savedAvatarUrl);
       setProfileMessage("Profile photo updated.");
     } finally {
       setIsUploadingPhoto(false);
@@ -255,30 +212,6 @@ export function SettingsScreen({
     }
   }
 
-  async function handleEnableNotifications() {
-    setNotificationMessage(null);
-    setIsRegisteringNotifications(true);
-
-    try {
-      const result = await requestNotificationPermissionAndToken();
-      setNotificationPermission(result.permission);
-      setNotificationMessage(result.message);
-
-      if (result.ok && result.pushToken) {
-        const saved = await savePushToken(result.pushToken);
-        if (!saved.ok) {
-          setNotificationMessage(saved.message ?? "Permission was granted, but the token could not be saved.");
-        } else {
-          setNotificationMessage(
-            "Permission granted and push token saved for this device. Delivery is not verified from Settings."
-          );
-        }
-      }
-    } finally {
-      setIsRegisteringNotifications(false);
-    }
-  }
-
   async function handleToggleNotificationPref(
     key: keyof typeof notificationPrefs,
     value: boolean
@@ -295,6 +228,45 @@ export function SettingsScreen({
     }
 
     setNotificationMessage("Notification settings updated.");
+  }
+
+  async function handleToggleNotificationsEnabled(value: boolean) {
+    setNotificationMessage(null);
+
+    if (value) {
+      setIsRegisteringNotifications(true);
+      try {
+        const result = await requestNotificationPermissionAndToken();
+        setNotificationPermission(result.permission);
+
+        if (!result.ok) {
+          setNotificationMessage(result.message);
+          return;
+        }
+
+        if (result.pushToken) {
+          const saved = await savePushToken(result.pushToken);
+          if (!saved.ok) {
+            setNotificationMessage(saved.message ?? "Permission was granted, but the token could not be saved.");
+            return;
+          }
+        }
+      } finally {
+        setIsRegisteringNotifications(false);
+      }
+    }
+
+    const result = await updateNotificationPrefs({
+      ...notificationPrefs,
+      notifications_enabled: value
+    });
+
+    if (!result.ok) {
+      setNotificationMessage(result.message ?? "Could not update notification settings.");
+      return;
+    }
+
+    setNotificationMessage(value ? "Notifications enabled." : "Notifications turned off.");
   }
 
   async function handleDeleteAccount() {
@@ -326,39 +298,51 @@ export function SettingsScreen({
         variant="admin"
         actionLabel="Back"
         onActionPress={onClose}
+        badgeLabel={backendConnected ? "Synced" : "Offline"}
+        badgeTone={backendConnected ? "mint" : "coral"}
       />
 
-      <SectionTitle title="Account" />
       <Card>
-        <View style={styles.profileSummary}>
-          {avatarSource && !avatarImageFailed ? (
-            <Image
-              source={avatarSource}
-              style={styles.avatarImage}
-              onError={() => setAvatarImageFailed(true)}
-            />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials}</Text>
-            </View>
-          )}
+        <View style={styles.profileHero}>
+          <View style={styles.avatarShell}>
+            {avatarSource && !avatarImageFailed ? (
+              <Image
+                source={avatarSource}
+                style={styles.avatarImage}
+                onError={() => setAvatarImageFailed(true)}
+              />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials}</Text>
+              </View>
+            )}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isUploadingPhoto ? "Uploading profile photo" : avatarSource ? "Change photo" : "Add photo"}
+              accessibilityState={{ busy: isUploadingPhoto, disabled: isUploadingPhoto }}
+              disabled={isUploadingPhoto}
+              onPress={() => {
+                if (isUploadingPhoto) return;
+                void handleUploadPhoto();
+              }}
+              style={({ pressed }) => [
+                styles.avatarEditBadge,
+                pressed && !isUploadingPhoto ? styles.avatarEditBadgePressed : null
+              ]}
+            >
+              {isUploadingPhoto ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={15} color="#FFFFFF" />
+              )}
+            </Pressable>
+          </View>
           <View style={styles.profileCopy}>
             <Text style={styles.profileName}>{displayName ?? "Your profile"}</Text>
-            <Text style={styles.profileEmail}>{email ?? "No email on file"}</Text>
+            <View style={styles.profileEmailTag}>
+              <Text style={styles.profileEmail}>{email ?? "No email on file"}</Text>
+            </View>
           </View>
-        </View>
-        <View style={styles.summaryActions}>
-          <PrimaryButton
-            label={isUploadingPhoto ? "Uploading..." : avatarSource ? "Change photo" : "Add photo"}
-            icon="image"
-            tone="ghost"
-            loading={isUploadingPhoto}
-            disabled={isUploadingPhoto}
-            onPress={() => {
-              if (isUploadingPhoto) return;
-              void handleUploadPhoto();
-            }}
-          />
         </View>
         <Text style={styles.label}>Display name</Text>
         <TextInput
@@ -400,221 +384,215 @@ export function SettingsScreen({
 
       <ActionFeedback message={formMessage ?? ""} tone={feedbackTone(formMessage ?? "")} visible={Boolean(formMessage)} />
 
-      <SectionTitle title="Household" />
       <Card>
-        <View style={styles.cardActionsTight}>
-          <PrimaryButton label="Manage household" icon="people" tone="soft" onPress={onOpenFamilySettings} />
-          {onOpenInsights ? (
-            <PrimaryButton label="Open insights" icon="analytics" tone="ghost" onPress={onOpenInsights} />
-          ) : null}
-        </View>
-      </Card>
-
-      <SectionTitle title="Security" />
-      <Card>
-        {authMode === "dev_token" ? (
-          <Text style={styles.cardText}>Developer session — password controls are unavailable.</Text>
-        ) : authProvider === "google" ? (
-          <>
-            <View style={styles.providerRow}>
-              <Pill label="Google sign-in" tone="primary" icon="logo-google" />
-            </View>
-            <Text style={styles.cardText}>Password changes stay with your Google account.</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.label}>New password</Text>
-            <TextInput
-              style={styles.input}
-              secureTextEntry
-              placeholder="At least 8 characters"
-              placeholderTextColor={colors.muted}
-              value={newPassword}
-              onChangeText={setNewPassword}
-            />
-            <Text style={styles.label}>Confirm password</Text>
-            <TextInput
-              style={styles.input}
-              secureTextEntry
-              placeholder="Re-enter the new password"
-              placeholderTextColor={colors.muted}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-            />
-            <View style={styles.cardActions}>
-              <PrimaryButton
-                label={isUpdatingPassword ? "Updating..." : "Update password"}
-                icon="lock-closed"
-                loading={isUpdatingPassword}
-                disabled={!backendConnected || isUpdatingPassword || isSendingReset}
-                onPress={() => {
-                  if (!backendConnected) {
-                    setFormMessage("Password changes need a connected session. Refresh and try again.");
-                    return;
-                  }
-                  if (isUpdatingPassword || isSendingReset) return;
-                  void handleChangePassword();
-                }}
-              />
-              <PrimaryButton
-                label={isSendingReset ? "Sending..." : "Send reset email"}
-                icon="mail"
-                tone="ghost"
-                loading={isSendingReset}
-                disabled={!backendConnected || isUpdatingPassword || isSendingReset}
-                onPress={() => {
-                  if (!backendConnected) {
-                    setFormMessage("Password reset needs a connected session. Refresh and try again.");
-                    return;
-                  }
-                  if (isUpdatingPassword || isSendingReset) return;
-                  void handlePasswordReset();
-                }}
-              />
-            </View>
-          </>
-        )}
-      </Card>
-
-      <SectionTitle title="Notifications" />
-      <Card>
-        <Text style={styles.helperText}>{describePushSetupStatus(notificationPermission, pushToken)}</Text>
-        {notificationCapabilityMessage ? <Text style={styles.helperText}>{notificationCapabilityMessage}</Text> : null}
-        <ActionFeedback
-          message={notificationMessage ?? ""}
-          tone={feedbackTone(notificationMessage ?? "")}
-          visible={Boolean(notificationMessage)}
-        />
-        <View style={styles.cardActions}>
-          <PrimaryButton
-            label={
-              isRegisteringNotifications
-                ? "Working..."
-                : pushToken
-                  ? "Refresh push token"
-                  : "Enable notifications"
-            }
-            icon="notifications"
-            tone="soft"
-            loading={isRegisteringNotifications}
-            disabled={isRegisteringNotifications}
-            onPress={() => {
-              if (isRegisteringNotifications) return;
-              void handleEnableNotifications();
-            }}
-          />
-        </View>
-        <View style={styles.preferenceStack}>
-          <NotificationPrefRow
-            label="Event reminders"
-            value={notificationPrefs.event_reminders}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("event_reminders", value)}
-          />
-          <NotificationPrefRow
-            label="Chore reminders"
-            value={notificationPrefs.chore_reminders}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("chore_reminders", value)}
-          />
-          <NotificationPrefRow
-            label="Family activity"
-            value={notificationPrefs.family_activity}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("family_activity", value)}
-          />
-          <NotificationPrefRow
-            label="Daily digest"
-            value={notificationPrefs.daily_digest}
-            disabled={!backendConnected}
-            onValueChange={(value) => void handleToggleNotificationPref("daily_digest", value)}
-          />
-        </View>
-      </Card>
-
-      <SectionTitle title="Advanced" />
-      <View style={styles.advancedShell}>
-      <Card>
-        <Text style={styles.advancedLead}>Build diagnostics and testing details.</Text>
-        <View style={styles.cardActions}>
-          <PrimaryButton
-            label={showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
-            icon={showDiagnostics ? "chevron-up" : "chevron-down"}
-            tone="ghost"
-            onPress={() => setShowDiagnostics((value) => !value)}
-          />
-        </View>
-        {showDiagnostics ? (
-          <View style={styles.readinessStack}>
-            {buildReadiness.map((item) => (
-              <View key={item.key} style={styles.readinessRow}>
-                <View style={styles.readinessCopy}>
-                  <Text style={styles.readinessLabel}>{item.label}</Text>
-                  <Text style={styles.readinessDetail}>{item.detail}</Text>
-                </View>
-                <Pill label={item.ready ? "Ready" : "Not ready"} tone={item.ready ? "mint" : "neutral"} />
-              </View>
-            ))}
-            {backendConnected ? (
-              <View style={styles.readinessRow}>
-                <View style={styles.readinessCopy}>
-                  <Text style={styles.readinessLabel}>Cloud AI on server</Text>
-                  <Text style={styles.readinessDetail}>
-                    {cloudAiReady === null
-                      ? "Checking server AI configuration..."
-                      : cloudAiReady
-                        ? "Cloud AI is available for signed-in households."
-                        : "Server AI is not configured yet. Text parsing still works."}
-                  </Text>
-                </View>
-                <Pill
-                  label={cloudAiReady ? "Ready" : cloudAiReady === null ? "Checking" : "Not ready"}
-                  tone={cloudAiReady ? "mint" : "neutral"}
-                />
-              </View>
+        <View style={styles.groupBlockFirst}>
+          <GroupCaption icon="🏡" title="Household" />
+          <View style={styles.householdGrid}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Manage household"
+              onPress={onOpenFamilySettings}
+              style={({ pressed }) => [
+                styles.householdTile,
+                styles.householdTilePrimary,
+                pressed && styles.householdTilePressed
+              ]}
+            >
+              <Text style={styles.householdTileGlyph}>🧑‍🤝‍🧑</Text>
+              <Text style={[styles.householdTileLabel, styles.householdTileLabelPrimary]}>Manage household</Text>
+            </Pressable>
+            {onOpenInsights ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open insights"
+                onPress={onOpenInsights}
+                style={({ pressed }) => [
+                  styles.householdTile,
+                  styles.householdTileGhost,
+                  pressed && styles.householdTilePressed
+                ]}
+              >
+                <Text style={styles.householdTileGlyph}>📊</Text>
+                <Text style={styles.householdTileLabel}>Open insights</Text>
+              </Pressable>
             ) : null}
           </View>
-        ) : null}
+        </View>
+
+        <View style={styles.groupBlockDivider}>
+          <GroupCaption icon="🔐" title="Security" />
+          {authMode === "dev_token" ? (
+            <Text style={styles.cardText}>Developer session — password controls are unavailable.</Text>
+          ) : authProvider === "google" ? (
+            <View style={styles.providerCard}>
+              <View style={styles.providerIconBadge}>
+                <Ionicons name="logo-google" size={16} color={colors.primary} />
+              </View>
+              <View style={styles.providerCopy}>
+                <Text style={styles.providerTitle}>Signed in with Google</Text>
+                <Text style={styles.providerSubtitle}>Password changes stay with your Google account.</Text>
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.label}>New password</Text>
+              <TextInput
+                style={styles.input}
+                secureTextEntry
+                placeholder="At least 8 characters"
+                placeholderTextColor={colors.muted}
+                value={newPassword}
+                onChangeText={setNewPassword}
+              />
+              <Text style={styles.label}>Confirm password</Text>
+              <TextInput
+                style={styles.input}
+                secureTextEntry
+                placeholder="Re-enter the new password"
+                placeholderTextColor={colors.muted}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+              />
+              <View style={styles.cardActions}>
+                <PrimaryButton
+                  label={isUpdatingPassword ? "Updating..." : "Update password"}
+                  icon="lock-closed"
+                  loading={isUpdatingPassword}
+                  disabled={!backendConnected || isUpdatingPassword || isSendingReset}
+                  onPress={() => {
+                    if (!backendConnected) {
+                      setFormMessage("Password changes need a connected session. Refresh and try again.");
+                      return;
+                    }
+                    if (isUpdatingPassword || isSendingReset) return;
+                    void handleChangePassword();
+                  }}
+                />
+                <PrimaryButton
+                  label={isSendingReset ? "Sending..." : "Send reset email"}
+                  icon="mail"
+                  tone="ghost"
+                  loading={isSendingReset}
+                  disabled={!backendConnected || isUpdatingPassword || isSendingReset}
+                  onPress={() => {
+                    if (!backendConnected) {
+                      setFormMessage("Password reset needs a connected session. Refresh and try again.");
+                      return;
+                    }
+                    if (isUpdatingPassword || isSendingReset) return;
+                    void handlePasswordReset();
+                  }}
+                />
+              </View>
+            </>
+          )}
+        </View>
+
+        <View style={styles.groupBlockDivider}>
+          <GroupCaption icon="🔔" title="Notifications" />
+          {notificationPermission === "unsupported" ? (
+            <View style={styles.notifUnsupportedRow}>
+              <Text style={styles.notifUnsupportedGlyph}>📵</Text>
+              <Text style={styles.notifUnsupportedText}>Notifications aren&apos;t available on this device.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.preferenceRow}>
+                <View style={styles.preferenceLead}>
+                  <Text style={styles.preferenceIcon}>🔔</Text>
+                  <Text style={styles.preferenceLabel}>
+                    {isRegisteringNotifications ? "Working..." : "Enable notifications"}
+                  </Text>
+                </View>
+                <Switch
+                  value={notificationPrefs.notifications_enabled}
+                  onValueChange={(value) => void handleToggleNotificationsEnabled(value)}
+                  disabled={isRegisteringNotifications || !backendConnected}
+                  trackColor={{ false: colors.line, true: colors.primarySoft }}
+                  thumbColor={notificationPrefs.notifications_enabled ? colors.primary : "#FFFFFF"}
+                />
+              </View>
+              <ActionFeedback
+                message={notificationMessage ?? ""}
+                tone={feedbackTone(notificationMessage ?? "")}
+                visible={Boolean(notificationMessage)}
+              />
+              <View style={styles.preferenceStack}>
+                <NotificationPrefRow
+                  icon="📅"
+                  label="Event reminders"
+                  value={notificationPrefs.event_reminders}
+                  disabled={!backendConnected || !notificationPrefs.notifications_enabled}
+                  onValueChange={(value) => void handleToggleNotificationPref("event_reminders", value)}
+                />
+                <NotificationPrefRow
+                  icon="🧹"
+                  label="Chore reminders"
+                  value={notificationPrefs.chore_reminders}
+                  disabled={!backendConnected || !notificationPrefs.notifications_enabled}
+                  onValueChange={(value) => void handleToggleNotificationPref("chore_reminders", value)}
+                />
+                <NotificationPrefRow
+                  icon="👨‍👩‍👧"
+                  label="Family activity"
+                  value={notificationPrefs.family_activity}
+                  disabled={!backendConnected || !notificationPrefs.notifications_enabled}
+                  onValueChange={(value) => void handleToggleNotificationPref("family_activity", value)}
+                />
+                <NotificationPrefRow
+                  icon="☀️"
+                  label="Daily digest"
+                  value={notificationPrefs.daily_digest}
+                  disabled={!backendConnected || !notificationPrefs.notifications_enabled}
+                  onValueChange={(value) => void handleToggleNotificationPref("daily_digest", value)}
+                />
+              </View>
+            </>
+          )}
+        </View>
       </Card>
-      </View>
 
       <Card>
-        <Text style={styles.cardTitle}>Delete account</Text>
-        {authMode === "supabase" ? (
-          <>
-            <Text style={styles.cardText}>This permanently removes your HomeThread profile. Only use it if the account is no longer needed.</Text>
-            {!backendConnected ? (
-              <Text style={styles.helperText}>Account deletion requires a connected session. Refresh and try again when sync is back.</Text>
-            ) : null}
-            <Text style={styles.dangerText}>This action is destructive and cannot be undone from the app.</Text>
-            <View style={styles.cardActions}>
-              <PrimaryButton
-                label={isDeletingAccount ? "Deleting..." : "Delete account"}
-                icon="trash"
-                tone="dark"
-                loading={isDeletingAccount}
-                disabled={!backendConnected || isDeletingAccount}
-                onPress={() => {
-                  if (isDeletingAccount || !backendConnected) return;
-                  void handleDeleteAccount();
-                }}
-              />
-            </View>
-          </>
-        ) : (
-          <Text style={styles.helperText}>Developer sessions cannot delete accounts from here.</Text>
-        )}
+        <GroupCaption icon="⚠️" title="Delete account" tone="danger" />
+        <View style={styles.dangerPanel}>
+          {authMode === "supabase" ? (
+            <>
+              <Text style={styles.cardText}>This permanently removes your HomeThread profile. Only use it if the account is no longer needed.</Text>
+              {!backendConnected ? (
+                <Text style={styles.helperText}>Account deletion requires a connected session. Refresh and try again when sync is back.</Text>
+              ) : null}
+              <Text style={styles.dangerText}>This action is destructive and cannot be undone from the app.</Text>
+              <View style={styles.cardActions}>
+                <PrimaryButton
+                  label={isDeletingAccount ? "Deleting..." : "Delete account"}
+                  icon="trash"
+                  tone="dark"
+                  loading={isDeletingAccount}
+                  disabled={!backendConnected || isDeletingAccount}
+                  onPress={() => {
+                    if (isDeletingAccount || !backendConnected) return;
+                    void handleDeleteAccount();
+                  }}
+                />
+              </View>
+            </>
+          ) : (
+            <Text style={styles.helperText}>Developer sessions cannot delete accounts from here.</Text>
+          )}
+        </View>
       </Card>
     </View>
   );
 }
 
 function NotificationPrefRow({
+  icon,
   label,
   value,
   disabled = false,
   onValueChange
 }: {
+  icon: string;
   label: string;
   value: boolean;
   disabled?: boolean;
@@ -622,7 +600,10 @@ function NotificationPrefRow({
 }) {
   return (
     <View style={styles.preferenceRow}>
-      <Text style={[styles.preferenceLabel, disabled ? styles.preferenceLabelDisabled : null]}>{label}</Text>
+      <View style={styles.preferenceLead}>
+        <Text style={styles.preferenceIcon}>{icon}</Text>
+        <Text style={[styles.preferenceLabel, disabled ? styles.preferenceLabelDisabled : null]}>{label}</Text>
+      </View>
       <Switch
         value={value}
         onValueChange={onValueChange}
@@ -636,7 +617,7 @@ function NotificationPrefRow({
 
 const styles = StyleSheet.create({
   screen: {
-    gap: spacing.md
+    gap: spacing.sm
   },
   header: {
     alignItems: "flex-start",
@@ -687,46 +668,110 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md
   },
-  avatar: {
+  profileHero: {
     alignItems: "center",
     backgroundColor: colors.primarySoft,
+    borderRadius: radii.xl,
+    flexDirection: "row",
+    gap: spacing.md,
+    padding: spacing.md
+  },
+  avatarShell: {
+    position: "relative"
+  },
+  avatar: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
     borderRadius: radii.pill,
-    height: 54,
+    borderWidth: 2,
+    height: 72,
     justifyContent: "center",
-    width: 54
+    width: 72
   },
   avatarImage: {
+    borderColor: colors.surface,
     borderRadius: radii.pill,
-    height: 54,
-    width: 54
+    borderWidth: 2,
+    height: 72,
+    width: 72
+  },
+  avatarEditBadge: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderColor: colors.surface,
+    borderRadius: radii.pill,
+    borderWidth: 2,
+    bottom: -2,
+    height: 28,
+    justifyContent: "center",
+    position: "absolute",
+    right: -2,
+    width: 28
+  },
+  avatarEditBadgePressed: {
+    backgroundColor: colors.primaryPressed
   },
   avatarText: {
     color: colors.primary,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: "900"
   },
   profileCopy: {
     flex: 1,
-    gap: 2,
+    gap: spacing.xs,
     minWidth: 0
   },
   profileName: {
     color: colors.ink,
     fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700"
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 32
+  },
+  profileEmailTag: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6
   },
   profileEmail: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
-    lineHeight: 18
+    lineHeight: 16
   },
-  cardTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700"
+  groupBlockFirst: {
+    paddingBottom: spacing.md
+  },
+  groupBlockDivider: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingBottom: spacing.md,
+    paddingTop: spacing.md
+  },
+  groupCaption: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.sm
+  },
+  groupCaptionGlyph: {
+    fontSize: 13,
+    lineHeight: 16
+  },
+  groupCaptionText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
+  },
+  groupCaptionTextDanger: {
+    color: colors.danger
   },
   cardText: {
     color: colors.muted,
@@ -746,7 +791,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginBottom: spacing.xs,
-    marginTop: spacing.md
+    marginTop: spacing.sm
   },
   input: {
     backgroundColor: colors.surfaceRaised,
@@ -773,38 +818,123 @@ const styles = StyleSheet.create({
     fontWeight: "600"
   },
   cardActions: {
-    gap: spacing.md,
-    marginTop: spacing.lg
-  },
-  cardActionsTight: {
     gap: spacing.sm,
-    marginTop: 0
+    marginTop: spacing.md
   },
-  advancedShell: {
-    backgroundColor: colors.canvas,
+  householdGrid: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  householdTile: {
+    alignItems: "center",
     borderRadius: radii.lg,
-    padding: spacing.xs
+    borderWidth: 1,
+    flex: 1,
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 84,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md
   },
-  advancedLead: {
+  householdTilePrimary: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "rgba(139,107,74,0.18)"
+  },
+  householdTileGhost: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong
+  },
+  householdTilePressed: {
+    opacity: 0.85
+  },
+  householdTileGlyph: {
+    fontSize: 22,
+    lineHeight: 26
+  },
+  householdTileLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  householdTileLabelPrimary: {
+    color: colors.primary
+  },
+  providerCard: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  providerIconBadge: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  providerCopy: {
+    flex: 1,
+    gap: 2
+  },
+  providerTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  providerSubtitle: {
     color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
+  },
+  notifUnsupportedRow: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  notifUnsupportedGlyph: {
+    fontSize: 18
+  },
+  notifUnsupportedText: {
+    color: colors.muted,
+    flex: 1,
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 19
   },
-  summaryActions: {
-    marginTop: spacing.md
-  },
-  providerRow: {
-    marginBottom: spacing.sm
-  },
   preferenceStack: {
-    gap: spacing.md,
-    marginTop: spacing.lg
+    gap: spacing.sm,
+    marginTop: spacing.md
   },
   preferenceRow: {
     alignItems: "center",
     flexDirection: "row",
+    gap: spacing.md,
     justifyContent: "space-between"
+  },
+  preferenceLead: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minWidth: 0
+  },
+  preferenceIcon: {
+    fontSize: 18,
+    lineHeight: 22
   },
   preferenceLabel: {
     color: colors.ink,
@@ -830,36 +960,18 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: spacing.md
   },
+  dangerPanel: {
+    backgroundColor: "rgba(160,73,59,0.08)",
+    borderColor: "rgba(160,73,59,0.18)",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    padding: spacing.md
+  },
   dangerText: {
     color: colors.danger,
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 19,
-    marginTop: spacing.lg
-  },
-  readinessStack: {
-    gap: spacing.md,
     marginTop: spacing.md
   },
-  readinessRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between"
-  },
-  readinessCopy: {
-    flex: 1,
-    gap: 2
-  },
-  readinessLabel: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  readinessDetail: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 18
-  }
 });

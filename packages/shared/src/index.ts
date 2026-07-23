@@ -28,6 +28,7 @@ export const pushTokenSchema = z.object({
 });
 
 export const notificationPrefsSchema = z.object({
+  notifications_enabled: z.boolean().default(true),
   daily_digest: z.boolean().default(true),
   event_reminders: z.boolean().default(true),
   chore_reminders: z.boolean().default(true),
@@ -207,6 +208,17 @@ export const childDevicePushTokenSchema = z.object({
   pushToken: z.string().min(8).max(256)
 });
 
+export const childDeviceAvatarUploadSchema = z.object({
+  imageBase64: z.string().min(16).max(12_000_000),
+  mimeType: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine((value) => ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(value), {
+      message: "Profile photos must be a JPEG, PNG, or WebP image."
+    })
+});
+
 export const childPairingCodeResponseSchema = z.object({
   pairingCode: z.string().min(1),
   expiresAt: z.iso.datetime(),
@@ -269,8 +281,13 @@ export const childDeviceMeResponseSchema = z.object({
   member: z.object({
     id: uuidSchema,
     displayName: z.string().min(1),
+    avatarUrl: z.url().nullable().optional(),
     starBalance: z.number().int().nonnegative()
   })
+});
+
+export const childDeviceAvatarUploadResponseSchema = z.object({
+  avatarUrl: z.url()
 });
 
 export const childDeviceChoreSchema = z.object({
@@ -438,7 +455,7 @@ export const mealWeekToGrocerySchema = z.object({
   listId: uuidSchema.optional()
 });
 
-export const assistantIntentSchema = z.enum(["general", "import_text", "meal_plan", "grocery_list", "chores", "day_summary"]);
+export const assistantIntentSchema = z.enum(["general", "import_text", "meal_plan", "grocery_list", "chores", "day_summary", "recipe"]);
 
 export const assistantContextEventSchema = z.object({
   title: z.string().min(1).max(160),
@@ -480,7 +497,8 @@ export const assistantAssistResponseSchema = z.object({
   mode: z.enum(["ai", "local"]),
   provider: z.string().nullable(),
   message: z.string(),
-  draft: assistantDraftSchema.nullable()
+  draft: assistantDraftSchema.nullable(),
+  recipe: createRecipeSchema.nullable().optional()
 });
 
 export const assistantMealSuggestionItemSchema = z.object({
@@ -591,6 +609,7 @@ export type UpdateFamilyInput = z.infer<typeof updateFamilySchema>;
 export type JoinFamilyInput = z.infer<typeof joinFamilySchema>;
 export type ChildPairingCodeInput = z.infer<typeof childPairingCodeSchema>;
 export type ChildDevicePushTokenInput = z.infer<typeof childDevicePushTokenSchema>;
+export type ChildDeviceAvatarUploadInput = z.infer<typeof childDeviceAvatarUploadSchema>;
 export type ChildPairingCodeResponse = z.infer<typeof childPairingCodeResponseSchema>;
 export type ChildPairingCodesListResponse = z.infer<typeof childPairingCodesListResponseSchema>;
 export type ChildPairPreviewResponse = z.infer<typeof childPairPreviewResponseSchema>;
@@ -599,6 +618,7 @@ export type ChildDevicesListResponse = z.infer<typeof childDevicesListResponseSc
 export type PairChildDeviceResponse = z.infer<typeof pairChildDeviceResponseSchema>;
 export type ChildDeviceMeResponse = z.infer<typeof childDeviceMeResponseSchema>;
 export type ChildDeviceChoresResponse = z.infer<typeof childDeviceChoresResponseSchema>;
+export type ChildDeviceAvatarUploadResponse = z.infer<typeof childDeviceAvatarUploadResponseSchema>;
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 export type CreateEventInput = z.infer<typeof createEventSchema>;

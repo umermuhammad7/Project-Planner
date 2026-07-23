@@ -1,8 +1,23 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useState } from "react";
-import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions
+} from "react-native";
 
 import { Card, Pill, PrimaryButton } from "../components/Primitives";
+import { HOW_IT_WORKS_SLIDES } from "../constants/howItWorks";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useAuthStore } from "../store/useAuthStore";
 import { useScrollAssist } from "../context/ScrollAssistContext";
@@ -50,51 +65,19 @@ export function WelcomeScreen({
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [createdInviteFeedback, setCreatedInviteFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showWelcomeDetails, setShowWelcomeDetails] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(true);
+  const [howItWorksStep, setHowItWorksStep] = useState(0);
   const [hasLeftFamilySetup, setHasLeftFamilySetup] = useState(false);
-  const howItWorks = [
-    {
-      step: "1",
-      title: "Start the household",
-      text: "One adult creates the home and becomes the first admin."
-    },
-    {
-      step: "2",
-      title: "Choose the family tier",
-      text: "One adult manages billing, and the rest of the household joins the same home."
-    },
-    {
-      step: "3",
-      title: "Add adults, then child profiles",
-      text: "Other adults join with the adult invite code after signing in. Child profiles are added separately - kids never use that code."
-    }
-  ];
-  const planRows = [
-    {
-      name: "Parents",
-      price: "$5/mo",
-      detail: "2 adults in one home",
-      note: "Best for a couple or co-parents getting started."
-    },
-    {
-      name: "Parents + 2 kids",
-      price: "$10/mo",
-      detail: "2 adults and up to 2 child profiles",
-      note: "A clean fit for the most common family shape."
-    },
-    {
-      name: "Parents + 4 kids",
-      price: "$15/mo",
-      detail: "2 adults and up to 4 child profiles",
-      note: "A bigger household without turning pricing into custom math."
-    },
-    {
-      name: "Unlimited + AI",
-      price: "$50/mo",
-      detail: "Unlimited child profiles with AI planning",
-      note: "For large homes that want the full assistant experience."
-    }
-  ];
+  const [howItWorksRailWidth, setHowItWorksRailWidth] = useState(0);
+  const howItWorksScrollRef = useRef<ScrollView>(null);
+  const howItWorksAnim = useRef(new Animated.Value(0)).current;
+  const { width: windowWidth } = useWindowDimensions();
+  const howItWorksPageWidth = Math.max(
+    howItWorksRailWidth > 0
+      ? howItWorksRailWidth
+      : windowWidth - spacing.xl * 2 - spacing.md * 2 - spacing.sm * 2,
+    220
+  );
   const configurationWarning =
     !supabaseConfiguredOnClient && authMode !== "loading"
       ? "Account sign-in is not configured in this build yet."
@@ -111,6 +94,43 @@ export function WelcomeScreen({
       setSetupTab(preferredSetupTab);
     }
   }
+
+  function playHowItWorksEntrance() {
+    howItWorksAnim.setValue(0);
+    Animated.timing(howItWorksAnim, {
+      toValue: 1,
+      duration: 320,
+      useNativeDriver: true
+    }).start();
+  }
+
+  function handleHowItWorksScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const nextIndex = Math.round(
+      event.nativeEvent.contentOffset.x / Math.max(howItWorksPageWidth, 1)
+    );
+    if (
+      nextIndex !== howItWorksStep &&
+      nextIndex >= 0 &&
+      nextIndex < HOW_IT_WORKS_SLIDES.length
+    ) {
+      setHowItWorksStep(nextIndex);
+    }
+  }
+
+  function revealHowItWorks() {
+    setShowHowItWorks(true);
+    setHowItWorksStep(0);
+    playHowItWorksEntrance();
+    requestAnimationFrame(() => {
+      howItWorksScrollRef.current?.scrollTo({ x: 0, animated: false });
+    });
+  }
+
+  useEffect(() => {
+    if (showHowItWorks) {
+      playHowItWorksEntrance();
+    }
+  }, []);
 
   async function handleWelcomeSignOut() {
     if (isSubmitting) {
@@ -608,6 +628,103 @@ export function WelcomeScreen({
             <Text style={styles.welcomeSubtitle}>Plans, chores, meals, and AI in one calm home.</Text>
           </View>
         </View>
+
+        {showHowItWorks ? (
+          <Animated.View
+            style={[
+              styles.howItWorksShell,
+              {
+                opacity: howItWorksAnim,
+                transform: [
+                  {
+                    translateY: howItWorksAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [10, 0]
+                    })
+                  }
+                ]
+              }
+            ]}
+          >
+            <View style={styles.howItWorksHeader}>
+              <View style={styles.howItWorksHeaderCopy}>
+                <Text style={styles.howItWorksLabel}>How it works</Text>
+                <Text style={styles.howItWorksHint}>Swipe to see how HomeThread works.</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Hide how it works"
+                hitSlop={8}
+                onPress={() => setShowHowItWorks(false)}
+                style={({ pressed }) => [styles.howItWorksHide, pressed && styles.howItWorksHidePressed]}
+              >
+                <Text style={styles.howItWorksHideText}>Hide</Text>
+              </Pressable>
+            </View>
+            <View
+              onLayout={(event) => {
+                const nextWidth = Math.round(event.nativeEvent.layout.width);
+                if (nextWidth > 0 && nextWidth !== howItWorksRailWidth) {
+                  setHowItWorksRailWidth(nextWidth);
+                }
+              }}
+              style={styles.howItWorksTrack}
+            >
+              <ScrollView
+                ref={howItWorksScrollRef}
+                horizontal
+                pagingEnabled
+                decelerationRate="fast"
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={handleHowItWorksScroll}
+                style={{ width: howItWorksPageWidth }}
+              >
+                {HOW_IT_WORKS_SLIDES.map((slide) => (
+                  <View
+                    key={slide.title}
+                    style={[
+                      styles.howItWorksSlide,
+                      { width: howItWorksPageWidth, backgroundColor: slide.accentSoft }
+                    ]}
+                  >
+                    <View style={[styles.howItWorksIconTile, { backgroundColor: colors.surface }]}>
+                      <Ionicons name={slide.icon} size={20} color={slide.accent} />
+                    </View>
+                    <View style={styles.howItWorksSlideCopy}>
+                      <Text style={styles.howItWorksSlideTitle}>{slide.title}</Text>
+                      <Text style={styles.howItWorksSlideBody} numberOfLines={2}>
+                        {slide.body}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+            <View style={styles.howItWorksFooter}>
+              <View style={styles.howItWorksDots}>
+                {HOW_IT_WORKS_SLIDES.map((slide, index) => (
+                  <View
+                    key={slide.title}
+                    style={[styles.howItWorksDot, index === howItWorksStep && styles.howItWorksDotActive]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.howItWorksStepIndex}>
+                {howItWorksStep + 1}/{HOW_IT_WORKS_SLIDES.length}
+              </Text>
+            </View>
+          </Animated.View>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Show how it works"
+            onPress={revealHowItWorks}
+            style={({ pressed }) => [styles.howItWorksReveal, pressed && styles.howItWorksRevealPressed]}
+          >
+            <Text style={styles.howItWorksRevealText}>How it works</Text>
+            <Text style={styles.howItWorksRevealMeta}>Quick tour</Text>
+          </Pressable>
+        )}
       </LinearGradient>
 
       {configurationWarning ? (
@@ -657,7 +774,7 @@ export function WelcomeScreen({
                 />
               ) : null}
               <Text style={styles.helperTextCompact}>
-                Adults use an invite code. Kids pair with KC- on their own phone.
+                Adults use an invite code. Kids pair with a child pairing code on their own phone.
               </Text>
               <Pressable onPress={beginLogin} style={styles.loginLinkButton}>
                 <Text style={styles.loginLead}>Already have an account?</Text>
@@ -681,62 +798,6 @@ export function WelcomeScreen({
           ) : null}
         </View>
       </Card>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => setShowWelcomeDetails((value) => !value)}
-        style={styles.detailsToggle}
-      >
-        <Text style={styles.detailsToggleLabel}>
-          {showWelcomeDetails ? "Hide details" : "How it works"}
-        </Text>
-      </Pressable>
-
-      {showWelcomeDetails ? (
-        <>
-          <Text style={styles.helperTextCompact}>
-            Second adult? Sign in, then choose Join with adult invite code. Child profiles are added later in Household - kids never use that code.
-          </Text>
-          <Card>
-            <Text style={styles.cardTitle}>How it works</Text>
-            <View style={styles.stepStack}>
-              {howItWorks.map((item) => (
-                <View key={item.step} style={styles.stepRow}>
-                  <View style={styles.stepBadge}>
-                    <Text style={styles.stepBadgeText}>{item.step}</Text>
-                  </View>
-                  <View style={styles.stepCopy}>
-                    <Text style={styles.stepTitle}>{item.title}</Text>
-                    <Text style={styles.stepText}>{item.text}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </Card>
-
-          <Card>
-            <View style={styles.pricingHeader}>
-              <Text style={styles.cardTitle}>Future household plans</Text>
-              <Pill label="Preview" tone="gold" icon="card" />
-            </View>
-            <Text style={styles.helperTextCompact}>
-              Preview build - billing coming soon. No payment is required or collected in this build.
-            </Text>
-            <View style={styles.planStack}>
-              {planRows.map((plan) => (
-                <View key={plan.name} style={styles.planRow}>
-                  <View style={styles.planMeta}>
-                    <Text style={styles.planName}>{plan.name}</Text>
-                    <Text style={styles.planDetail}>{plan.detail}</Text>
-                  </View>
-                  <Text style={styles.planPrice}>{plan.price}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={styles.helperFootnote}>Planned tiers for launch. Purchases are not live in this preview.</Text>
-          </Card>
-        </>
-      ) : null}
     </View>
   );
 }
@@ -770,6 +831,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radii.xl,
     borderWidth: 1,
+    gap: spacing.sm,
     maxWidth: "100%",
     overflow: "hidden",
     padding: spacing.md
@@ -862,21 +924,146 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: spacing.md
   },
-  detailsToggle: {
+  howItWorksShell: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
     gap: spacing.xs,
-    minHeight: 44,
-    justifyContent: "center"
+    marginTop: spacing.xs,
+    overflow: "hidden",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
   },
-  detailsToggleLabel: {
+  howItWorksTrack: {
+    alignSelf: "stretch",
+    width: "100%"
+  },
+  howItWorksHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between"
+  },
+  howItWorksHeaderCopy: {
+    flex: 1,
+    gap: 1,
+    minWidth: 0
+  },
+  howItWorksLabel: {
     color: colors.primary,
-    fontSize: 14,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
+  },
+  howItWorksHide: {
+    minHeight: 28,
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs
+  },
+  howItWorksHidePressed: {
+    opacity: 0.72
+  },
+  howItWorksHideText: {
+    color: colors.muted,
+    fontSize: 12,
     fontWeight: "700"
   },
-  detailsToggleMeta: {
+  howItWorksHint: {
     color: colors.muted,
     fontSize: 12,
     fontWeight: "600",
-    lineHeight: 18
+    lineHeight: 16
+  },
+  howItWorksSlide: {
+    alignItems: "center",
+    borderRadius: radii.sm,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  howItWorksIconTile: {
+    alignItems: "center",
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  howItWorksSlideCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
+  },
+  howItWorksStepIndex: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  howItWorksSlideTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 20
+  },
+  howItWorksSlideBody: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
+  },
+  howItWorksFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 2
+  },
+  howItWorksDots: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs
+  },
+  howItWorksDot: {
+    backgroundColor: "rgba(139,107,74,0.22)",
+    borderRadius: radii.pill,
+    height: 6,
+    width: 6
+  },
+  howItWorksDotActive: {
+    backgroundColor: colors.primary,
+    width: 14
+  },
+  howItWorksReveal: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+    minHeight: 40,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs
+  },
+  howItWorksRevealPressed: {
+    opacity: 0.72
+  },
+  howItWorksRevealText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  howItWorksRevealMeta: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "600"
   },
   devSection: {
     borderColor: colors.line,

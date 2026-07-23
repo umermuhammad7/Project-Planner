@@ -1,4 +1,4 @@
-import { assistantAssistRequestSchema, assistantDraftSchema } from "@homethread/shared";
+import { assistantAssistRequestSchema, assistantDraftSchema, createRecipeSchema } from "@homethread/shared";
 
 import { completeWithProviderFallback, type ChatMessage } from "./aiProviders.js";
 
@@ -20,7 +20,8 @@ export async function runAssistantAssist(input: unknown) {
         completion.reason === "No AI providers configured"
           ? "AI assistant is not configured on this backend. HomeThread will use local parsing instead."
           : "AI assistant is temporarily unavailable. HomeThread will use local parsing instead.",
-      draft: null
+      draft: null,
+      recipe: null
     };
   }
 
@@ -30,7 +31,8 @@ export async function runAssistantAssist(input: unknown) {
     mode: "ai" as const,
     provider: completion.provider,
     message: parsed.message,
-    draft: parsed.draft
+    draft: parsed.draft,
+    recipe: parsed.recipe
   };
 }
 
@@ -44,8 +46,9 @@ function buildSystemPrompt(intent?: string, context?: { familyName?: string; tim
     intentLine,
     contextLine,
     "Respond with JSON only using this shape:",
-    '{"reply":"short helpful message","draft":{"kind":"event|chore|list","title":"short title","detail":"short detail","confidence":0.0-1,"rawText":"original user text"} | null}',
+    '{"reply":"short helpful message","draft":{"kind":"event|chore|list","title":"short title","detail":"short detail","confidence":0.0-1,"rawText":"original user text"} | null,"recipe":{"title":"string","description":"optional string or null","ingredients":[{"name":"string","amount":"optional","unit":"optional"}],"instructions":[{"step":1,"text":"string"}],"prepTimeMinutes":null,"cookTimeMinutes":null,"servings":null} | null}',
     "Use draft null when the message is general advice without a single actionable item.",
+    "When the user is asking for a recipe or how to make/cook/bake a dish, set draft null and fill recipe with a complete structured recipe (title, ingredients, instructions). Otherwise set recipe null. Never put recipe ingredients into a list draft.",
     "Never include markdown fences or extra keys."
   ]
     .filter(Boolean)
@@ -64,6 +67,8 @@ function intentHint(intent?: string) {
       return "Focus on turning the request into chores. Prefer draft kind chore.";
     case "day_summary":
       return "Focus on answering questions about today's family schedule using the provided family context. Prefer draft null unless the user clearly asks to create something.";
+    case "recipe":
+      return "The user wants a recipe. Set draft null and fill recipe with a complete structured recipe (title, ingredients, instructions) for the requested dish.";
     default:
       return "Choose the most helpful single draft when possible.";
   }
@@ -136,16 +141,30 @@ function parseAssistantJson(content: string, rawText: string) {
   if (!payload || typeof payload !== "object") {
     return {
       message: content.trim(),
-      draft: null
+      draft: null,
+      recipe: null
     };
   }
 
   const record = payload as Record<string, unknown>;
   const message = typeof record.reply === "string" ? record.reply.trim() : content.trim();
+  const recipeCandidate = record.recipe;
+  const recipe =
+    recipeCandidate && typeof recipeCandidate === "object"
+      ? (() => {
+          const parsedRecipe = createRecipeSchema.safeParse(recipeCandidate);
+          return parsedRecipe.success ? parsedRecipe.data : null;
+        })()
+      : null;
+
+  if (recipe) {
+    return { message, draft: null, recipe };
+  }
+
   const draftCandidate = record.draft;
 
   if (!draftCandidate || typeof draftCandidate !== "object") {
-    return { message, draft: null };
+    return { message, draft: null, recipe: null };
   }
 
   const draftRecord = draftCandidate as Record<string, unknown>;
@@ -158,12 +177,13 @@ function parseAssistantJson(content: string, rawText: string) {
   });
 
   if (!parsedDraft.success) {
-    return { message, draft: null };
+    return { message, draft: null, recipe: null };
   }
 
   return {
     message,
-    draft: parsedDraft.data
+    draft: parsedDraft.data,
+    recipe: null
   };
 }
 

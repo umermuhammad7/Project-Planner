@@ -305,7 +305,7 @@ describe("HomeThread mobile store semantics", () => {
     expect(state.listItemsByListId["list-hardware"]?.map((item: { title: string }) => item.title)).toEqual(["Command hooks"]);
     expect(state.shoppingItems.map((item: { title: string }) => item.title)).toEqual(["Command hooks"]);
     expect(state.listItemsByListId["list-grocery"]).toEqual([]);
-    expect(state.saveMessage).toBe("List item saved.");
+    expect(state.saveMessage).toBe("Added to Hardware.");
   });
 
   it("creates and selects a grocery list when the family has none yet", async () => {

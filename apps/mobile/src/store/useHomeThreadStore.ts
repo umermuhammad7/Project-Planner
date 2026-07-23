@@ -329,6 +329,7 @@ type HomeThreadState = {
   clearCheckedShoppingItems: () => Promise<SaveOutcome | null>;
   selectList: (listId: string) => void;
   createList: (input: { title: string; type: FamilyList["type"] }) => Promise<SaveOutcome>;
+  deleteList: (listId: string) => Promise<SaveOutcome>;
   createShoppingItem: (input: { title: string; category?: string | null }) => Promise<SaveOutcome>;
   createMeal: (input: {
     dayOfWeek: number;
@@ -1551,6 +1552,57 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
 
     return outcome;
   },
+  deleteList: async (listId) => {
+    const state = get();
+    const existingList = state.lists.find((list) => list.id === listId);
+    if (!existingList) {
+      const outcome = makeSaveOutcome("failed", "That list is no longer available.");
+      set({ saveMessage: outcome.message });
+      return outcome;
+    }
+
+    function removeListFromState(current: HomeThreadState) {
+      const remainingLists = current.lists.filter((list) => list.id !== listId);
+      const { [listId]: _removed, ...remainingListItems } = current.listItemsByListId;
+      const nextSelectedListId = current.selectedListId === listId ? (remainingLists[0]?.id ?? null) : current.selectedListId;
+      return {
+        lists: remainingLists,
+        listItemsByListId: remainingListItems,
+        selectedListId: nextSelectedListId,
+        shoppingItems: nextSelectedListId ? (remainingListItems[nextSelectedListId] ?? []) : []
+      };
+    }
+
+    if (state.syncSource !== "api" || !state.familyId) {
+      const outcome = makeSaveOutcome("local", `Removed ${existingList.title} from this device.`);
+      set((current) => ({
+        ...removeListFromState(current),
+        saveMessage: outcome.message
+      }));
+      return outcome;
+    }
+
+    set({ isSaving: true, saveScope: "lists", saveMessage: "Removing list..." });
+
+    const result = await apiRequest<{ deleted: boolean }>(`/families/${state.familyId}/lists/${listId}`, {
+      method: "DELETE"
+    });
+
+    if (!result.data?.deleted) {
+      const outcome = makeSaveOutcome("failed", result.error?.message ?? "Failed to remove list.");
+      set({ isSaving: false, saveScope: null, saveMessage: outcome.message });
+      return outcome;
+    }
+
+    const outcome = makeSaveOutcome("saved", `Removed ${existingList.title}.`);
+    set((current) => ({
+      ...removeListFromState(current),
+      isSaving: false,
+      saveScope: null,
+      saveMessage: outcome.message
+    }));
+    return outcome;
+  },
   toggleShoppingItem: async (id) => {
     const target = get().shoppingItems.find((item) => item.id === id);
     if (!target) {
@@ -1706,12 +1758,13 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     const state = get();
     const queueFamilyId = resolveQueueFamilyId(state);
     const listIdHint = state.selectedListId ?? state.groceryListId ?? state.lists.find((list) => list.type === "grocery")?.id ?? null;
+    const targetList = state.lists.find((list) => list.id === listIdHint);
     const listItemPayload = {
       content: trimmed,
-      category: category ?? inferListCategory(trimmed),
+      category: category ?? inferListItemCategory(targetList?.type, trimmed),
       listId: listIdHint,
-      listTitle: "Groceries",
-      listType: "grocery"
+      listTitle: targetList?.title ?? "Groceries",
+      listType: targetList?.type ?? "grocery"
     };
 
     if (state.syncSource !== "api" || !state.familyId) {
@@ -2144,7 +2197,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     if (state.syncSource !== "api" || !state.familyId) {
-      const listId = state.groceryListId ?? state.selectedListId ?? mockGroceryListId;
+      const listId = resolveLocalGroceryListId(state);
       const existing = state.listItemsByListId[listId] ?? [];
       const existingTitles = new Set(existing.map((item) => item.title.trim().toLowerCase()));
       const memberId = state.currentMemberId ?? state.members[0]?.id ?? "family";
@@ -2270,7 +2323,7 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
 
     if (state.syncSource !== "api" || !state.familyId) {
-      const listId = state.groceryListId ?? state.selectedListId ?? mockGroceryListId;
+      const listId = resolveLocalGroceryListId(state);
       const existing = state.listItemsByListId[listId] ?? [];
       const existingTitles = new Set(existing.map((item) => item.title.trim().toLowerCase()));
       const seenInBatch = new Set<string>();
@@ -2581,6 +2634,7 @@ type BackendMemberRecord = {
   role: "admin" | "member" | "child";
   isVirtual?: boolean;
   starBalance?: number;
+  avatarUrl?: string | null;
 };
 
 type BackendEventRecord = {
@@ -2748,13 +2802,14 @@ async function persistDraftToApi(draft: AssistantDraft, state: HomeThreadState):
   }
 
   const content = stripShoppingPrefix(draft.title);
+  const targetListType = ensuredList.createdList?.type ?? state.lists.find((list) => list.id === ensuredList.id)?.type;
   const result = await apiRequest<{ item: BackendListItemRecord }>(
     `/families/${state.familyId}/lists/${ensuredList.id}/items`,
     {
       method: "POST",
       body: JSON.stringify({
         content,
-        category: inferListCategory(content)
+        category: inferListItemCategory(targetListType, content)
       })
     }
   );
@@ -2876,6 +2931,13 @@ function iconForListType(type: FamilyList["type"]) {
   return "list";
 }
 
+function destinationLabel(kind: AssistantDraft["kind"]) {
+  if (kind === "event") return "Plan";
+  if (kind === "chore") return "Chores";
+  if (kind === "list") return "Lists";
+  return kind;
+}
+
 function applyPersistedDraft(
   state: HomeThreadState,
   persisted: PersistedDraft,
@@ -2885,7 +2947,7 @@ function applyPersistedDraft(
     return {
       events: [persisted.event, ...state.events],
       isSaving: false, saveScope: null,
-      saveMessage: "Event saved.",
+      saveMessage: "Added to Plan.",
       syncMessage: "Household synced."
     };
   }
@@ -2894,7 +2956,7 @@ function applyPersistedDraft(
     return {
       chores: [persisted.chore, ...state.chores],
       isSaving: false, saveScope: null,
-      saveMessage: "Chore saved.",
+      saveMessage: "Added to Chores.",
       syncMessage: "Household synced."
     };
   }
@@ -2909,6 +2971,7 @@ function applyPersistedDraft(
       persisted.createdList && !state.lists.some((list) => list.id === persisted.createdList!.id)
         ? [...state.lists, persisted.createdList]
         : state.lists;
+    const listName = lists.find((list) => list.id === listId)?.title;
     return {
       groceryListId: persisted.groceryListId ?? state.groceryListId,
       lists,
@@ -2918,14 +2981,14 @@ function applyPersistedDraft(
         : state.listItemsByListId,
       shoppingItems: listId && selectedListId === listId ? nextListItems : state.shoppingItems,
       isSaving: false, saveScope: null,
-      saveMessage: "List item saved.",
+      saveMessage: listName ? `Added to ${listName}.` : "Added to Lists.",
       syncMessage: "Household synced."
     };
   }
 
   return {
     isSaving: false, saveScope: null,
-    saveMessage: `Saved ${kind}`
+    saveMessage: `Saved to ${destinationLabel(kind)}.`
   };
 }
 
@@ -2972,7 +3035,7 @@ function applyLocalDraft(state: HomeThreadState, draft: AssistantDraft): Partial
     id,
     backendListId: listId,
     title: stripShoppingPrefix(draft.title),
-    category: inferListCategory(draft.title),
+    category: inferListItemCategory(state.lists.find((list) => list.id === listId)?.type, draft.title),
     addedBy: state.currentMemberId ?? state.members[0]?.id ?? "family",
     checked: false
   };
@@ -2999,7 +3062,8 @@ function mapMember(member: BackendMemberRecord): FamilyMember {
     color: member.color,
     role: member.role === "child" ? "kid" : member.role === "admin" ? "parent" : "caregiver",
     isVirtual: member.isVirtual ?? false,
-    starBalance: member.starBalance ?? existing?.starBalance ?? 0
+    starBalance: member.starBalance ?? existing?.starBalance ?? 0,
+    avatarUrl: member.avatarUrl ?? null
   };
 }
 
@@ -3237,12 +3301,33 @@ function stripShoppingPrefix(value: string) {
     .trim();
 }
 
+function resolveLocalGroceryListId(state: HomeThreadState): string {
+  return state.groceryListId ?? state.lists.find((list) => list.type === "grocery")?.id ?? mockGroceryListId;
+}
+
 function inferListCategory(value: string) {
   const lower = value.toLowerCase();
   if (/(milk|yogurt|cheese|butter)/u.test(lower)) return "Dairy";
   if (/(banana|berries|strawberries|apple|produce|lettuce|spinach)/u.test(lower)) return "Produce";
   if (/(soap|detergent|paper towels|trash bags)/u.test(lower)) return "Household";
   return "Inbox";
+}
+
+function inferListItemCategory(listType: string | undefined, value: string) {
+  if (listType === "packing") {
+    const lower = value.toLowerCase();
+    if (/(shirt|pants|socks|jacket|dress|shoes|underwear|sweater|coat|swimsuit)/u.test(lower)) return "Clothing";
+    if (/(toothbrush|toothpaste|shampoo|sunscreen|razor|deodorant|soap|conditioner)/u.test(lower)) return "Toiletries";
+    if (/(passport|ticket|\bid\b|visa|insurance|documents?|boarding pass)/u.test(lower)) return "Documents";
+    if (/(tent|sleeping bag|flashlight|charger|batteries|first aid|backpack|map)/u.test(lower)) return "Gear";
+    return "Packing list";
+  }
+
+  if (listType === "todo" || listType === "custom") {
+    return "Tasks";
+  }
+
+  return inferListCategory(value);
 }
 
 function formatCategory(value: string | null) {

@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useMemo, useState } from "react";
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -39,14 +40,17 @@ function formatDisplayDate(value: string) {
 }
 
 const webInputStyle = {
-  backgroundColor: colors.surfaceRaised,
+  backgroundColor: colors.canvas,
   border: `1px solid ${colors.lineStrong}`,
   borderRadius: radii.md,
+  boxSizing: "border-box" as const,
   color: colors.ink,
-  fontSize: 16,
-  marginTop: spacing.sm,
-  minHeight: 52,
-  padding: `${spacing.md}px`
+  fontSize: 15,
+  fontWeight: "500",
+  marginTop: 0,
+  minHeight: 44,
+  padding: "10px 14px",
+  width: "100%"
 };
 
 export function DateField({
@@ -59,11 +63,12 @@ export function DateField({
   onChange: (next: string) => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
+  const [draftDate, setDraftDate] = useState(() => parseDateValue(value) ?? new Date());
   const pickerValue = useMemo(() => parseDateValue(value) ?? new Date(), [value]);
 
   if (Platform.OS === "web") {
     return (
-      <View>
+      <View style={styles.field}>
         {label ? <Text style={styles.label}>{label}</Text> : null}
         <input
           aria-label={label ?? "Date"}
@@ -72,44 +77,71 @@ export function DateField({
           onChange={(event) => onChange(event.currentTarget.value)}
           style={webInputStyle}
         />
-        <Text style={styles.helper}>Tap to open a calendar and pick the day.</Text>
       </View>
     );
+  }
+
+  function openPicker() {
+    setDraftDate(parseDateValue(value) ?? new Date());
+    setShowPicker(true);
   }
 
   function handlePickerChange(event: DateTimePickerEvent, date?: Date) {
     if (Platform.OS === "android") {
       setShowPicker(false);
+      if (event.type === "dismissed" || !date) {
+        return;
+      }
+      onChange(formatDateValue(date));
+      return;
     }
 
     if (event.type === "dismissed" || !date) {
       return;
     }
 
-    onChange(formatDateValue(date));
+    setDraftDate(date);
   }
+
+  const trigger = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label ?? "Select date"}
+      onPress={openPicker}
+      style={({ pressed }) => [
+        styles.trigger,
+        value ? styles.triggerFilled : null,
+        pressed && styles.triggerPressed
+      ]}
+    >
+      <Text style={[styles.triggerText, !value && styles.placeholderText]} numberOfLines={1}>
+        {value ? formatDisplayDate(value) : "Choose a date"}
+      </Text>
+      <Ionicons name="calendar-outline" size={16} color={value ? colors.primary : colors.tertiary} />
+    </Pressable>
+  );
 
   if (Platform.OS === "ios") {
     return (
-      <View>
+      <View style={styles.field}>
         {label ? <Text style={styles.label}>{label}</Text> : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={label ?? "Select date"}
-          onPress={() => setShowPicker(true)}
-          style={styles.trigger}
-        >
-          <Text style={[styles.triggerText, !value && styles.placeholderText]}>
-            {value ? formatDisplayDate(value) : "Choose a day"}
-          </Text>
-        </Pressable>
+        {trigger}
         <Modal animationType="fade" transparent visible={showPicker} onRequestClose={() => setShowPicker(false)}>
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{label ?? "Choose a day"}</Text>
-              <DateTimePicker mode="date" value={pickerValue} onChange={handlePickerChange} display="inline" />
+              <Text style={styles.modalTitle}>Choose a date</Text>
+              <DateTimePicker mode="date" value={draftDate} onChange={handlePickerChange} display="inline" />
               <View style={styles.modalActions}>
-                <Pressable onPress={() => setShowPicker(false)} style={styles.modalButton}>
+                <Pressable onPress={() => setShowPicker(false)} style={styles.modalButtonGhost}>
+                  <Text style={styles.modalButtonGhostLabel}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    onChange(formatDateValue(draftDate));
+                    setShowPicker(false);
+                  }}
+                  style={styles.modalButton}
+                >
                   <Text style={styles.modalButtonLabel}>Done</Text>
                 </Pressable>
               </View>
@@ -121,18 +153,9 @@ export function DateField({
   }
 
   return (
-    <View>
+    <View style={styles.field}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={label ?? "Select date"}
-        onPress={() => setShowPicker(true)}
-        style={styles.trigger}
-      >
-        <Text style={[styles.triggerText, !value && styles.placeholderText]}>
-          {value ? formatDisplayDate(value) : "Choose a day"}
-        </Text>
-      </Pressable>
+      {trigger}
       {showPicker ? (
         <DateTimePicker mode="date" value={pickerValue} onChange={handlePickerChange} display="default" />
       ) : null}
@@ -141,35 +164,44 @@ export function DateField({
 }
 
 const styles = StyleSheet.create({
+  field: {
+    gap: 6
+  },
   label: {
-    color: colors.tertiary,
-    fontSize: 12,
+    color: colors.ink,
+    fontSize: 13,
     fontWeight: "700",
-    marginTop: spacing.sm
+    letterSpacing: -0.1
   },
   trigger: {
-    backgroundColor: colors.surfaceRaised,
+    alignItems: "center",
+    backgroundColor: colors.canvas,
     borderColor: colors.lineStrong,
     borderRadius: radii.md,
-    borderWidth: 1,
-    marginTop: spacing.sm,
-    padding: spacing.md
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  triggerFilled: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary
+  },
+  triggerPressed: {
+    opacity: 0.85
   },
   triggerText: {
     color: colors.ink,
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
     fontWeight: "600"
   },
   placeholderText: {
     color: colors.muted,
     fontWeight: "500"
-  },
-  helper: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 18,
-    marginTop: spacing.xs
   },
   modalBackdrop: {
     alignItems: "center",
@@ -191,18 +223,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm
   },
   modalActions: {
-    alignItems: "flex-end",
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm,
     marginTop: spacing.md
   },
   modalButton: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm
   },
   modalButtonLabel: {
-    color: colors.primary,
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "800"
+  },
+  modalButtonGhost: {
+    borderRadius: radii.pill,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  modalButtonGhostLabel: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700"
   }
 });
