@@ -360,7 +360,10 @@ describe("household notification delivery", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    fetchMock.mockResolvedValue({ ok: true });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { status: "ok" } })
+    });
     vi.stubGlobal("fetch", fetchMock);
   });
 

@@ -58,6 +58,31 @@ Use this template for each new issue:
 
 Add new failures at the top.
 
+### F-012 - childDevices.test.ts push-delivery mock missing `.json()` masked child push delivery as failed
+
+- Status: CLOSED_PASS
+- Source doc: Full backend vitest suite re-run (post UX-polish-pass commit `1011c78`), not tied to an APP_WIDE_TEST_CASES ID
+- Test IDs: N/A (backend unit test only)
+- Severity: P3
+- Area: notifications / child device / test infra
+- Environment: Windows 10 dev host; local vitest, `apps/backend/test/childDevices.test.ts`
+- Preconditions:
+  - Full `npm run test` (33 files) run from `apps/backend` after the 2026-07-29 UX-polish-pass commit.
+- Steps to reproduce:
+  1. `npx vitest run test/childDevices.test.ts -t "delivers chore reminders to a paired child device"`.
+- Expected:
+  - `deliverHouseholdNotification` reports `childDelivered: 1` and calls `fetch` for a paired, push-token-registered child device.
+- Actual:
+  - **Before fix:** `childDevicesTargeted: 1` but `childDelivered: 0`. Root cause: commit `e64a6a3` (2026-07-24) changed `sendExpoPush` in `apps/backend/src/lib/pushNotifications.ts` to call `response.json()` on the Expo push API response, and correctly updated the mock in `test/pushNotifications.test.ts` to include a `json()` method, but missed the identical `fetchMock.mockResolvedValue({ ok: true })` in `test/childDevices.test.ts`. The mock's resolved value had no `.json` method, so `sendExpoPush`'s `try` block threw, was swallowed by its `catch`, and silently returned `{ delivered: false, staleToken: false }`. This was a test-mock gap, not a product bug — the real Expo push API always returns a JSON body.
+  - **After fix:** `test/childDevices.test.ts` beforeEach mock updated to `fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: { status: "ok" } }) })`, matching `pushNotifications.test.ts`.
+- Evidence:
+  - Pre-fix: `npx vitest run test/childDevices.test.ts` -> 1 failed (`expected +0 to be 1`).
+  - Fix retest: full `npm run test` -> 33 files passed, 153/153 tests passed.
+- Suspected layer:
+  - test gap only
+- Notes:
+  - Also found and fixed in the same pass: local `apps/backend/.env` had `JOBS_ENABLED=true` left over from the F-005 manual verification session, which made `notifications.test.ts > reports job queue status honestly` fail. Removed the line (per the `z.coerce.boolean()` truthy-string gotcha already documented under F-002 — setting it to the literal string `"false"` does not disable the flag, only removing/unsetting it does). This was local dev-machine state, never committed.
+
 ### F-011 - AW-021 Welcome create/join mode switch leaks email field values
 
 - Status: CLOSED_PASS

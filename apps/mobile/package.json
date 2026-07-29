@@ -9,7 +9,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "web:child": "expo start --web --port 8082 --clear",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@expo/metro-runtime": "56.0.16",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.15",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.7"
   }
 }

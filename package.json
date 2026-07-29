@@ -29,7 +29,7 @@
     "eas:submit:production": "cd apps/mobile && eas submit --platform all --profile production",
     "db:generate": "npm --workspace apps/backend run db:generate",
     "db:migrate": "npm --workspace apps/backend run db:migrate",
-    "test": "npm --workspace apps/backend run test",
+    "test": "npm --workspace apps/backend run test && npm --workspace apps/mobile run test",
     "typecheck": "npm --workspaces --if-present run typecheck"
   },
   "dependencies": {
