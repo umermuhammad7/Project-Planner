@@ -1,6 +1,7 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Card, MemberAvatar, Pill, PrimaryButton, Row } from "../components/Primitives";
+import { Card, MemberAvatar, Pill, Row } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { FamilyMember } from "../types";
@@ -8,24 +9,35 @@ import { FamilyMember } from "../types";
 export function KidsModePickerScreen({
   kidMembers,
   onSelect,
-  onCancel
+  onCancel,
+  pinnedHeader = false
 }: {
   kidMembers: FamilyMember[];
   onSelect: (memberId: string) => void;
   onCancel: () => void;
+  pinnedHeader?: boolean;
 }) {
   return (
     <View style={styles.screen}>
-      <ScreenHeader
-        eyebrow="Kids mode"
-        title="Who is using this device?"
-        subtitle="Parent handoff on a signed-in device - pick the child profile for this session."
-        icon="happy"
-        actionLabel="Cancel"
-        actionIcon="close"
-        onActionPress={onCancel}
-        density="compact"
-      />
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>🧒</Text>
+          </View>
+          <Text style={styles.largeTitleText}>Who is using this device?</Text>
+        </View>
+      ) : (
+        <ScreenHeader
+          eyebrow="Kids mode"
+          title="Who is using this device?"
+          subtitle="Parent handoff on a signed-in device - pick the child profile for this session."
+          icon="happy"
+          actionLabel="Cancel"
+          actionIcon="close"
+          onActionPress={onCancel}
+          density="compact"
+        />
+      )}
 
       <View style={styles.notice}>
         <Text style={styles.noticeTitle}>Parent handoff only</Text>
@@ -41,6 +53,7 @@ export function KidsModePickerScreen({
             accessibilityRole="button"
             accessibilityLabel={`Open Kids mode for ${member.name}`}
             onPress={() => onSelect(member.id)}
+            style={({ pressed }) => [pressed && styles.cardPressed]}
           >
             <Card>
               <Row>
@@ -56,6 +69,12 @@ export function KidsModePickerScreen({
         ))}
       </View>
 
+      <View style={styles.exitNote}>
+        <Ionicons name="lock-closed" size={13} color={colors.muted} />
+        <Text style={styles.exitNoteText}>
+          Hold the lock icon on their screen anytime to hand the device back to a parent.
+        </Text>
+      </View>
     </View>
   );
 }
@@ -63,6 +82,47 @@ export function KidsModePickerScreen({
 const styles = StyleSheet.create({
   screen: {
     gap: spacing.md
+  },
+  // Large title (collapses into the pinned bar on scroll)
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center"
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    flexShrink: 1,
+    fontFamily: fonts.display,
+    fontSize: 26,
+    fontWeight: "700",
+    letterSpacing: -0.3
+  },
+  exitNote: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md
+  },
+  exitNoteText: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    textAlign: "center"
   },
   notice: {
     backgroundColor: colors.surfaceRaised,
@@ -85,6 +145,9 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: spacing.sm
+  },
+  cardPressed: {
+    opacity: 0.85
   },
   copy: {
     flex: 1,

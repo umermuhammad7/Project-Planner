@@ -754,7 +754,7 @@ export function AssistantScreen({ onBack }: { onBack?: () => void } = {}) {
                     <PrimaryButton
                       label={added ? "Added to meals" : isSavingMeals ? "Saving..." : "Add to meals"}
                       icon={added ? "checkmark" : "restaurant"}
-                      tone={added ? "mint" : "soft"}
+                      tone={added ? "mint" : "primary"}
                       onPress={() => {
                         if (added || isSavingMeals) {
                           return;
@@ -972,7 +972,7 @@ function buildLocalDaySummary(context: AssistantContext) {
 
 const styles = StyleSheet.create({
   screen: {
-    gap: spacing.md
+    gap: 0
   },
   surface: {
     backgroundColor: colors.surface,

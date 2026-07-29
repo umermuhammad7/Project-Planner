@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, Pill, PrimaryButton } from "../components/Primitives";
+import { Card, PrimaryButton } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useChildDeviceStore } from "../store/useChildDeviceStore";
 
@@ -41,29 +42,28 @@ export function ChildDeviceSetupScreen({ onPaired, onBack }: { onPaired: () => v
 
   return (
     <View style={styles.screen}>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={() => {
-            if (preview) {
-              setPreview(null);
-              setErrorMessage(null);
-              return;
-            }
-            onBack();
-          }}
-          style={styles.backButton}
-        >
-          <Text style={styles.backLabel}>{preview ? "Edit code" : "Back"}</Text>
-        </Pressable>
-      </View>
-
-      <Pill label="Child device" tone="gold" icon="phone-portrait" />
-      <Text style={styles.title}>{preview ? "Confirm pairing" : "Pair this device"}</Text>
-      <Text style={styles.subtitle}>
-        {preview
-          ? "Check the household and child profile before pairing this phone."
-          : "Enter the KC- code from Household. One phone per child - pairing again replaces the old device."}
-      </Text>
+      <ScreenHeader
+        badgeLabel="📱 Child device"
+        badgeTone="gold"
+        title={preview ? "Confirm pairing" : "Pair this device"}
+        subtitle={
+          preview
+            ? "Check the household and child profile before pairing this phone."
+            : "Enter the KC- code from Household. One phone per child - pairing again replaces the old device."
+        }
+        subtitleLines={3}
+        actionLabel={preview ? "Edit code" : "Back"}
+        actionIcon="chevron-back"
+        onActionPress={() => {
+          if (preview) {
+            setPreview(null);
+            setErrorMessage(null);
+            return;
+          }
+          onBack();
+        }}
+        density="compact"
+      />
 
       {!preview ? (
         <Card>
@@ -151,13 +151,6 @@ export function ChildDeviceSetupScreen({ onPaired, onBack }: { onPaired: () => v
 
       <ActionFeedback message={successMessage ?? ""} tone="success" visible={Boolean(successMessage)} />
       <ActionFeedback message={errorMessage ?? ""} tone="error" visible={Boolean(errorMessage)} />
-
-      {!preview ? (
-        <Card>
-          <Text style={styles.noticeTitle}>QR scan</Text>
-          <Text style={styles.noticeText}>QR pairing is planned. Enter the KC- code manually for now.</Text>
-        </Card>
-      ) : null}
     </View>
   );
 }
@@ -165,37 +158,6 @@ export function ChildDeviceSetupScreen({ onPaired, onBack }: { onPaired: () => v
 const styles = StyleSheet.create({
   screen: {
     gap: spacing.md
-  },
-  topBar: {
-    flexDirection: "row"
-  },
-  backButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: spacing.md
-  },
-  backLabel: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "700"
-  },
-  title: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 34,
-    fontWeight: "700",
-    lineHeight: 40
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 22
   },
   label: {
     color: colors.ink,
@@ -248,17 +210,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: spacing.lg
-  },
-  noticeTitle: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: "800"
-  },
-  noticeText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19,
-    marginTop: spacing.xs
   }
 });

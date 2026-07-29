@@ -1,26 +1,80 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  UIManager,
+  View
+} from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
-import { Card, Pill, SectionTitle } from "../components/Primitives";
+import { Card, ModuleTile, Pill } from "../components/Primitives";
+import { RewardCelebrationBanner, useRewardCelebration } from "../components/RewardCelebration";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { useChildDeviceStore } from "../store/useChildDeviceStore";
 import { FamilyMember } from "../types";
+import { computeRewardProgress } from "../utils/rewardProgress";
 import { safeMemberInitials } from "../utils/safeRender";
 
-export function ChildDeviceShellScreen() {
-  const session = useChildDeviceStore((state) => state.session);
-  const chores = useChildDeviceStore((state) => state.chores);
-  const isSaving = useChildDeviceStore((state) => state.isSaving);
+type ChildDeviceShellPreviewSession = {
+  familyName: string;
+  memberId: string;
+  memberName: string;
+  avatarUrl: string | null;
+  starBalance: number;
+};
+
+type ChildDeviceShellPreviewChore = {
+  id: string;
+  title: string;
+  dueTime: string | null;
+  stars: number;
+  completed: boolean;
+};
+
+type ChildDeviceShellScreenProps = {
+  previewSession?: ChildDeviceShellPreviewSession;
+  previewChores?: ChildDeviceShellPreviewChore[];
+  previewMode?: boolean;
+  exitHintVisible?: boolean;
+};
+
+export function ChildDeviceShellScreen({
+  previewSession,
+  previewChores,
+  previewMode = false,
+  exitHintVisible = false
+}: ChildDeviceShellScreenProps = {}) {
+  const storedSession = useChildDeviceStore((state) => state.session);
+  const storedChores = useChildDeviceStore((state) => state.chores);
+  const storedIsSaving = useChildDeviceStore((state) => state.isSaving);
   const completeChore = useChildDeviceStore((state) => state.completeChore);
   const uploadAvatar = useChildDeviceStore((state) => state.uploadAvatar);
-  const unpair = useChildDeviceStore((state) => state.unpair);
   const refresh = useChildDeviceStore((state) => state.refresh);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"success" | "error">("success");
-  const [exitHintVisible, setExitHintVisible] = useState(false);
   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
+  const [previewCompletedIds, setPreviewCompletedIds] = useState<Set<string>>(() => new Set());
+  const [activeModule, setActiveModule] = useState<"stars" | "chores" | null>("chores");
+  const [isPickingPhoto, setIsPickingPhoto] = useState(false);
+  const { celebration, scale: celebrationScale, opacity: celebrationOpacity, triggerCelebration } =
+    useRewardCelebration();
+  const session = previewSession ?? storedSession;
+  const chores = useMemo(
+    () =>
+      (previewChores ?? storedChores).map((chore) =>
+        previewCompletedIds.has(chore.id) ? { ...chore, completed: true } : chore
+      ),
+    [previewChores, previewCompletedIds, storedChores]
+  );
+  const isSaving = previewMode ? false : storedIsSaving;
+  const rewardProgress = useMemo(() => computeRewardProgress(session?.starBalance ?? 0), [session?.starBalance]);
 
   const member = useMemo<FamilyMember | null>(() => {
     if (!session) {
@@ -45,8 +99,10 @@ export function ChildDeviceShellScreen() {
   const doneChores = useMemo(() => chores.filter((chore) => chore.completed), [chores]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!previewMode) {
+      void refresh();
+    }
+  }, [previewMode, refresh]);
 
   useEffect(() => {
     if (!statusMessage) {
@@ -61,62 +117,91 @@ export function ChildDeviceShellScreen() {
     setAvatarImageFailed(false);
   }, [session?.avatarUrl]);
 
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  function toggleModule(module: "stars" | "chores") {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActiveModule((current) => (current === module ? null : module));
+  }
+
   if (!session || !member) {
     return null;
   }
 
   async function handleChangePhoto() {
-    const ImagePicker = await import("expo-image-picker");
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
+    if (previewMode) {
+      setStatusTone("success");
+      setStatusMessage("Photo upload is disabled in this local preview.");
+      return;
+    }
+
+    if (isPickingPhoto) {
+      return;
+    }
+
+    setIsPickingPhoto(true);
+    try {
+      const ImagePicker = await import("expo-image-picker");
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setStatusTone("error");
+        setStatusMessage("Allow photo library access before choosing a profile photo.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.78,
+        base64: true
+      });
+
+      if (result.canceled || !result.assets?.[0]) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        setStatusTone("error");
+        setStatusMessage("HomeThread could not read that photo for upload.");
+        return;
+      }
+
+      const uploadResult = await uploadAvatar(asset.base64, asset.mimeType ?? "image/jpeg");
+      setStatusTone(uploadResult.ok ? "success" : "error");
+      setStatusMessage(uploadResult.message);
+    } catch {
       setStatusTone("error");
-      setStatusMessage("Allow photo library access before choosing a profile photo.");
+      setStatusMessage("Could not open your photo library right now. Try again in a moment.");
+    } finally {
+      setIsPickingPhoto(false);
+    }
+  }
+
+  async function handleCompleteChore(choreId: string, stars: number) {
+    if (previewMode) {
+      setPreviewCompletedIds((current) => new Set(current).add(choreId));
+      setStatusTone("success");
+      setStatusMessage("Preview chore completed.");
+      triggerCelebration(stars);
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.78,
-      base64: true
-    });
-
-    if (result.canceled || !result.assets?.[0]) {
-      return;
+    const result = await completeChore(choreId);
+    setStatusTone(result.ok ? "success" : "error");
+    setStatusMessage(result.message);
+    if (result.ok) {
+      triggerCelebration(stars);
     }
-
-    const asset = result.assets[0];
-    if (!asset.base64) {
-      setStatusTone("error");
-      setStatusMessage("HomeThread could not read that photo for upload.");
-      return;
-    }
-
-    const uploadResult = await uploadAvatar(asset.base64, asset.mimeType ?? "image/jpeg");
-    setStatusTone(uploadResult.ok ? "success" : "error");
-    setStatusMessage(uploadResult.message);
   }
 
   return (
     <View style={styles.root}>
-      <View style={styles.topRow}>
-        <Pill label="Child device" tone="gold" icon="phone-portrait" />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Hold to unpair this device"
-          delayLongPress={900}
-          onLongPress={() => {
-            void unpair();
-          }}
-          onPress={() => setExitHintVisible(true)}
-          style={({ pressed }) => [styles.exitChip, pressed && styles.exitChipPressed]}
-        >
-          <Ionicons name="lock-closed" size={14} color={colors.ink} />
-          <Text style={styles.exitChipText}>Hold to unpair</Text>
-        </Pressable>
-      </View>
-
       <Card>
         <View style={styles.heroPanel}>
           <View style={styles.heroCopy}>
@@ -125,14 +210,18 @@ export function ChildDeviceShellScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Change your profile photo"
-              disabled={isSaving}
+              disabled={isSaving || isPickingPhoto}
               onPress={() => {
                 void handleChangePhoto();
               }}
-              style={({ pressed }) => [styles.photoAction, pressed && !isSaving ? styles.photoActionPressed : null]}
+              style={({ pressed }) =>
+                [styles.photoAction, pressed && !isSaving && !isPickingPhoto ? styles.photoActionPressed : null]
+              }
             >
-              <Ionicons name="camera" size={14} color={colors.primary} />
-              <Text style={styles.photoActionText}>{isSaving ? "Uploading..." : "Change your photo"}</Text>
+              <Text style={styles.photoActionEmoji}>📷</Text>
+              <Text style={styles.photoActionText}>
+                {isSaving ? "Uploading..." : isPickingPhoto ? "Opening..." : "Change your photo"}
+              </Text>
             </Pressable>
             {exitHintVisible ? (
               <Text style={styles.exitHint}>Keep holding the lock to unpair this device. Ask a parent for a new KC- code to pair again.</Text>
@@ -155,69 +244,127 @@ export function ChildDeviceShellScreen() {
             </View>
           </View>
         </View>
+
         <View style={styles.summaryGrid}>
-          <View style={styles.summaryCard}>
+          <View style={[styles.summaryCard, styles.summaryCardGold]}>
             <Text style={styles.summaryLabel}>Stars</Text>
             <Text style={styles.summaryValue}>{session.starBalance}</Text>
           </View>
-          <View style={styles.summaryCard}>
+          <View style={[styles.summaryCard, styles.summaryCardPrimary]}>
             <Text style={styles.summaryLabel}>Open chores</Text>
             <Text style={styles.summaryValue}>{openChores.length}</Text>
           </View>
         </View>
+
+        <View style={styles.moduleRow}>
+          <ModuleTile
+            emoji="⭐"
+            tone="gold"
+            label="Stars"
+            meta={`${session.starBalance} earned`}
+            active={activeModule === "stars"}
+            onPress={() => toggleModule("stars")}
+          />
+          <ModuleTile
+            emoji="✅"
+            tone="mint"
+            label="Chores"
+            meta={`${openChores.length} open`}
+            active={activeModule === "chores"}
+            onPress={() => toggleModule("chores")}
+          />
+        </View>
       </Card>
 
-      <SectionTitle title="Chores to do" action={`${openChores.length} left`} />
-      <ActionFeedback message={statusMessage ?? ""} tone={statusTone} visible={Boolean(statusMessage)} />
-      <View style={styles.choreStack}>
-        {openChores.length > 0 ? (
-          openChores.map((chore) => (
-            <View key={chore.id} style={styles.choreCard}>
-              <View style={styles.choreHeader}>
-                <View style={styles.choreCopy}>
-                  <Text style={styles.choreTitle}>{chore.title}</Text>
-                  <Text style={styles.choreMeta}>{chore.dueTime ? `Due ${chore.dueTime}` : "Today"}</Text>
-                </View>
-                <Pill label={`+${chore.stars} stars`} tone="gold" icon="star" />
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Mark ${chore.title} done`}
-                disabled={isSaving}
-                onPress={() => {
-                  void (async () => {
-                    const result = await completeChore(chore.id);
-                    setStatusTone(result.ok ? "success" : "error");
-                    setStatusMessage(result.message);
-                  })();
-                }}
-                style={({ pressed }) => [styles.doneButton, pressed && styles.doneButtonPressed]}
-              >
-                <Ionicons name="checkmark-circle" size={26} color="#FFFFFF" />
-                <Text style={styles.doneButtonText}>{isSaving ? "Saving..." : "Done!"}</Text>
-              </Pressable>
-            </View>
-          ))
-        ) : (
-          <Card>
-            <Text style={styles.emptyTitle}>All done for now</Text>
-            <Text style={styles.emptyText}>Nice work. Check back if a grown-up adds more chores.</Text>
-          </Card>
-        )}
-      </View>
+      <RewardCelebrationBanner celebration={celebration} scale={celebrationScale} opacity={celebrationOpacity} />
 
-      {doneChores.length > 0 ? (
-        <>
-          <SectionTitle title="Finished today" action={`${doneChores.length} done`} />
-          <View style={styles.doneStack}>
-            {doneChores.map((chore) => (
-              <View key={chore.id} style={styles.doneRow}>
-                <Ionicons name="checkmark-circle" size={18} color={colors.mint} />
-                <Text style={styles.doneChoreTitle}>{chore.title}</Text>
-              </View>
-            ))}
+      <ActionFeedback message={statusMessage ?? ""} tone={statusTone} visible={Boolean(statusMessage)} />
+
+      {activeModule === "stars" ? (
+        <Card>
+          <View style={styles.moduleCardHeader}>
+            <Text style={styles.moduleCardTitle}>Stars</Text>
+            <Text style={styles.moduleCardMeta}>{session.starBalance} total</Text>
           </View>
-        </>
+          <LinearGradient
+            colors={rewardProgress.distance === 0 ? ["#FFE8B0", "#FFD37A"] : [colors.goldSoft, "#FFF6E4"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.rewardPanel}
+          >
+            <Text style={styles.rewardEmoji}>{rewardProgress.distance === 0 ? "🏆" : "⭐"}</Text>
+            <Text style={styles.rewardHeadline}>
+              {rewardProgress.distance === 0
+                ? "Reward ready!"
+                : `${rewardProgress.distance} more star${rewardProgress.distance === 1 ? "" : "s"} to go`}
+            </Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${rewardProgress.progress}%` }]} />
+            </View>
+            <View style={styles.progressLabels}>
+              <Text style={styles.progressLabel}>Now</Text>
+              <Text style={styles.progressLabel}>Next reward at {rewardProgress.nextTarget}</Text>
+            </View>
+          </LinearGradient>
+        </Card>
+      ) : null}
+
+      {activeModule === "chores" ? (
+        <Card>
+          <View style={styles.moduleCardHeader}>
+            <Text style={styles.moduleCardTitle}>Chores to do</Text>
+            <Text style={styles.moduleCardMeta}>{openChores.length} left</Text>
+          </View>
+          <View style={styles.choreStack}>
+            {openChores.length > 0 ? (
+              openChores.map((chore) => (
+                <View key={chore.id} style={styles.choreCard}>
+                  <View style={styles.choreHeader}>
+                    <View style={styles.choreCopy}>
+                      <Text style={styles.choreTitle}>{chore.title}</Text>
+                      <Text style={styles.choreMeta}>{chore.dueTime ? `Due ${chore.dueTime}` : "Today"}</Text>
+                    </View>
+                    <Pill label={`+${chore.stars} stars`} tone="gold" icon="star" />
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Mark ${chore.title} done`}
+                    disabled={isSaving}
+                    onPress={() => {
+                      void handleCompleteChore(chore.id, chore.stars);
+                    }}
+                    style={({ pressed }) => [styles.doneButton, pressed && styles.doneButtonPressed]}
+                  >
+                    <Ionicons name="checkmark-circle" size={26} color="#FFFFFF" />
+                    <Text style={styles.doneButtonText}>{isSaving ? "Saving..." : "Done!"}</Text>
+                  </Pressable>
+                </View>
+              ))
+            ) : (
+              <View>
+                <Text style={styles.emptyTitle}>All done for now</Text>
+                <Text style={styles.emptyText}>Nice work. Check back if a grown-up adds more chores.</Text>
+              </View>
+            )}
+          </View>
+
+          {doneChores.length > 0 ? (
+            <>
+              <View style={[styles.moduleCardHeader, styles.moduleSubHeader]}>
+                <Text style={styles.moduleCardTitle}>Finished today</Text>
+                <Text style={styles.moduleCardMeta}>{doneChores.length} done</Text>
+              </View>
+              <View style={styles.doneStack}>
+                {doneChores.map((chore) => (
+                  <View key={chore.id} style={styles.doneRow}>
+                    <Ionicons name="checkmark-circle" size={18} color={colors.mint} />
+                    <Text style={styles.doneChoreTitle}>{chore.title}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : null}
+        </Card>
       ) : null}
     </View>
   );
@@ -225,31 +372,7 @@ export function ChildDeviceShellScreen() {
 
 const styles = StyleSheet.create({
   root: {
-    gap: spacing.lg
-  },
-  topRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  exitChip: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm
-  },
-  exitChipPressed: {
-    opacity: 0.84
-  },
-  exitChipText: {
-    color: colors.ink,
-    fontSize: 12,
-    fontWeight: "800"
+    gap: spacing.sm
   },
   heroPanel: {
     alignItems: "center",
@@ -274,6 +397,9 @@ const styles = StyleSheet.create({
   },
   photoActionPressed: {
     opacity: 0.84
+  },
+  photoActionEmoji: {
+    fontSize: 13
   },
   photoActionText: {
     color: colors.primary,
@@ -343,13 +469,88 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg
   },
   summaryCard: {
-    backgroundColor: colors.canvas,
-    borderColor: colors.line,
     borderRadius: radii.md,
     borderWidth: 1,
     flex: 1,
     gap: 2,
     padding: spacing.md
+  },
+  summaryCardGold: {
+    backgroundColor: colors.goldSoft,
+    borderColor: "rgba(193,125,60,0.24)"
+  },
+  summaryCardPrimary: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "rgba(139,107,74,0.16)"
+  },
+  moduleRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm
+  },
+  moduleCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.md
+  },
+  moduleSubHeader: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    marginTop: spacing.md,
+    paddingTop: spacing.md
+  },
+  moduleCardTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  moduleCardMeta: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  rewardPanel: {
+    alignItems: "center",
+    borderRadius: radii.lg,
+    padding: spacing.lg
+  },
+  rewardEmoji: {
+    fontSize: 36,
+    marginBottom: spacing.xs
+  },
+  rewardHeadline: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  progressTrack: {
+    alignSelf: "stretch",
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderRadius: radii.pill,
+    height: 10,
+    marginTop: spacing.md,
+    overflow: "hidden"
+  },
+  progressFill: {
+    backgroundColor: colors.gold,
+    borderRadius: radii.pill,
+    height: "100%"
+  },
+  progressLabels: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.sm
+  },
+  progressLabel: {
+    color: colors.tertiary,
+    fontSize: 12,
+    fontWeight: "700"
   },
   summaryLabel: {
     color: colors.tertiary,

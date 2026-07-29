@@ -65,6 +65,30 @@ function agendaDividerLabel(event: Pick<PlanEvent, "startAt">, now = new Date())
   });
 }
 
+function agendaGroupKey(event: Pick<PlanEvent, "startAt">, now = new Date()) {
+  if (!event.startAt) {
+    return "later";
+  }
+
+  const startsAt = new Date(event.startAt);
+  if (Number.isNaN(startsAt.getTime())) {
+    return "later";
+  }
+
+  const dayDiff = calendarDayDiff(startsAt, now);
+  if (dayDiff === 0) {
+    return "today";
+  }
+  if (dayDiff === 1) {
+    return "tomorrow";
+  }
+  if (dayDiff < 0) {
+    return "earlier";
+  }
+
+  return `${startsAt.getFullYear()}-${startsAt.getMonth()}-${startsAt.getDate()}`;
+}
+
 function formatNextSchedule(event: Pick<PlanEvent, "startAt" | "time" | "dateLabel">) {
   if (event.startAt) {
     const startsAt = new Date(event.startAt);
@@ -85,11 +109,24 @@ function formatNextSchedule(event: Pick<PlanEvent, "startAt" | "time" | "dateLab
   return [event.dateLabel, event.time].filter(Boolean).join(" - ") || "Soon";
 }
 
-export function PlanScreen() {
+export function PlanScreen({
+  pinnedHeader = false,
+  showCalendarSync = false,
+  onOpenCalendarSync,
+  onCloseCalendarSync,
+  onFormVisibleChange
+}: {
+  pinnedHeader?: boolean;
+  showCalendarSync?: boolean;
+  onOpenCalendarSync?: () => void;
+  onCloseCalendarSync?: () => void;
+  onFormVisibleChange?: (visible: boolean) => void;
+} = {}) {
   const { events, members, createEvent, updateEvent, deleteEvent, syncSource } = useHomeThreadStore();
   const isSavingPlan = useHomeThreadStore(isHomeThreadSavingScope("plan"));
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const composePanelMaxWidth = Math.min(windowWidth - spacing.md * 2, 440);
+  const composePanelMaxHeight = windowHeight - spacing.lg * 2;
   const { scrollToOffset, scrollToTop } = useScrollAssist();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -98,7 +135,6 @@ export function PlanScreen() {
   const [startTime, setStartTime] = useState("");
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
-  const [showCalendarSync, setShowCalendarSync] = useState(false);
   const [travelStatus, setTravelStatus] = useState<TravelReminderStatus | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -138,20 +174,21 @@ export function PlanScreen() {
     });
   }, [planQuery, showPlanSearch, sortedEvents]);
   const agendaGroups = useMemo(() => {
-    const groups: Array<{ label: string; events: typeof sortedEvents }> = [];
+    const groups: Array<{ key: string; label: string; events: typeof sortedEvents }> = [];
 
     for (const event of filteredEvents) {
+      const key = agendaGroupKey(event);
       const label = agendaDividerLabel(event);
       const last = groups[groups.length - 1];
-      if (!last || last.label !== label) {
-        groups.push({ label, events: [event] });
+      if (!last || last.key !== key) {
+        groups.push({ key, label, events: [event] });
       } else {
         last.events.push(event);
       }
     }
 
-    const upcoming = groups.filter((group) => group.label !== "Earlier");
-    const earlier = groups.filter((group) => group.label === "Earlier");
+    const upcoming = groups.filter((group) => group.key !== "earlier");
+    const earlier = groups.filter((group) => group.key === "earlier");
     return [...upcoming, ...earlier];
   }, [filteredEvents]);
   const searchingPlans = showPlanSearch && planQuery.trim().length > 0;
@@ -161,6 +198,10 @@ export function PlanScreen() {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
+
+  useEffect(() => {
+    onFormVisibleChange?.(showForm);
+  }, [showForm, onFormVisibleChange]);
 
   useEffect(() => {
     if (!successMessage && !infoMessage) {
@@ -343,15 +384,23 @@ export function PlanScreen() {
   }, [syncSource, travelCandidate?.id]);
 
   if (showCalendarSync) {
-    return <CalendarSyncScreen onBack={() => setShowCalendarSync(false)} />;
+    return <CalendarSyncScreen pinnedHeader onBack={() => onCloseCalendarSync?.()} />;
   }
 
   return (
     <View style={styles.screen}>
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>🗓️</Text>
+          </View>
+          <Text style={styles.largeTitleText}>This week</Text>
+        </View>
+      ) : null}
       <View style={styles.plannerCard}>
         <View style={styles.header}>
           <View style={styles.headerCopy}>
-            <Text style={styles.headerTitle}>This week</Text>
+            {pinnedHeader ? null : <Text style={styles.headerTitle}>This week</Text>}
             <Text style={styles.headerMeta} numberOfLines={1}>
               {upcomingCount > 0
                 ? `${upcomingCount} plan${upcomingCount === 1 ? "" : "s"} coming up`
@@ -420,12 +469,12 @@ export function PlanScreen() {
         {sortedEvents.length > 0 ? (
           agendaGroups.length > 0 ? (
             agendaGroups.map((group) => {
-              const isEarlierGroup = group.label === "Earlier";
+              const isEarlierGroup = group.key === "earlier";
               const earlierCollapsible = isEarlierGroup && group.events.length > 1;
               const earlierCollapsed = earlierCollapsible && !showEarlierPlans && !searchingPlans;
 
               return (
-                <View key={group.label} style={styles.dateGroup}>
+                <View key={group.key} style={styles.dateGroup}>
                   <View style={styles.dateHeader}>
                     <Text style={styles.dateHeading}>{group.label}</Text>
                     <View style={styles.dateHeaderRule} />
@@ -483,7 +532,7 @@ export function PlanScreen() {
                                 </Text>
                               </View>
                               <View style={styles.eventTrailing}>
-                                {firstAssignee ? <MemberAvatar member={firstAssignee} size={18} /> : null}
+                                {firstAssignee ? <MemberAvatar member={firstAssignee} size={32} /> : null}
                                 <Ionicons
                                   name={isExpanded ? "chevron-up" : "chevron-forward"}
                                   size={14}
@@ -585,11 +634,19 @@ export function PlanScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Connect calendars"
-          onPress={() => setShowCalendarSync(true)}
+          onPress={() => onOpenCalendarSync?.()}
           style={({ pressed }) => [styles.calendarAction, pressed && styles.calendarActionPressed]}
         >
           <Text style={styles.calendarActionText}>Connect</Text>
         </Pressable>
+      </View>
+
+      {/* Footer note */}
+      <View style={styles.footerNote}>
+        <Ionicons name="sync-outline" size={13} color={colors.muted} />
+        <Text style={styles.footerNoteText}>
+          Plans stay in sync across the household — everyone sees updates automatically.
+        </Text>
       </View>
 
       <Modal
@@ -604,7 +661,12 @@ export function PlanScreen() {
             behavior={Platform.OS === "ios" ? "padding" : undefined}
           >
             <View style={styles.composeStage}>
-              <View style={[styles.composePanel, { maxWidth: composePanelMaxWidth }]}>
+              <View
+                style={[
+                  styles.composePanel,
+                  { maxWidth: composePanelMaxWidth, maxHeight: composePanelMaxHeight }
+                ]}
+              >
                 <View style={styles.composeHeader}>
                   <View style={styles.composeHeaderMark}>
                     <Ionicons name="calendar-outline" size={18} color={colors.primary} />
@@ -754,6 +816,32 @@ const styles = StyleSheet.create({
     gap: 0,
     paddingBottom: 96
   },
+  // Large title (collapses into the pinned bar on scroll)
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
+  },
   plannerCard: {
     backgroundColor: colors.surface,
     borderColor: colors.lineStrong,
@@ -893,7 +981,6 @@ const styles = StyleSheet.create({
     borderColor: colors.lineStrong,
     borderRadius: radii.xl,
     borderWidth: 1,
-    flex: 1,
     overflow: "hidden",
     width: "100%",
     ...shadow.card
@@ -1005,7 +1092,7 @@ const styles = StyleSheet.create({
   pickerRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 10
   },
   assignChip: {
     alignItems: "center",
@@ -1252,6 +1339,23 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     fontWeight: "700"
+  },
+  // Footer note
+  footerNote: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs
+  },
+  footerNoteText: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    textAlign: "center"
   }
 });
 

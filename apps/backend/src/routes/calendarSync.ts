@@ -12,7 +12,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { calendarConnections } from "../db/schema.js";
 import { getCalendarSyncStatus, getGoogleOAuthConfig } from "../env.js";
-import { syncGoogleConnection, syncIcalConnection, validateIcalUrlSafety } from "../lib/calendarImport.js";
+import { syncGoogleConnection } from "../lib/calendarImport.js";
 import { encryptCalendarToken } from "../lib/calendarTokenCrypto.js";
 import { sendError } from "../lib/http.js";
 import { logSafeError } from "../lib/redactLog.js";
@@ -21,13 +21,6 @@ import { requireFamilyMember } from "../plugins/familyAccess.js";
 
 const familyQuerySchema = z.object({
   familyId: uuidSchema
-});
-
-const icalBodySchema = z.object({
-  familyId: uuidSchema,
-  icalUrl: z
-    .url()
-    .refine((value) => value.startsWith("https://"), "iCal feeds must use HTTPS.")
 });
 
 const googleCallbackQuerySchema = z.object({
@@ -67,9 +60,8 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     return {
       connections: rows.map((row) => ({
         id: row.id,
-        provider: row.provider as "google" | "apple" | "outlook" | "ical",
+        provider: row.provider as "google" | "apple" | "outlook",
         externalCalendarId: row.externalCalendarId,
-        icalUrl: row.icalUrl ? maskIcalUrl(row.icalUrl) : null,
         isActive: row.isActive,
         lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null
       }))
@@ -203,32 +195,6 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/ical", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async (request, reply) => {
-    const body = icalBodySchema.parse(request.body);
-    const membership = await requireFamilyMember(request, reply, body.familyId);
-    if (!membership) return;
-
-    try {
-      await validateIcalUrlSafety(body.icalUrl);
-    } catch (error) {
-      logSafeError(error);
-      return sendError(reply, 400, "This iCal feed is not allowed.", "ICAL_URL_NOT_ALLOWED");
-    }
-
-    await upsertIcalConnection({
-      familyId: body.familyId,
-      userId: request.currentUser!.id,
-      icalUrl: body.icalUrl
-    });
-
-    const payload = calendarConnectAttemptResponseSchema.parse({
-      ok: true,
-      message: "iCal feed saved. Use Sync now to import future events from this feed."
-    });
-
-    return reply.status(201).send(payload);
-  });
-
   app.post("/sync", { preHandler: requireAuth, config: { rateLimit: calendarRateLimit } }, async (request, reply) => {
     const body = calendarSyncNowBodySchema.parse(request.body);
     const membership = await requireFamilyMember(request, reply, body.familyId);
@@ -289,20 +255,6 @@ export async function calendarSyncRoutes(app: FastifyInstance) {
           results.push({
             connectionId: connection.id,
             provider: "google",
-            ...counts
-          });
-          continue;
-        }
-
-        if (connection.provider === "ical") {
-          const counts = await syncIcalConnection({
-            connection,
-            userId: request.currentUser!.id
-          });
-
-          results.push({
-            connectionId: connection.id,
-            provider: "ical",
             ...counts
           });
           continue;
@@ -504,39 +456,6 @@ async function upsertGoogleConnection(input: {
   });
 }
 
-async function upsertIcalConnection(input: {
-  familyId: string;
-  userId: string;
-  icalUrl: string;
-}) {
-  const existing = await db.query.calendarConnections.findFirst({
-    where: and(
-      eq(calendarConnections.familyId, input.familyId),
-      eq(calendarConnections.userId, input.userId),
-      eq(calendarConnections.provider, "ical")
-    )
-  });
-
-  if (existing) {
-    await db
-      .update(calendarConnections)
-      .set({
-        icalUrl: input.icalUrl,
-        isActive: true
-      })
-      .where(eq(calendarConnections.id, existing.id));
-    return;
-  }
-
-  await db.insert(calendarConnections).values({
-    familyId: input.familyId,
-    userId: input.userId,
-    provider: "ical",
-    icalUrl: input.icalUrl,
-    isActive: true
-  });
-}
-
 function renderCalendarCallbackPage(message: string) {
   return `<!doctype html>
 <html lang="en">
@@ -568,13 +487,4 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-function maskIcalUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return `${url.protocol}//${url.hostname}/...`;
-  } catch {
-    return "Configured iCal feed";
-  }
 }

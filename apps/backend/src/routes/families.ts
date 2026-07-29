@@ -4,7 +4,7 @@ import {
   updateFamilySchema,
   uuidSchema
 } from "@homethread/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, sql } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -28,6 +28,10 @@ export async function familiesRoutes(app: FastifyInstance) {
     const currentUser = request.currentUser!;
     const body = createFamilySchema.parse(request.body);
     await ensureUserProfile(currentUser.id, currentUser.email);
+
+    const existingMembership = await db.query.familyMembers.findFirst({
+      where: eq(familyMembers.userId, currentUser.id)
+    });
 
     const result = await db.transaction(async (tx) => {
       const [family] = await tx
@@ -54,7 +58,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       return { family, member };
     });
 
-    return reply.status(201).send(result);
+    return reply.status(201).send({ ...result, hadExistingHousehold: Boolean(existingMembership) });
   });
 
   app.get("/:id", async (request, reply) => {
@@ -138,7 +142,7 @@ export async function familiesRoutes(app: FastifyInstance) {
     }
 
     const family = await db.query.families.findFirst({
-      where: eq(families.inviteCode, body.inviteCode)
+      where: ilike(families.inviteCode, body.inviteCode)
     });
 
     if (!family) {
@@ -150,7 +154,7 @@ export async function familiesRoutes(app: FastifyInstance) {
     });
 
     if (existing) {
-      return { family, member: existing };
+      return { family, member: existing, alreadyMember: true };
     }
 
     const [member] = await db
@@ -165,7 +169,7 @@ export async function familiesRoutes(app: FastifyInstance) {
       })
       .returning();
 
-    return reply.status(201).send({ family, member });
+    return reply.status(201).send({ family, member, alreadyMember: false });
   });
 
   app.post("/:id/invite", async (request, reply) => {

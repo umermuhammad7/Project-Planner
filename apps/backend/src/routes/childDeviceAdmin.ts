@@ -9,7 +9,7 @@ import { generateChildPairingCode, pairingCodeExpiresAt } from "../lib/childPair
 import { sendError } from "../lib/http.js";
 import { clearChildDevicePushToken } from "../lib/pushNotifications.js";
 import { requireAuth } from "../plugins/auth.js";
-import { requireFamilyAdmin, requireFamilyMember } from "../plugins/familyAccess.js";
+import { requireFamilyMember } from "../plugins/familyAccess.js";
 
 const familyParamsSchema = z.object({
   familyId: uuidSchema
@@ -29,7 +29,7 @@ export async function childDeviceAdminRoutes(app: FastifyInstance) {
   app.post("/members/:memberId/child-pairing-code", async (request, reply) => {
     const currentUser = request.currentUser!;
     const { familyId, memberId } = memberParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const member = await db.query.familyMembers.findFirst({
@@ -81,7 +81,7 @@ export async function childDeviceAdminRoutes(app: FastifyInstance) {
 
   app.get("/child-pairing-codes", async (request, reply) => {
     const { familyId } = familyParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const now = new Date();
@@ -145,7 +145,7 @@ export async function childDeviceAdminRoutes(app: FastifyInstance) {
 
   app.delete("/child-devices/:deviceId", async (request, reply) => {
     const { familyId, deviceId } = deviceParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const device = await db.query.childDevices.findFirst({

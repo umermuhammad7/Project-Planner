@@ -44,12 +44,15 @@ type AuthState = {
   devTokenAvailable: boolean;
   bootstrap: () => Promise<void>;
   syncAccessTokenFromSession: () => Promise<void>;
-  signInWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
-  signUpWithPassword: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   signInWithGoogle: () => Promise<{ ok: boolean; message?: string }>;
+  signInWithApple: () => Promise<{ ok: boolean; message?: string }>;
   signInWithDevToken: () => Promise<{ ok: boolean; message?: string }>;
-  createFamily: (name: string) => Promise<{ ok: boolean; message?: string; inviteCode?: string }>;
-  joinFamily: (inviteCode: string) => Promise<{ ok: boolean; message?: string }>;
+  createFamily: (
+    name: string
+  ) => Promise<{ ok: boolean; message?: string; inviteCode?: string; hadExistingHousehold?: boolean }>;
+  joinFamily: (
+    inviteCode: string
+  ) => Promise<{ ok: boolean; message?: string; alreadyMember?: boolean; familyName?: string }>;
   refreshMembership: () => Promise<{ ok: boolean; familyId?: string | null; message?: string }>;
   updateProfile: (input: { displayName: string; avatarUrl?: string | null }) => Promise<{ ok: boolean; message?: string }>;
   updatePassword: (nextPassword: string) => Promise<{ ok: boolean; message?: string }>;
@@ -313,7 +316,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   authMessage: null,
   backendAuthMode: null,
   supabaseConfiguredOnClient: isSupabaseConfigured,
-  devTokenAvailable: Boolean(devAuthToken),
+  devTokenAvailable: false,
   bootstrap: async () => {
     try {
       setApiAccessTokenProvider(() => get().accessToken);
@@ -437,77 +440,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ accessToken: data.session.access_token });
     }
   },
-  signInWithPassword: async (email, password) => {
-    if (!supabaseClient) {
-      return { ok: false, message: friendlyAuthError(undefined, "Sign-in is not set up in this version of the app yet.") };
-    }
-
-    const { data, error } = await supabaseClient.auth.signInWithPassword({
-      email: email.trim(),
-      password
-    });
-
-    if (error || !data.session?.access_token) {
-      return { ok: false, message: error?.message ?? "Sign in failed." };
-    }
-
-    const applied = await applySupabaseSession(
-      data.session.access_token,
-      data.user?.app_metadata?.provider ?? data.session.user.app_metadata?.provider ?? null
-    );
-    if (!applied.ok) {
-      await supabaseClient.auth.signOut();
-      set({
-        ...signedOutState,
-        authMessage: applied.message
-      });
-      return { ok: false, message: applied.message };
-    }
-
-    return { ok: true };
-  },
-  signUpWithPassword: async (email, password) => {
-    if (!supabaseClient) {
-      return { ok: false, message: friendlyAuthError(undefined, "Sign-in is not set up in this version of the app yet.") };
-    }
-
-    const { data, error } = await supabaseClient.auth.signUp({
-      email: email.trim(),
-      password
-    });
-
-    if (error) {
-      return { ok: false, message: error.message };
-    }
-
-    if (!data.session?.access_token) {
-      return {
-        ok: false,
-        message:
-          "Account created. Check your email to confirm your address before signing in."
-      };
-    }
-
-    const applied = await applySupabaseSession(
-      data.session.access_token,
-      data.user?.app_metadata?.provider ?? data.session.user.app_metadata?.provider ?? null
-    );
-    if (!applied.ok) {
-      await supabaseClient.auth.signOut();
-      set({
-        ...signedOutState,
-        authMessage: applied.message
-      });
-      return { ok: false, message: applied.message };
-    }
-    set({
-      authMessage: get().familyId
-        ? null
-        : "Account created. Family setup is still required before HomeThread can load household data."
-    });
-
-    return { ok: true };
-  },
   signInWithGoogle: async () => {
     if (!supabaseClient) {
       return { ok: false, message: friendlyAuthError(undefined, "Sign-in is not set up in this version of the app yet.") };
@@ -550,6 +482,52 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     return createSessionFromUrl(result.url);
   },
+  signInWithApple: async () => {
+    if (!supabaseClient) {
+      return { ok: false, message: friendlyAuthError(undefined, "Sign-in is not set up in this version of the app yet.") };
+    }
+
+    if (Platform.OS !== "ios") {
+      return { ok: false, message: "Sign in with Apple is only available on iPhone." };
+    }
+
+    let AppleAuthentication: typeof import("expo-apple-authentication");
+    try {
+      AppleAuthentication = await import("expo-apple-authentication");
+    } catch {
+      return { ok: false, message: "Sign in with Apple is not available in this build yet." };
+    }
+
+    let credential;
+    try {
+      credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL
+        ]
+      });
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ERR_REQUEST_CANCELED") {
+        return { ok: false };
+      }
+      return { ok: false, message: friendlyAuthError(error instanceof Error ? error.message : undefined, "Apple sign-in failed.") };
+    }
+
+    if (!credential.identityToken) {
+      return { ok: false, message: "Apple did not return a sign-in credential. Try again." };
+    }
+
+    const { error } = await supabaseClient.auth.signInWithIdToken({
+      provider: "apple",
+      token: credential.identityToken
+    });
+
+    if (error) {
+      return { ok: false, message: friendlyAuthError(error.message, "Apple sign-in could not complete.") };
+    }
+
+    return { ok: true };
+  },
   createFamily: async (name) => {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -573,7 +551,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authMessage: null
     });
 
-    return { ok: true, inviteCode: result.data.family.inviteCode };
+    return {
+      ok: true,
+      inviteCode: result.data.family.inviteCode,
+      hadExistingHousehold: result.data.hadExistingHousehold
+    };
   },
   joinFamily: async (inviteCode) => {
     const trimmedCode = inviteCode.trim().toUpperCase();
@@ -598,7 +580,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authMessage: null
     });
 
-    return { ok: true };
+    return {
+      ok: true,
+      alreadyMember: result.data.alreadyMember,
+      familyName: result.data.family.name
+    };
   },
   refreshMembership: async () => {
     const { accessToken, mode } = get();

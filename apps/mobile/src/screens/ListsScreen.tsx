@@ -69,7 +69,7 @@ function formatListTypeLabel(type: string) {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
-export function ListsScreen() {
+export function ListsScreen({ pinnedHeader = false }: { pinnedHeader?: boolean } = {}) {
   const {
     lists,
     selectedListId,
@@ -328,6 +328,14 @@ export function ListsScreen() {
 
   return (
     <View style={styles.screen}>
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>🛍️</Text>
+          </View>
+          <Text style={styles.largeTitleText}>Lists</Text>
+        </View>
+      ) : null}
       {/* Header card */}
       <View style={styles.plannerCard}>
         <View style={styles.header}>
@@ -337,7 +345,7 @@ export function ListsScreen() {
             </View>
           ) : null}
           <View style={styles.headerCopy}>
-            <Text style={styles.headerTitle}>Lists</Text>
+            {pinnedHeader ? null : <Text style={styles.headerTitle}>Lists</Text>}
             <Text style={styles.headerMeta} numberOfLines={1}>
               {activeList ? `${activeList.title} · ${listStatusPhrase}` : "Shared with everyone in the household"}
             </Text>
@@ -858,6 +866,31 @@ const styles = StyleSheet.create({
   screen: {
     gap: 0,
     paddingBottom: 96
+  },
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
   },
   // Header card
   plannerCard: {

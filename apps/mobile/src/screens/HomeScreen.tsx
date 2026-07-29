@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Image,
   Modal,
   NativeScrollEvent,
@@ -18,6 +19,7 @@ import { MemberAvatar } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { HOW_IT_WORKS_SLIDES } from "../constants/howItWorks";
 import { colors, fonts, radii, spacing } from "../constants/theme";
+import { listChildDevices } from "../services/childDeviceApi";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHomeThreadStore } from "../store/useHomeThreadStore";
 import { ScreenDestination } from "../types";
@@ -40,7 +42,8 @@ export function HomeScreen({
   onOpenFamilySettings,
   onOpenInsights,
   onOpenSettings,
-  pinnedHeader = false
+  pinnedHeader = false,
+  scrollY
 }: {
   goTo: (destination: ScreenDestination) => void;
   onEnterKidsMode?: () => void;
@@ -48,6 +51,7 @@ export function HomeScreen({
   onOpenInsights?: () => void;
   onOpenSettings?: () => void;
   pinnedHeader?: boolean;
+  scrollY?: Animated.Value;
 }) {
   const displayName = useAuthStore((state) => state.displayName);
   const email = useAuthStore((state) => state.email);
@@ -55,6 +59,7 @@ export function HomeScreen({
   const authMode = useAuthStore((state) => state.mode);
   const {
     familyName,
+    familyId,
     members,
     events,
     meals,
@@ -69,6 +74,19 @@ export function HomeScreen({
   const listItemsByListId = useHomeThreadStore((state) => state.listItemsByListId);
 
   const todayDateParts = useMemo(() => formatDateParts(new Date()), []);
+  // Large-title avatar starts bigger at rest and shrinks to the pinned-bar avatar's
+  // actual size (30px, vs. this avatar's 52px) as the title scrolls out of view.
+  const largeAvatarScale = useMemo(
+    () =>
+      scrollY
+        ? scrollY.interpolate({
+            inputRange: [0, 40],
+            outputRange: [1, 30 / 52],
+            extrapolate: "clamp"
+          })
+        : 1,
+    [scrollY]
+  );
   const backendConnected = syncSource === "api";
   const isSignedIn = authMode === "supabase" || authMode === "dev_token";
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
@@ -111,6 +129,9 @@ export function HomeScreen({
     [kidMembers, openChores]
   );
   const recentNotifications = useMemo(() => notifications.slice(0, 3), [notifications]);
+  const kidMemberIdsKey = useMemo(() => kidMembers.map((member) => member.id).sort().join(","), [kidMembers]);
+  const [activeChildDeviceMemberIds, setActiveChildDeviceMemberIds] = useState<Set<string>>(() => new Set());
+  const [childDeviceStatus, setChildDeviceStatus] = useState<"idle" | "loading" | "error">("idle");
   const profileLabel = useMemo(() => displayName?.trim() || email?.split("@")[0] || "there", [displayName, email]);
   const profileInitials = useMemo(
     () =>
@@ -136,6 +157,40 @@ export function HomeScreen({
   useEffect(() => {
     setAvatarImageFailed(false);
   }, [avatarUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!backendConnected || !familyId || kidMembers.length === 0) {
+      setActiveChildDeviceMemberIds(new Set());
+      setChildDeviceStatus("idle");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setChildDeviceStatus("loading");
+    void listChildDevices(familyId).then((result) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (!result.data) {
+        setActiveChildDeviceMemberIds(new Set());
+        setChildDeviceStatus("error");
+        return;
+      }
+
+      setActiveChildDeviceMemberIds(
+        new Set(result.data.devices.filter((device) => !device.revokedAt).map((device) => device.memberId))
+      );
+      setChildDeviceStatus("idle");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backendConnected, familyId, kidMembers.length, kidMemberIdsKey]);
 
   function openHowItWorks() {
     setGuideStep(0);
@@ -231,22 +286,152 @@ export function HomeScreen({
   ]);
 
   const attentionDetail = useMemo(() => {
-    if (nextEvent && (openChores.length > 0 || unreadNotifications.length > 0)) {
-      return `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` · ${nextEvent.location}` : ""}`;
+    if (unreadNotifications.length > 0) {
+      return "Tap Updates below to see what's new.";
+    }
+    if (openChores.length > 0) {
+      return "Tap Open chores below to knock it out.";
     }
     if (nextEvent) {
       return `${nextUrgency?.label ?? "Coming up"} at ${nextEvent.time}${nextEvent.location ? ` · ${nextEvent.location}` : ""}`;
     }
+    if (openItems.length > 0) {
+      return "Tap Shopping below to check off the list.";
+    }
+    if (kidsWithOpenChores.length > 0) {
+      return "Tap a card below to check in on them.";
+    }
     if (todayDinner) {
       return `Tonight: ${todayDinner.title}`;
     }
-    if (attentionCount === 0) {
-      return "Nothing urgent is waiting right now.";
-    }
-    return "Tap a card below to jump in.";
-  }, [attentionCount, nextEvent, nextUrgency?.label, openChores.length, todayDinner, unreadNotifications.length]);
+    return "Nothing urgent is waiting right now.";
+  }, [
+    kidsWithOpenChores.length,
+    nextEvent,
+    nextUrgency?.label,
+    openChores.length,
+    openItems.length,
+    todayDinner,
+    unreadNotifications.length
+  ]);
 
   const showSyncNotice = !backendConnected || isHydrating;
+  const unpairedKidMembers = useMemo(
+    () => kidMembers.filter((member) => !activeChildDeviceMemberIds.has(member.id)),
+    [activeChildDeviceMemberIds, kidMembers]
+  );
+  const pairedKidMembers = useMemo(
+    () => kidMembers.filter((member) => activeChildDeviceMemberIds.has(member.id)),
+    [activeChildDeviceMemberIds, kidMembers]
+  );
+  const familySetupItems = useMemo(() => {
+    const items: Array<{
+      key: string;
+      icon: string;
+      title: string;
+      meta: string;
+      action?: () => void;
+      tone?: "primary" | "mint" | "sky";
+    }> = [];
+
+    if (!backendConnected || !isSignedIn) {
+      items.push({
+        key: "offline",
+        icon: "👪",
+        title: "Family setup",
+        meta: "Sign in and sync to invite adults or pair child devices.",
+        tone: "sky"
+      });
+      return items;
+    }
+
+    if (adultMembers.length <= 1) {
+      items.push({
+        key: "invite-adult",
+        icon: "🤝",
+        title: "Invite another adult",
+        meta: "Share the adult invite code. They use their own account.",
+        action: onOpenFamilySettings,
+        tone: "primary"
+      });
+    }
+
+    if (kidMembers.length === 0) {
+      items.push({
+        key: "add-child",
+        icon: "🧒",
+        title: "Add child profile",
+        meta: "Create a kid profile before pairing a child phone.",
+        action: onOpenFamilySettings,
+        tone: "mint"
+      });
+    } else if (childDeviceStatus === "loading") {
+      items.push({
+        key: "checking-devices",
+        icon: "📱",
+        title: "Checking child devices",
+        meta: "Making sure pairing status is up to date.",
+        tone: "sky"
+      });
+    } else if (childDeviceStatus === "error") {
+      items.push({
+        key: "check-pairing",
+        icon: "📱",
+        title: "Confirm child pairing",
+        meta: "Open Household to check which child devices are paired.",
+        action: onOpenFamilySettings,
+        tone: "sky"
+      });
+    } else if (unpairedKidMembers.length > 0) {
+      const firstName = safeText(unpairedKidMembers[0]?.name, "A child");
+      items.push({
+        key: "pair-child",
+        icon: "📱",
+        title: "Pair child device",
+        meta:
+          unpairedKidMembers.length === 1
+            ? `${firstName} needs a child pairing code.`
+            : `${unpairedKidMembers.length} kids need child pairing codes.`,
+        action: onOpenFamilySettings,
+        tone: "primary"
+      });
+    } else if (pairedKidMembers.length > 0) {
+      const firstName = safeText(pairedKidMembers[0]?.name, "Child");
+      items.push({
+        key: "paired",
+        icon: "✅",
+        title: "Child devices paired",
+        meta:
+          pairedKidMembers.length === 1
+            ? `${firstName}'s device is paired.`
+            : `${pairedKidMembers.length} child devices are paired.`,
+        action: onOpenFamilySettings,
+        tone: "mint"
+      });
+    }
+
+    if (items.length === 0) {
+      items.push({
+        key: "complete",
+        icon: "✅",
+        title: "Family setup looks good",
+        meta: "Adults and child setup are ready for daily planning.",
+        action: onOpenFamilySettings,
+        tone: "mint"
+      });
+    }
+
+    return items.slice(0, 3);
+  }, [
+    adultMembers.length,
+    backendConnected,
+    childDeviceStatus,
+    isSignedIn,
+    kidMembers.length,
+    onOpenFamilySettings,
+    pairedKidMembers,
+    unpairedKidMembers
+  ]);
 
   const homeHighlights = useMemo<HomeHighlight[]>(() => {
     const entries: HomeHighlight[] = [];
@@ -265,7 +450,7 @@ export function HomeScreen({
     if (openChores.length > 0) {
       entries.push({
         key: "chores",
-        icon: "✅",
+        icon: "🧹",
         label: "Open chores",
         value: `${openChores.length} open`,
         tone: "gold",
@@ -276,7 +461,7 @@ export function HomeScreen({
     if (openItems.length > 0) {
       entries.push({
         key: "shopping",
-        icon: "🛍️",
+        icon: "🛒",
         label: "Shopping",
         value: `${openItems.length} to pick up`,
         tone: "mint",
@@ -311,7 +496,31 @@ export function HomeScreen({
 
   return (
     <View>
-      {pinnedHeader ? null : (
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <Animated.View style={{ transform: [{ scale: largeAvatarScale }] }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open settings for ${profileLabel}`}
+              disabled={!onOpenSettings}
+              onPress={onOpenSettings}
+              style={styles.largeTitleAvatar}
+            >
+              {avatarSource && !avatarImageFailed ? (
+                <Image
+                  accessibilityLabel={`${profileLabel} profile photo`}
+                  onError={() => setAvatarImageFailed(true)}
+                  source={avatarSource}
+                  style={styles.largeTitleAvatarImage}
+                />
+              ) : (
+                <Text style={styles.largeTitleAvatarText}>{profileInitials}</Text>
+              )}
+            </Pressable>
+          </Animated.View>
+          <Text style={styles.largeTitleText}>Hi, {profileLabel}</Text>
+        </View>
+      ) : (
         <View style={styles.header}>
           <View style={styles.headerCopy}>
             <ScreenHeader
@@ -582,7 +791,7 @@ export function HomeScreen({
                 >
                   <View style={styles.deskShortcutTop}>
                     <View style={[styles.deskIconTile, styles.deskIconPrimary]}>
-                      <Text style={styles.deskIconGlyph}>🧑‍🤝‍🧑</Text>
+                      <Text style={styles.deskIconGlyph}>🏠</Text>
                     </View>
                     <Ionicons color={colors.muted} name="arrow-forward" size={13} />
                   </View>
@@ -611,6 +820,58 @@ export function HomeScreen({
                   </Text>
                 </Pressable>
               ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        {familySetupItems.length > 0 ? (
+          <View style={styles.deskZone}>
+            <Text style={styles.deskZoneLabel}>Set up</Text>
+            <View style={styles.deskFeatureStack}>
+              {familySetupItems.map((item) => {
+                const iconStyle =
+                  item.tone === "primary"
+                    ? styles.deskIconPrimary
+                    : item.tone === "mint"
+                      ? styles.deskIconMint
+                      : styles.deskIconSky;
+                const content = (
+                  <>
+                    <View style={[styles.deskIconTile, iconStyle]}>
+                      <Text style={styles.deskIconGlyph}>{item.icon}</Text>
+                    </View>
+                    <View style={styles.fill}>
+                      <Text style={styles.deskItemTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={styles.deskItemMeta} numberOfLines={2}>
+                        {item.meta}
+                      </Text>
+                    </View>
+                    {item.action ? <Ionicons name="chevron-forward" size={16} color={colors.muted} /> : null}
+                  </>
+                );
+
+                if (!item.action) {
+                  return (
+                    <View key={item.key} style={styles.deskStatusStrip}>
+                      {content}
+                    </View>
+                  );
+                }
+
+                return (
+                  <Pressable
+                    key={item.key}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.title}. ${item.meta}`}
+                    onPress={item.action}
+                    style={({ pressed }) => [styles.deskStatusStrip, pressed && styles.deskPressed]}
+                  >
+                    {content}
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
         ) : null}
@@ -800,6 +1061,39 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.xs,
     minWidth: 0
+  },
+  // Large title (collapses into the pinned bar on scroll)
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md
+  },
+  largeTitleAvatar: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    height: 52,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 52
+  },
+  largeTitleAvatarImage: {
+    height: "100%",
+    width: "100%"
+  },
+  largeTitleAvatarText: {
+    color: colors.primary,
+    fontSize: 19,
+    fontWeight: "800"
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
   },
   summaryCard: {
     backgroundColor: colors.surface,
@@ -1191,8 +1485,8 @@ const styles = StyleSheet.create({
   clusterPrimaryCta: {
     alignItems: "center",
     alignSelf: "stretch",
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.gold,
+    borderColor: colors.gold,
     borderRadius: radii.md,
     borderWidth: 1,
     flexDirection: "row",
@@ -1203,8 +1497,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm
   },
   clusterPrimaryCtaPressed: {
-    backgroundColor: colors.primaryPressed,
-    opacity: 0.94
+    opacity: 0.85
   },
   clusterPrimaryCtaText: {
     color: colors.surface,

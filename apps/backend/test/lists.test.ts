@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { and, eq } from "drizzle-orm";
 
 import { buildApp } from "../src/app.js";
+import { db } from "../src/db/client.js";
+import { familyMembers } from "../src/db/schema.js";
 import { env } from "../src/env.js";
 
 const authHeaders = {
@@ -8,6 +11,14 @@ const authHeaders = {
 };
 
 const parkerFamilyId = "00000000-0000-4000-8000-000000000201";
+const devUserId = "00000000-0000-4000-8000-000000000001";
+
+async function downgradeDevToMember(familyId: string) {
+  await db
+    .update(familyMembers)
+    .set({ role: "member" })
+    .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, devUserId)));
+}
 
 describe("lists route", () => {
   it("requires bearer tokens for family list routes", async () => {
@@ -127,6 +138,45 @@ describe("lists route", () => {
       error: "List not found",
       code: "LIST_NOT_FOUND"
     });
+  });
+
+  it("lets a plain household member create, edit, and delete a list", async () => {
+    const app = buildApp();
+    const createFamilyResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Member Lists Test Home" }
+    });
+    expect(createFamilyResponse.statusCode).toBe(201);
+    const familyId = createFamilyResponse.json().family.id as string;
+    await downgradeDevToMember(familyId);
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyId}/lists`,
+      headers: authHeaders,
+      payload: { title: "Member's grocery list", type: "grocery" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const listId = createResponse.json().list.id as string;
+
+    const editResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyId}/lists/${listId}`,
+      headers: authHeaders,
+      payload: { title: "Renamed by member" }
+    });
+    expect(editResponse.statusCode).toBe(200);
+    expect(editResponse.json()).toMatchObject({ list: { title: "Renamed by member" } });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${familyId}/lists/${listId}`,
+      headers: authHeaders
+    });
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({ deleted: true });
   });
 
   it("returns 404 when deleting from a missing list", async () => {

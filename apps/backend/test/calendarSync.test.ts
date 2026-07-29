@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { db } from "../src/db/client.js";
-import { calendarConnections, events } from "../src/db/schema.js";
+import { calendarConnections } from "../src/db/schema.js";
 import { buildApp } from "../src/app.js";
 import { env } from "../src/env.js";
 
@@ -30,7 +30,6 @@ describe("calendar-sync routes", () => {
     env.GOOGLE_CALENDAR_SCOPES = originalGoogleScopes;
     env.CALENDAR_TOKEN_ENCRYPTION_KEY = originalCalendarTokenEncryptionKey;
     await db.delete(calendarConnections).where(eq(calendarConnections.familyId, TEST_FAMILY_ID));
-    await db.delete(events).where(and(eq(events.familyId, TEST_FAMILY_ID), eq(events.externalSource, "ical")));
   });
 
   it("requires bearer tokens", async () => {
@@ -55,8 +54,7 @@ describe("calendar-sync routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      googleConnectImplemented: false,
-      icalImportImplemented: true
+      googleConnectImplemented: false
     });
   });
 
@@ -216,146 +214,4 @@ describe("calendar-sync routes", () => {
     await app.close();
   });
 
-  it("stores an iCal feed connection for the family", async () => {
-    const app = buildApp();
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/ical",
-      headers: {
-        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
-      },
-      payload: {
-        familyId: TEST_FAMILY_ID,
-        icalUrl: "https://example.com/family.ics"
-      }
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toEqual({
-      ok: true,
-      message: "iCal feed saved. Use Sync now to import future events from this feed."
-    });
-
-    const connectionsResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/calendar-sync/connections?familyId=${TEST_FAMILY_ID}`,
-      headers: {
-        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
-      }
-    });
-
-    expect(connectionsResponse.statusCode).toBe(200);
-    expect(connectionsResponse.json()).toEqual({
-      connections: [
-        expect.objectContaining({
-          provider: "ical",
-          icalUrl: "https://example.com/...",
-          isActive: true
-        })
-      ]
-    });
-
-    await app.close();
-  });
-
-  it("rejects non-https iCal feed URLs", async () => {
-    const app = buildApp();
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/ical",
-      headers: {
-        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
-      },
-      payload: {
-        familyId: TEST_FAMILY_ID,
-        icalUrl: "http://example.com/family.ics"
-      }
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject({
-      code: "VALIDATION_ERROR"
-    });
-
-    await app.close();
-  });
-
-  it("imports future iCal events on manual sync and skips duplicates", async () => {
-    const app = buildApp();
-    const familyId = TEST_FAMILY_ID;
-    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-    const stamp = future.toISOString().replace(/[-:]/gu, "").replace(/\.\d{3}Z$/u, "Z");
-    const feed = `BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-UID:sync-test-event-1
-SUMMARY:Imported soccer practice
-DTSTART:${stamp}
-DTEND:${stamp}
-END:VEVENT
-END:VCALENDAR`;
-
-    await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/ical",
-      headers: {
-        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
-      },
-      payload: {
-        familyId,
-        icalUrl: "https://example.com/family.ics"
-      }
-    });
-
-    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.resolve(
-        new Response(feed, { status: 200, headers: { "Content-Type": "text/calendar" } })
-      )
-    );
-
-    const firstSync = await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/sync",
-      headers: {
-        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
-      },
-      payload: { familyId }
-    });
-
-    expect(firstSync.statusCode).toBe(200);
-    expect(firstSync.json()).toMatchObject({
-      ok: true,
-      results: [
-        expect.objectContaining({
-          provider: "ical",
-          added: 1,
-          skipped: 0
-        })
-      ]
-    });
-
-    const secondSync = await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/sync",
-      headers: {
-        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
-      },
-      payload: { familyId }
-    });
-
-    expect(secondSync.statusCode).toBe(200);
-    expect(secondSync.json()).toMatchObject({
-      results: [
-        expect.objectContaining({
-          provider: "ical",
-          added: 0,
-          skipped: 1
-        })
-      ]
-    });
-
-    await app.close();
-  });
 });

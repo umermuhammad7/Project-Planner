@@ -45,11 +45,11 @@ const webInputStyle = {
   borderRadius: radii.md,
   boxSizing: "border-box" as const,
   color: colors.ink,
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: "500",
   marginTop: 0,
-  minHeight: 44,
-  padding: "10px 14px",
+  minHeight: 40,
+  padding: "8px 12px",
   width: "100%"
 };
 

@@ -119,7 +119,10 @@ function parseRecipeTextLocally(text: string): RecipeImportDraft | null {
 
 type MealsView = "plan" | "recipes";
 
-export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
+export function MealsScreen({
+  onBack,
+  pinnedHeader = false
+}: { onBack?: () => void; pinnedHeader?: boolean } = {}) {
   const {
     meals,
     recipes,
@@ -394,9 +397,17 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
 
   return (
     <View style={styles.screen}>
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>🍽️</Text>
+          </View>
+          <Text style={styles.largeTitleText}>Meals</Text>
+        </View>
+      ) : null}
       <View style={styles.plannerCard}>
         <View style={styles.header}>
-          {onBack ? (
+          {onBack && !pinnedHeader ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Back"
@@ -408,7 +419,7 @@ export function MealsScreen({ onBack }: { onBack?: () => void } = {}) {
             </Pressable>
           ) : null}
           <View style={styles.headerCopy}>
-            <Text style={styles.headerTitle}>Meals</Text>
+            {pinnedHeader ? null : <Text style={styles.headerTitle}>Meals</Text>}
             <Text style={styles.headerMeta} numberOfLines={1}>
               {weekMetaText}
             </Text>
@@ -1134,6 +1145,31 @@ const styles = StyleSheet.create({
   screen: {
     gap: 0,
     paddingBottom: 96
+  },
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
   },
   // Header card
   plannerCard: {

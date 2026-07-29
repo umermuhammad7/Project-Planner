@@ -89,6 +89,69 @@ export function MemberAvatar({ member, size = 38 }: { member: FamilyMember; size
   );
 }
 
+export type ModuleTileTone = "gold" | "mint" | "primary";
+
+const moduleTileToneStyles = StyleSheet.create({
+  gold: { backgroundColor: "rgba(214, 168, 74, 0.16)" },
+  mint: { backgroundColor: "rgba(95, 168, 136, 0.14)" },
+  primary: { backgroundColor: colors.primarySoft }
+});
+
+const moduleTileToneColors: Record<ModuleTileTone, string> = {
+  gold: "#996A00",
+  mint: colors.mint,
+  primary: colors.primary
+};
+
+// Tap-to-expand tile used to reveal/hide a card of content below it — same
+// interaction as Household's widget tiles, shared here since it's now used
+// identically across multiple screens (Kids Mode session, Child Device shell).
+export function ModuleTile({
+  emoji,
+  tone,
+  label,
+  meta,
+  active,
+  onPress
+}: {
+  emoji: string;
+  tone: ModuleTileTone;
+  label: string;
+  meta: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: active }}
+      accessibilityLabel={`${label}. ${meta}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.moduleTile,
+        moduleTileToneStyles[tone],
+        active && { borderColor: moduleTileToneColors[tone], borderWidth: 2 },
+        pressed && !active && styles.moduleTilePressed
+      ]}
+    >
+      <View
+        style={[
+          styles.moduleTileIconBadge,
+          active ? { backgroundColor: moduleTileToneColors[tone] } : styles.moduleTileIconBadgeIdle
+        ]}
+      >
+        <Text style={styles.moduleTileEmoji}>{emoji}</Text>
+      </View>
+      <Text style={[styles.moduleTileLabel, active && { color: moduleTileToneColors[tone] }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.moduleTileMeta} numberOfLines={1}>
+        {meta}
+      </Text>
+    </Pressable>
+  );
+}
+
 type IconButtonTone = "primary" | "mint" | "coral" | "gold" | "sky";
 
 const iconButtonToneColors: Record<IconButtonTone, string> = {
@@ -160,7 +223,7 @@ export function PrimaryButton({
   label: string;
   icon?: IconName;
   onPress: () => void;
-  tone?: "primary" | "dark" | "soft" | "ghost" | "mint";
+  tone?: "primary" | "dark" | "soft" | "ghost" | "mint" | "sky";
   loading?: boolean;
   disabled?: boolean;
 }) {
@@ -188,6 +251,7 @@ export function PrimaryButton({
           tone === "soft" && styles.softButton,
           tone === "ghost" && styles.ghostButton,
           tone === "mint" && styles.mintButton,
+          tone === "sky" && styles.skyButton,
           pressed && !isDisabled && styles[pressedToneStyleName(tone)]
         ]}
       >
@@ -210,18 +274,20 @@ function toneColor(tone: "neutral" | "primary" | "mint" | "coral" | "gold") {
   return colors.muted;
 }
 
-function buttonForeground(tone: "primary" | "dark" | "soft" | "ghost" | "mint") {
+function buttonForeground(tone: "primary" | "dark" | "soft" | "ghost" | "mint" | "sky") {
   if (tone === "soft") return colors.primary;
   if (tone === "ghost") return colors.ink;
   if (tone === "mint") return colors.mint;
+  if (tone === "sky") return colors.sky;
   return "#FFFFFF";
 }
 
-function pressedToneStyleName(tone: "primary" | "dark" | "soft" | "ghost" | "mint") {
+function pressedToneStyleName(tone: "primary" | "dark" | "soft" | "ghost" | "mint" | "sky") {
   if (tone === "dark") return "darkButtonPressed";
   if (tone === "soft") return "softButtonPressed";
   if (tone === "ghost") return "ghostButtonPressed";
   if (tone === "mint") return "mintButtonPressed";
+  if (tone === "sky") return "skyButtonPressed";
   return "primaryButtonPressed";
 }
 
@@ -351,6 +417,47 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900"
   },
+  moduleTile: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: radii.lg,
+    borderWidth: 2,
+    flex: 1,
+    gap: 3,
+    minHeight: 76,
+    justifyContent: "center",
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm
+  },
+  moduleTilePressed: {
+    opacity: 0.85
+  },
+  moduleTileIconBadge: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 32,
+    justifyContent: "center",
+    marginBottom: 2,
+    width: 32
+  },
+  moduleTileIconBadgeIdle: {
+    backgroundColor: colors.surface
+  },
+  moduleTileEmoji: {
+    fontSize: 16,
+    lineHeight: 19
+  },
+  moduleTileLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  moduleTileMeta: {
+    color: colors.tertiary,
+    fontSize: 11,
+    fontWeight: "600"
+  },
   iconButton: {
     alignItems: "center",
     borderRadius: radii.lg,
@@ -433,6 +540,15 @@ const styles = StyleSheet.create({
   },
   mintButtonPressed: {
     backgroundColor: "#D9E6D4",
+    opacity: 0.98
+  },
+  skyButton: {
+    backgroundColor: colors.skySoft,
+    borderColor: "rgba(107,127,173,0.24)",
+    shadowOpacity: 0.03
+  },
+  skyButtonPressed: {
+    backgroundColor: "#D7DEEC",
     opacity: 0.98
   },
   primaryButtonText: {

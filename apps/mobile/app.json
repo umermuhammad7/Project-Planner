@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.homethread.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -29,6 +30,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {

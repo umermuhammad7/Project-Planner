@@ -29,9 +29,8 @@ export type PlanEvent = {
 
 export type CalendarConnection = {
   id: string;
-  provider: "google" | "apple" | "outlook" | "ical";
+  provider: "google" | "apple" | "outlook";
   externalCalendarId: string | null;
-  icalUrl: string | null;
   isActive: boolean;
   lastSyncedAt: string | null;
 };
@@ -39,7 +38,6 @@ export type CalendarConnection = {
 export type CalendarSyncStatus = {
   googleOAuthConfigured: boolean;
   googleConnectImplemented: boolean;
-  icalImportImplemented: boolean;
   message: string;
 };
 
@@ -353,6 +351,8 @@ export type FamilySetupResponse = {
     role: string;
     userId: string | null;
   };
+  alreadyMember?: boolean;
+  hadExistingHousehold?: boolean;
 };
 
 export type MobileSubscriptionStatus = {

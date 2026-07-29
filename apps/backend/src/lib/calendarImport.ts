@@ -1,7 +1,4 @@
-import ICAL from "ical.js";
 import { and, eq } from "drizzle-orm";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 
 import { db } from "../db/client.js";
 import { calendarConnections, events } from "../db/schema.js";
@@ -29,82 +26,6 @@ type GoogleOAuthConfig = {
   clientId: string;
   clientSecret: string;
 };
-
-export function parseIcalFeed(icsText: string, now = new Date()): ImportedCalendarEvent[] {
-  const parsed = ICAL.parse(icsText);
-  const root = new ICAL.Component(parsed);
-  const imported: ImportedCalendarEvent[] = [];
-
-  for (const vevent of root.getAllSubcomponents("vevent")) {
-    try {
-      const event = new ICAL.Event(vevent);
-      const externalId = event.uid?.trim();
-      const title = event.summary?.trim();
-
-      if (!externalId || !title || !event.startDate) {
-        continue;
-      }
-
-      const startAt = event.startDate.toJSDate();
-      if (startAt.getTime() < now.getTime()) {
-        continue;
-      }
-
-      const endAt = event.endDate?.toJSDate() ?? new Date(startAt.getTime() + 60 * 60 * 1000);
-      const allDay = Boolean(event.startDate.isDate);
-
-      imported.push({
-        externalId,
-        title: title.slice(0, 160),
-        description: event.description?.trim()?.slice(0, 2000) ?? null,
-        location: event.location?.trim()?.slice(0, 240) ?? null,
-        startAt,
-        endAt: endAt.getTime() > startAt.getTime() ? endAt : new Date(startAt.getTime() + 60 * 60 * 1000),
-        allDay
-      });
-    } catch {
-      continue;
-    }
-  }
-
-  return imported;
-}
-
-export async function validateIcalUrlSafety(url: string) {
-  return assertSafeExternalIcalUrl(url);
-}
-
-export async function fetchIcalFeed(url: string) {
-  const parsedUrl = await validateIcalUrlSafety(url);
-
-  const response = await fetch(parsedUrl, {
-    headers: {
-      Accept: "text/calendar,text/plain,*/*"
-    },
-    redirect: "error",
-    signal: AbortSignal.timeout(10_000)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Could not fetch iCal feed (${response.status}).`);
-  }
-
-  const declaredLength = Number(response.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_ICAL_BYTES) {
-    throw new Error("iCal feed is too large to import safely.");
-  }
-
-  const text = await response.text();
-  if (!text.trim()) {
-    throw new Error("iCal feed returned an empty response.");
-  }
-
-  if (Buffer.byteLength(text, "utf8") > MAX_ICAL_BYTES) {
-    throw new Error("iCal feed is too large to import safely.");
-  }
-
-  return text;
-}
 
 export async function refreshGoogleAccessToken(input: {
   refreshToken: string;
@@ -249,7 +170,7 @@ export async function resolveGoogleAccessToken(
 export async function importCalendarEvents(input: {
   familyId: string;
   userId: string;
-  provider: "google" | "ical";
+  provider: "google";
   events: ImportedCalendarEvent[];
 }): Promise<CalendarSyncCounts> {
   let added = 0;
@@ -325,106 +246,3 @@ export async function syncGoogleConnection(input: {
   };
 }
 
-export async function syncIcalConnection(input: {
-  connection: CalendarConnectionRow;
-  userId: string;
-}) {
-  if (!input.connection.icalUrl) {
-    throw new Error("This iCal connection is missing a feed URL.");
-  }
-
-  const feedText = await fetchIcalFeed(input.connection.icalUrl);
-  const calendarEvents = parseIcalFeed(feedText);
-
-  const counts = await importCalendarEvents({
-    familyId: input.connection.familyId,
-    userId: input.userId,
-    provider: "ical",
-    events: calendarEvents
-  });
-
-  await db
-    .update(calendarConnections)
-    .set({ lastSyncedAt: new Date() })
-    .where(eq(calendarConnections.id, input.connection.id));
-
-  return {
-    ...counts,
-    message:
-      "Imported future iCal events. Duplicate UIDs were skipped; recurring series are not expanded and edits/deletions are not reconciled yet."
-  };
-}
-
-const MAX_ICAL_BYTES = 2 * 1024 * 1024;
-
-async function assertSafeExternalIcalUrl(url: string) {
-  const parsedUrl = new URL(url);
-  if (parsedUrl.protocol !== "https:") {
-    throw new Error("iCal feeds must use HTTPS.");
-  }
-
-  if (parsedUrl.username || parsedUrl.password) {
-    throw new Error("iCal feeds cannot include embedded credentials.");
-  }
-
-  if (isLocalHostname(parsedUrl.hostname)) {
-    throw new Error("iCal feeds must use a public hostname.");
-  }
-
-  const resolvedAddresses = await resolveHostAddresses(parsedUrl.hostname);
-  if (resolvedAddresses.some((address) => isPrivateOrLocalIp(address))) {
-    throw new Error("iCal feeds must resolve to a public internet address.");
-  }
-
-  return parsedUrl.toString();
-}
-
-async function resolveHostAddresses(hostname: string) {
-  if (isIP(hostname)) {
-    return [hostname];
-  }
-
-  try {
-    const resolved = await lookup(hostname, { all: true, verbatim: true });
-    return resolved.map((entry) => entry.address);
-  } catch {
-    throw new Error("HomeThread could not verify that iCal host.");
-  }
-}
-
-function isLocalHostname(hostname: string) {
-  const lower = hostname.toLowerCase();
-  return (
-    lower === "localhost" ||
-    lower.endsWith(".localhost") ||
-    lower.endsWith(".local") ||
-    lower.endsWith(".internal")
-  );
-}
-
-function isPrivateOrLocalIp(address: string) {
-  const version = isIP(address);
-  if (version === 4) {
-    const [a = 0, b = 0] = address.split(".").map((part) => Number(part));
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    );
-  }
-
-  if (version === 6) {
-    const normalized = address.toLowerCase();
-    return (
-      normalized === "::1" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("fe80:")
-    );
-  }
-
-  return true;
-}

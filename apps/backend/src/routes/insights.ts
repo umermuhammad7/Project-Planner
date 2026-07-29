@@ -4,7 +4,7 @@ import {
   insightsWeeklyResponseSchema,
   uuidSchema
 } from "@homethread/shared";
-import { and, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -46,7 +46,7 @@ export async function insightsRoutes(app: FastifyInstance) {
     const windowEnd = addDays(now, WEEKLY_WINDOW_DAYS);
     const weekStart = startOfWeek(now);
 
-    const [upcomingEventsRows, openChoresRows, unreadNotificationsRows, memberRows, currentWeekPlan, currentWeekItems] =
+    const [upcomingEventsRows, openChoresRows, unreadNotificationsRows, memberRows, currentWeekPlan] =
       await Promise.all([
         db.query.events.findMany({
           where: and(eq(events.familyId, familyId), gte(events.startAt, now), lte(events.startAt, windowEnd))
@@ -66,12 +66,15 @@ export async function insightsRoutes(app: FastifyInstance) {
         }),
         db.query.mealPlans.findFirst({
           where: and(eq(mealPlans.familyId, familyId), eq(mealPlans.weekStart, weekStart))
-        }),
-        db.query.mealPlanItems.findMany()
+        })
       ]);
 
     const plannedMeals = currentWeekPlan
-      ? currentWeekItems.filter((item) => item.planId === currentWeekPlan.id).length
+      ? (
+          await db.query.mealPlanItems.findMany({
+            where: eq(mealPlanItems.planId, currentWeekPlan.id)
+          })
+        ).length
       : 0;
 
     return insightsWeeklyResponseSchema.parse({
@@ -147,17 +150,22 @@ export async function insightsRoutes(app: FastifyInstance) {
 
     const now = new Date();
     const windowEnd = addDays(now, BUSYNESS_WINDOW_DAYS);
-    const [futureEvents, futureEventMembers, memberRows] = await Promise.all([
+    const [futureEvents, memberRows] = await Promise.all([
       db.query.events.findMany({
         where: and(eq(events.familyId, familyId), gte(events.startAt, now), lte(events.startAt, windowEnd))
       }),
-      db.query.eventMembers.findMany(),
       db.query.familyMembers.findMany({
         where: eq(familyMembers.familyId, familyId)
       })
     ]);
 
     const relevantEventIds = new Set(futureEvents.map((event) => event.id));
+    const futureEventMembers =
+      relevantEventIds.size > 0
+        ? await db.query.eventMembers.findMany({
+            where: inArray(eventMembers.eventId, Array.from(relevantEventIds))
+          })
+        : [];
     const dayCounts = new Map<string, number>();
     for (const event of futureEvents) {
       const dayLabel = event.startAt.toLocaleDateString("en-US", { weekday: "short" });

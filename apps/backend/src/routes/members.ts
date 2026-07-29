@@ -12,7 +12,7 @@ import { familyMembers } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
 import { countFamilyAdmins } from "../lib/householdAdmins.js";
 import { requireAuth } from "../plugins/auth.js";
-import { requireFamilyAdmin, requireFamilyMember } from "../plugins/familyAccess.js";
+import { requireFamilyMember } from "../plugins/familyAccess.js";
 
 const familyParamsSchema = z.object({
   familyId: uuidSchema
@@ -39,10 +39,20 @@ export async function membersRoutes(app: FastifyInstance) {
 
   app.post("/", async (request, reply) => {
     const { familyId } = familyParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const body = createMemberSchema.parse(request.body);
+
+    if (body.role === "admin" && membership.role !== "admin") {
+      return sendError(
+        reply,
+        403,
+        "Admin access is required to create an admin member.",
+        "ADMIN_REQUIRED"
+      );
+    }
+
     const [member] = await db
       .insert(familyMembers)
       .values({
@@ -61,7 +71,7 @@ export async function membersRoutes(app: FastifyInstance) {
 
   app.patch("/:memberId", async (request, reply) => {
     const { familyId, memberId } = memberParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const body = updateMemberSchema.parse(request.body);
@@ -73,7 +83,18 @@ export async function membersRoutes(app: FastifyInstance) {
       return sendError(reply, 404, "Member not found", "MEMBER_NOT_FOUND");
     }
 
-    if (body.role !== undefined) {
+    const isRoleChangeRequested = body.role !== undefined && body.role !== existing.role;
+
+    if (isRoleChangeRequested) {
+      if (membership.role !== "admin") {
+        return sendError(
+          reply,
+          403,
+          "Admin access is required to change a member's role.",
+          "ADMIN_REQUIRED"
+        );
+      }
+
       if (body.role === "admin") {
         if (existing.role !== "member" || existing.isVirtual || !existing.userId) {
           return sendError(
@@ -116,7 +137,7 @@ export async function membersRoutes(app: FastifyInstance) {
 
   app.delete("/:memberId", async (request, reply) => {
     const { familyId, memberId } = memberParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const existing = await db.query.familyMembers.findFirst({
@@ -128,6 +149,15 @@ export async function membersRoutes(app: FastifyInstance) {
     }
 
     if (existing.role === "admin") {
+      if (membership.role !== "admin") {
+        return sendError(
+          reply,
+          403,
+          "Admin access is required to remove an admin.",
+          "ADMIN_REQUIRED"
+        );
+      }
+
       const adminCount = await countFamilyAdmins(familyId);
       if (adminCount <= 1) {
         return sendError(

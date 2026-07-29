@@ -203,65 +203,6 @@ describe("security hardening", () => {
     await app.close();
   });
 
-  it("masks saved iCal feed urls and rejects unsafe local feeds", async () => {
-    const app = buildApp();
-
-    const familyResponse = await app.inject({
-      method: "POST",
-      url: "/api/v1/families",
-      headers: authHeaders,
-      payload: { name: "Calendar Security Family" }
-    });
-    expect(familyResponse.statusCode).toBe(201);
-    const familyId = familyResponse.json().family.id as string;
-
-    const saveResponse = await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/ical",
-      headers: authHeaders,
-      payload: {
-        familyId,
-        icalUrl: "https://1.1.1.1/private-feed.ics?token=secret-value"
-      }
-    });
-
-    expect(saveResponse.statusCode).toBe(201);
-
-    const listResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/calendar-sync/connections?familyId=${familyId}`,
-      headers: authHeaders
-    });
-
-    expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json().connections).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          provider: "ical",
-          icalUrl: "https://1.1.1.1/..."
-        })
-      ])
-    );
-
-    const unsafeResponse = await app.inject({
-      method: "POST",
-      url: "/api/v1/calendar-sync/ical",
-      headers: authHeaders,
-      payload: {
-        familyId,
-        icalUrl: "https://localhost/private.ics"
-      }
-    });
-
-    expect(unsafeResponse.statusCode).toBe(400);
-    expect(unsafeResponse.json()).toEqual({
-      error: "This iCal feed is not allowed.",
-      code: "ICAL_URL_NOT_ALLOWED"
-    });
-
-    await app.close();
-  });
-
   it("blocks cross-family event reads for non-members", async () => {
     const app = buildApp();
 

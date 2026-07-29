@@ -16,6 +16,7 @@ import {
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { FieldError, Pill, PrimaryButton } from "../components/Primitives";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SyncStatusRow } from "../components/SyncStatusRow";
 import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { apiRequest } from "../services/api";
@@ -33,7 +34,10 @@ function formatDraftKind(kind: AssistantDraft["kind"]) {
   return kind;
 }
 
-export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
+export function ThreadScreen({
+  onBack,
+  pinnedHeader = false
+}: { onBack?: () => void; pinnedHeader?: boolean } = {}) {
   const {
     textUpdates,
     commitDraft,
@@ -212,27 +216,27 @@ export function ThreadScreen({ onBack }: { onBack?: () => void } = {}) {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.plannerCard}>
-        <View style={styles.header}>
-          {onBack ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-              onPress={onBack}
-              hitSlop={8}
-              style={({ pressed }) => [styles.backHit, pressed && styles.backHitPressed]}
-            >
-              <Ionicons name="chevron-back" size={20} color={colors.ink} />
-            </Pressable>
-          ) : null}
-          <View style={styles.headerCopy}>
-            <Text style={styles.headerTitle}>Family board</Text>
-            <Text style={styles.headerMeta}>
-              Not a chat — turn a pasted text into a plan, or post a summary. Saved on this device only.
-            </Text>
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>📋</Text>
           </View>
+          <Text style={styles.largeTitleText}>Family board</Text>
         </View>
+      ) : (
+        <ScreenHeader
+          title="Family board"
+          actionLabel="Back"
+          actionIcon="chevron-back"
+          onActionPress={onBack}
+          density="compact"
+        />
+      )}
 
+      <View style={styles.plannerCard}>
+        <Text style={styles.cardCaption}>
+          Not a chat — turn a pasted text into a plan, or post a summary. Saved on this device only.
+        </Text>
         <View style={styles.tileRow}>
           <Pressable
             accessibilityRole="button"
@@ -471,7 +475,33 @@ const styles = StyleSheet.create({
     gap: 0,
     paddingBottom: 96
   },
-  // Header card
+  // Large title (collapses into the pinned bar on scroll)
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
+  },
+  // Action tiles card
   plannerCard: {
     backgroundColor: colors.surface,
     borderColor: colors.lineStrong,
@@ -481,42 +511,12 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     ...shadow.card
   },
-  header: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.sm
-  },
-  backHit: {
-    alignItems: "center",
-    height: 32,
-    justifyContent: "center",
-    marginLeft: -6,
-    marginTop: 1,
-    width: 32
-  },
-  backHitPressed: {
-    opacity: 0.6
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  headerTitle: {
-    color: colors.ink,
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-    lineHeight: 26
-  },
-  headerMeta: {
+  cardCaption: {
     color: colors.muted,
     fontSize: 13,
     fontWeight: "500",
-    lineHeight: 18,
-    marginTop: 3
+    lineHeight: 18
   },
-  // Action tiles
   tileRow: {
     flexDirection: "row",
     gap: spacing.sm,

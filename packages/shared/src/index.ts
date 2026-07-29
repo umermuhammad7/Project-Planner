@@ -316,10 +316,17 @@ export const createMemberSchema = z.object({
   dateOfBirth: z.iso.date().optional().nullable()
 });
 
-export const updateMemberSchema = createMemberSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  "At least one member field is required"
-);
+export const updateMemberSchema = createMemberSchema
+  .omit({ role: true, isVirtual: true })
+  .partial()
+  .extend({
+    role: memberRoleSchema.optional(),
+    isVirtual: z.boolean().optional()
+  })
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "At least one member field is required"
+  );
 
 export const createEventSchema = z.object({
   title: z.string().min(1).max(160),
@@ -336,9 +343,14 @@ export const createEventSchema = z.object({
   memberIds: z.array(uuidSchema).default([])
 });
 
-export const updateEventSchema = createEventSchema.partial().extend({
-  memberIds: z.array(uuidSchema).optional()
-}).refine((value) => Object.keys(value).length > 0, "At least one event field is required");
+export const updateEventSchema = createEventSchema
+  .omit({ allDay: true, memberIds: true })
+  .partial()
+  .extend({
+    allDay: z.boolean().optional(),
+    memberIds: z.array(uuidSchema).optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one event field is required");
 
 export const listEventsQuerySchema = z.object({
   from: z.iso.datetime().optional(),
@@ -357,10 +369,17 @@ export const createChoreSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
-export const updateChoreSchema = createChoreSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  "At least one chore field is required"
-);
+export const updateChoreSchema = createChoreSchema
+  .omit({ starsValue: true, isActive: true })
+  .partial()
+  .extend({
+    starsValue: z.int().min(0).max(100).optional(),
+    isActive: z.boolean().optional()
+  })
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "At least one chore field is required"
+  );
 
 export const completeChoreSchema = z.object({
   memberId: uuidSchema,
@@ -377,10 +396,17 @@ export const createListSchema = z.object({
   isShared: z.boolean().default(true)
 });
 
-export const updateListSchema = createListSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  "At least one list field is required"
-);
+export const updateListSchema = createListSchema
+  .omit({ type: true, isShared: true })
+  .partial()
+  .extend({
+    type: listTypeSchema.optional(),
+    isShared: z.boolean().optional()
+  })
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "At least one list field is required"
+  );
 
 export const createListItemSchema = z.object({
   content: z.string().min(1).max(160),

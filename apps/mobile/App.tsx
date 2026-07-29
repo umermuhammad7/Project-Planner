@@ -18,12 +18,13 @@ import {
   View
 } from "react-native";
 
-import { IconButton, Pill } from "./src/components/Primitives";
+import { IconButton, Pill, PrimaryButton } from "./src/components/Primitives";
 import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
 import { colors, fonts, radii, spacing } from "./src/constants/theme";
 import { ScrollAssistContext } from "./src/context/ScrollAssistContext";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { AssistantScreen } from "./src/screens/AssistantScreen";
+import { CalendarSyncScreen } from "./src/screens/CalendarSyncScreen";
 import { ChildDeviceSetupScreen } from "./src/screens/ChildDeviceSetupScreen";
 import { ChildDeviceShellScreen } from "./src/screens/ChildDeviceShellScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
@@ -48,7 +49,7 @@ import { useHomeThreadStore, resetHomeThreadStoreForSignedOut } from "./src/stor
 import { startFamilyRealtimeSync, stopFamilyRealtimeSync } from "./src/services/familyRealtimeSync";
 import { isSupabaseConfigured, supabaseClient } from "./src/services/supabase";
 import { TabKey, MoreDestination, ScreenDestination } from "./src/types";
-import { safeText } from "./src/utils/safeRender";
+import { safeMemberInitials, safeText } from "./src/utils/safeRender";
 
 const tabs: {
   key: TabKey;
@@ -58,7 +59,7 @@ const tabs: {
 }[] = [
   { key: "home", label: "Home", icon: "🏠", tone: "mint" },
   { key: "plan", label: "Plan", icon: "🗓️", tone: "coral" },
-  { key: "chores", label: "Chores", icon: "⭐", tone: "gold" },
+  { key: "chores", label: "Chores", icon: "🧹", tone: "gold" },
   { key: "lists", label: "Lists", icon: "🛍️", tone: "sky" },
   { key: "more", label: "More", icon: "🧭", tone: "primary" }
 ];
@@ -79,12 +80,63 @@ function resolveNavigation(destination: ScreenDestination): { tab: TabKey; more:
   return { tab: destination, more: "hub" };
 }
 
+function getWebPreviewMode() {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return null;
+  }
+
+  return new URLSearchParams(window.location.search).get("preview");
+}
+
+function isChildDevicePreviewHost() {
+  return Platform.OS === "web" && typeof window !== "undefined" && window.location?.port === "8082" && getWebPreviewMode() !== "calendar";
+}
+
+function isCalendarPreviewHost() {
+  return Platform.OS === "web" && typeof window !== "undefined" && window.location?.port === "8082" && getWebPreviewMode() === "calendar";
+}
+
+const childDevicePreviewSession = {
+  familyName: "The Parker Home",
+  memberId: "child-preview-member",
+  memberName: "Jules",
+  avatarUrl: null,
+  starBalance: 18
+};
+
+const childDevicePreviewChores = [
+  {
+    id: "preview-chore-1",
+    title: "Put backpack by the door",
+    dueTime: "7:30 AM",
+    stars: 2,
+    completed: false
+  },
+  {
+    id: "preview-chore-2",
+    title: "Feed Luna",
+    dueTime: "5:00 PM",
+    stars: 3,
+    completed: false
+  },
+  {
+    id: "preview-chore-3",
+    title: "Clear dinner plate",
+    dueTime: null,
+    stars: 1,
+    completed: true
+  }
+];
+
 function AppShell() {
   const [enteredApp, setEnteredApp] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [moreDestination, setMoreDestination] = useState<MoreDestination>("hub");
+  const [planShowCalendarSync, setPlanShowCalendarSync] = useState(false);
+  const [planFormOpen, setPlanFormOpen] = useState(false);
   const [kidsMode, setKidsMode] = useState(false);
   const [kidsModeMemberId, setKidsModeMemberId] = useState<string | null>(null);
+  const [kidsSessionExitHintVisible, setKidsSessionExitHintVisible] = useState(false);
   const [showKidsModePicker, setShowKidsModePicker] = useState(false);
   const [familySettingsOpen, setFamilySettingsOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -108,12 +160,33 @@ function AppShell() {
     outputRange: [0, 1],
     extrapolate: "clamp"
   });
+  const titleOpacity = scrollY.interpolate({
+    inputRange: [0, 40],
+    outputRange: [0, 1],
+    extrapolate: "clamp"
+  });
+  const titleScale = scrollY.interpolate({
+    inputRange: [0, 24, 40],
+    outputRange: [0.8, 1.05, 1],
+    extrapolate: "clamp"
+  });
+  const titleTranslateY = scrollY.interpolate({
+    inputRange: [0, 24, 40],
+    outputRange: [8, -1, 0],
+    extrapolate: "clamp"
+  });
   const chores = useHomeThreadStore((state) => state.chores);
   const completedChoreCount = useMemo(() => chores.filter((chore) => chore.completed).length, [chores]);
+  const meals = useHomeThreadStore((state) => state.meals);
+  const mealsCoveredDays = useMemo(() => new Set(meals.map((meal) => meal.dayOfWeek)).size, [meals]);
   const homeNotifications = useHomeThreadStore((state) => state.notifications);
   const homeUnreadCount = useMemo(
     () => homeNotifications.filter((item) => !item.readAt).length,
     [homeNotifications]
+  );
+  const homeTodayLabel = useMemo(
+    () => new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+    []
   );
   const homeDisplayName = useAuthStore((state) => state.displayName);
   const homeEmail = useAuthStore((state) => state.email);
@@ -172,7 +245,16 @@ function AppShell() {
   const childDeviceMode = useChildDeviceStore((state) => state.mode);
   const childDeviceBootstrapComplete = useChildDeviceStore((state) => state.bootstrapComplete);
   const isChildDeviceLoading = useChildDeviceStore((state) => state.isLoading);
+  const childDeviceStatusMessage = useChildDeviceStore((state) => state.statusMessage);
+  const clearChildDeviceStatusMessage = useChildDeviceStore((state) => state.clearStatusMessage);
   const bootstrapChildDevice = useChildDeviceStore((state) => state.bootstrap);
+  const childDeviceSession = useChildDeviceStore((state) => state.session);
+  const childDeviceUnpair = useChildDeviceStore((state) => state.unpair);
+  const [childDeviceAvatarImageFailed, setChildDeviceAvatarImageFailed] = useState(false);
+  const [childDeviceExitHintVisible, setChildDeviceExitHintVisible] = useState(false);
+  useEffect(() => {
+    setChildDeviceAvatarImageFailed(false);
+  }, [childDeviceSession?.avatarUrl]);
   const hydrateFromBackend = useHomeThreadStore((state) => state.hydrateFromBackend);
   const isHydrating = useHomeThreadStore((state) => state.isHydrating);
   const syncMessage = useHomeThreadStore((state) => state.syncMessage);
@@ -435,16 +517,26 @@ function AppShell() {
   );
 
   const content = useMemo(() => {
-    if (activeTab === "plan") return <PlanScreen />;
+    if (activeTab === "plan") {
+      return (
+        <PlanScreen
+          pinnedHeader
+          showCalendarSync={planShowCalendarSync}
+          onOpenCalendarSync={() => setPlanShowCalendarSync(true)}
+          onCloseCalendarSync={() => setPlanShowCalendarSync(false)}
+          onFormVisibleChange={setPlanFormOpen}
+        />
+      );
+    }
     if (activeTab === "chores") return <ChoresScreen pinnedHeader />;
-    if (activeTab === "lists") return <ListsScreen />;
+    if (activeTab === "lists") return <ListsScreen pinnedHeader />;
     if (activeTab === "more") {
       if (moreDestination === "meals") {
-        return <MealsScreen onBack={() => setMoreDestination("hub")} />;
+        return <MealsScreen onBack={() => setMoreDestination("hub")} pinnedHeader />;
       }
 
       if (moreDestination === "board") {
-        return <ThreadScreen onBack={() => setMoreDestination("hub")} />;
+        return <ThreadScreen onBack={() => setMoreDestination("hub")} pinnedHeader />;
       }
 
       if (moreDestination === "assistant") {
@@ -457,6 +549,7 @@ function AppShell() {
           onOpenFamilySettings={() => setFamilySettingsOpen(true)}
           onOpenInsights={() => setInsightsOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          pinnedHeader
         />
       );
     }
@@ -469,9 +562,10 @@ function AppShell() {
         onOpenInsights={() => setInsightsOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         pinnedHeader
+        scrollY={scrollY}
       />
     );
-  }, [activeTab, handleEnterKidsMode, moreDestination, navigateTo]);
+  }, [activeTab, handleEnterKidsMode, moreDestination, navigateTo, planShowCalendarSync]);
 
   const showConnecting =
     enteredApp &&
@@ -516,6 +610,98 @@ function AppShell() {
       })
     ]).start();
   }, [screenKey, screenOpacity, screenTranslateY]);
+
+  function renderChildDevicePinnedBar(name: string, avatarUrl: string | null, onLongPressUnpair: () => void) {
+    const avatarSource = avatarUrl ? { uri: avatarUrl, cache: "reload" as const } : null;
+    return (
+      <View style={styles.pinnedHeaderBar}>
+        <View style={styles.pinnedHeaderRow}>
+          <Animated.View
+            style={{
+              opacity: titleOpacity,
+              transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+            }}
+          >
+            <View style={styles.pinnedHeaderChildRow}>
+              <View style={styles.pinnedHeaderAvatarSmall}>
+                {avatarSource && !childDeviceAvatarImageFailed ? (
+                  <Image
+                    accessibilityLabel={`${name} profile photo`}
+                    onError={() => setChildDeviceAvatarImageFailed(true)}
+                    source={avatarSource}
+                    style={styles.pinnedHeaderAvatarSmallImage}
+                  />
+                ) : (
+                  <Text style={styles.pinnedHeaderAvatarSmallText}>{safeMemberInitials(name)}</Text>
+                )}
+              </View>
+              <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                {name}
+              </Text>
+            </View>
+          </Animated.View>
+          <View style={styles.pinnedHeaderSpacer} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Hold to unpair this device"
+            delayLongPress={900}
+            onLongPress={onLongPressUnpair}
+            onPress={() => setChildDeviceExitHintVisible(true)}
+            style={({ pressed }) => [styles.kidsSessionExitChip, pressed && styles.kidsSessionExitChipPressed]}
+          >
+            <Ionicons name="lock-closed" size={14} color={colors.ink} />
+            <Text style={styles.kidsSessionExitChipText}>Hold to unpair</Text>
+          </Pressable>
+        </View>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+        />
+      </View>
+    );
+  }
+
+  if (isChildDevicePreviewHost()) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        {renderChildDevicePinnedBar(childDevicePreviewSession.memberName, childDevicePreviewSession.avatarUrl, () => {})}
+        <ScrollView
+          contentContainerStyle={styles.content}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.screenContainer, { width: screenWidth, alignSelf: "center" }]}>
+            <ChildDeviceShellScreen
+              previewMode
+              previewSession={childDevicePreviewSession}
+              previewChores={childDevicePreviewChores}
+              exitHintVisible={childDeviceExitHintVisible}
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (isCalendarPreviewHost()) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <ScrollView
+          contentContainerStyle={styles.content}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.screenContainer, { width: screenWidth, alignSelf: "center" }]}>
+            <CalendarSyncScreen pinnedHeader onBack={() => {}} />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   if (isProductionApiMisconfigured()) {
     return (
@@ -563,11 +749,59 @@ function AppShell() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {childDeviceSession
+          ? renderChildDevicePinnedBar(childDeviceSession.memberName, childDeviceSession.avatarUrl, () => {
+              void childDeviceUnpair();
+            })
+          : null}
+        <ScrollView
+          contentContainerStyle={styles.content}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={[styles.screenContainer, { width: screenWidth, alignSelf: "center" }]}>
-            <ChildDeviceShellScreen />
+            <ChildDeviceShellScreen exitHintVisible={childDeviceExitHintVisible} />
           </View>
         </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (childDeviceMode === "unpaired" && childDeviceStatusMessage) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.configBlockWrap}>
+          <View style={styles.connectingWrap}>
+            <View style={styles.connectingMarkWrap}>
+              <Image source={require("./assets/icon.png")} style={styles.connectingMark} />
+            </View>
+            <View style={styles.connecting}>
+              <Text style={styles.connectingEyebrow}>Child device</Text>
+              <Text style={styles.connectingTitle}>This device was disconnected</Text>
+              <Text style={styles.connectingSubtitle}>{childDeviceStatusMessage}</Text>
+            </View>
+            <View style={styles.childDeviceActionWrap}>
+              <PrimaryButton
+                label="Pair this device again"
+                icon="link"
+                onPress={() => {
+                  clearChildDeviceStatusMessage();
+                  setShowChildDeviceSetup(true);
+                }}
+              />
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continue without pairing"
+              onPress={clearChildDeviceStatusMessage}
+              style={styles.childDeviceDismiss}
+            >
+              <Text style={styles.childDeviceDismissLabel}>Not now</Text>
+            </Pressable>
+          </View>
+        </View>
       </SafeAreaView>
     );
   }
@@ -596,9 +830,27 @@ function AppShell() {
     !familySettingsOpen &&
     !insightsOpen &&
     !settingsOpen;
+  const showPlanPinnedBar = canShowPinnedBar && activeTab === "plan" && !planShowCalendarSync;
+  const showCalendarSyncPinnedBar =
+    enteredApp && authMode !== "signed_out" && activeTab === "plan" && planShowCalendarSync;
   const showChoresPinnedBar = canShowPinnedBar && activeTab === "chores";
+  const showListsPinnedBar = canShowPinnedBar && activeTab === "lists";
   const showHomePinnedBar = canShowPinnedBar && activeTab === "home";
+  const showMealsPinnedBar = canShowPinnedBar && activeTab === "more" && moreDestination === "meals";
+  const showBoardPinnedBar = canShowPinnedBar && activeTab === "more" && moreDestination === "board";
+  const showMoreHubPinnedBar = canShowPinnedBar && activeTab === "more" && moreDestination === "hub";
   const showFamilyPinnedBar = enteredApp && authMode !== "signed_out" && familySettingsOpen;
+  const showInsightsPinnedBar = enteredApp && authMode !== "signed_out" && insightsOpen;
+  const showSettingsPinnedBar = enteredApp && authMode !== "signed_out" && settingsOpen;
+  const showKidsPickerPinnedBar = enteredApp && authMode !== "signed_out" && showKidsModePicker;
+  const showKidsSessionPinnedBar =
+    enteredApp && authMode !== "signed_out" && kidsMode && Boolean(kidsModeMemberId);
+  // Meals/Board/Assistant are nested "more" destinations, not primary browsing screens —
+  // the bottom bar should hide there the same way it already hides for Settings/Insights/Household.
+  const showTabBar =
+    canShowPinnedBar &&
+    !(activeTab === "more" && moreDestination !== "hub") &&
+    !(activeTab === "plan" && (planShowCalendarSync || planFormOpen));
 
   return (
     <SafeAreaView style={styles.safeArea} {...edgeSwipeBackResponder.panHandlers}>
@@ -607,15 +859,118 @@ function AppShell() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboardView}
       >
+        {showPlanPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>🗓️</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  This week
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showCalendarSyncPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>📅</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Google Calendar
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                hitSlop={8}
+                onPress={() => setPlanShowCalendarSync(false)}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="chevron-back" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Back</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
         {showChoresPinnedBar ? (
           <View style={styles.pinnedHeaderBar}>
             <View style={styles.pinnedHeaderRow}>
-              <View style={styles.pinnedHeaderIcon}>
-                <Text style={styles.pinnedHeaderGlyph}>🧺</Text>
-              </View>
-              <Text style={styles.pinnedHeaderTitle}>Chores</Text>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>🧹</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Chores
+                </Text>
+              </Animated.View>
               <View style={styles.pinnedHeaderSpacer} />
               <Pill label={`${completedChoreCount}/${chores.length}`} tone="primary" />
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showListsPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>🛍️</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Lists
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
             </View>
             <Animated.View
               pointerEvents="none"
@@ -626,28 +981,42 @@ function AppShell() {
         {showHomePinnedBar ? (
           <View style={styles.pinnedHeaderBar}>
             <View style={styles.pinnedHeaderRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open settings for ${homeProfileLabel}`}
-                hitSlop={6}
-                onPress={() => setSettingsOpen(true)}
-                style={styles.pinnedHeaderAvatar}
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
               >
-                {homeAvatarSource && !homeAvatarImageFailed ? (
-                  <Image
-                    accessibilityLabel={`${homeProfileLabel} profile photo`}
-                    onError={() => setHomeAvatarImageFailed(true)}
-                    source={homeAvatarSource}
-                    style={styles.pinnedHeaderAvatarImage}
-                  />
-                ) : (
-                  <Text style={styles.pinnedHeaderAvatarText}>{homeProfileInitials}</Text>
-                )}
-              </Pressable>
-              <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
-                Hi, {homeProfileLabel}
-              </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open settings for ${homeProfileLabel}`}
+                  hitSlop={6}
+                  onPress={() => setSettingsOpen(true)}
+                  style={styles.pinnedHeaderAvatar}
+                >
+                  {homeAvatarSource && !homeAvatarImageFailed ? (
+                    <Image
+                      accessibilityLabel={`${homeProfileLabel} profile photo`}
+                      onError={() => setHomeAvatarImageFailed(true)}
+                      source={homeAvatarSource}
+                      style={styles.pinnedHeaderAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.pinnedHeaderAvatarText}>{homeProfileInitials}</Text>
+                  )}
+                </Pressable>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Hi, {homeProfileLabel}
+                </Text>
+              </Animated.View>
               <View style={styles.pinnedHeaderSpacer} />
+              <View style={styles.pinnedHeaderDateChip}>
+                <Ionicons name="calendar-outline" size={12} color={colors.gold} />
+                <Text style={styles.pinnedHeaderDateChipText}>{homeTodayLabel}</Text>
+              </View>
               {homeUnreadCount > 0 ? (
                 <Pill label={`${homeUnreadCount} new`} tone="coral" icon="notifications" />
               ) : null}
@@ -685,9 +1054,252 @@ function AppShell() {
             />
           </View>
         ) : null}
+        {showInsightsPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>📊</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Insights
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                hitSlop={8}
+                onPress={() => setInsightsOpen(false)}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="chevron-back" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Back</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showSettingsPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>⚙️</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Settings
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                hitSlop={8}
+                onPress={() => setSettingsOpen(false)}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="chevron-back" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Back</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showKidsPickerPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>🧒</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Kids mode
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancel kids mode setup"
+                hitSlop={8}
+                onPress={handleExitKidsMode}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="close" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Cancel</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showMealsPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>🍽️</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Meals
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pill label={`${mealsCoveredDays}/7`} tone="primary" />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                hitSlop={8}
+                onPress={() => setMoreDestination("hub")}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="chevron-back" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Back</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showBoardPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>📋</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  Family board
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+                hitSlop={8}
+                onPress={() => setMoreDestination("hub")}
+                style={styles.pinnedHeaderClose}
+              >
+                <Ionicons color={colors.primary} name="chevron-back" size={18} />
+                <Text style={styles.pinnedHeaderCloseLabel}>Back</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showMoreHubPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={[
+                  styles.pinnedHeaderRow,
+                  {
+                    opacity: titleOpacity,
+                    transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                  }
+                ]}
+              >
+                <View style={styles.pinnedHeaderIcon}>
+                  <Text style={styles.pinnedHeaderGlyph}>🧭</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.pinnedHeaderTitle}>
+                  More hub
+                </Text>
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
+        {showKidsSessionPinnedBar ? (
+          <View style={styles.pinnedHeaderBar}>
+            <View style={styles.pinnedHeaderRow}>
+              <Animated.View
+                style={{
+                  opacity: titleOpacity,
+                  transform: [{ scale: titleScale }, { translateY: titleTranslateY }]
+                }}
+              >
+                <Pill label="Kids mode" tone="mint" icon="happy" />
+              </Animated.View>
+              <View style={styles.pinnedHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Hold to exit kids mode"
+                delayLongPress={900}
+                onLongPress={handleExitKidsMode}
+                onPress={() => setKidsSessionExitHintVisible(true)}
+                style={({ pressed }) => [styles.kidsSessionExitChip, pressed && styles.kidsSessionExitChipPressed]}
+              >
+                <Ionicons name="lock-closed" size={14} color={colors.ink} />
+                <Text style={styles.kidsSessionExitChipText}>Hold to exit</Text>
+              </Pressable>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pinnedHeaderElevation, { opacity: pinnedHeaderElevation }]}
+            />
+          </View>
+        ) : null}
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, showTabBar && styles.contentWithTabBar]}
           keyboardShouldPersistTaps="handled"
           onScroll={handleScroll}
           scrollEventThrottle={16}
@@ -750,6 +1362,7 @@ function AppShell() {
               </View>
             ) : showKidsModePicker ? (
               <KidsModePickerScreen
+                pinnedHeader
                 kidMembers={kidMembers}
                 onSelect={(memberId) => {
                   setKidsModeMemberId(memberId);
@@ -759,11 +1372,17 @@ function AppShell() {
                 onCancel={handleExitKidsMode}
               />
             ) : kidsMode && kidsModeMemberId ? (
-              <KidsModeScreen activeKidMemberId={kidsModeMemberId} onExit={handleExitKidsMode} />
+              <KidsModeScreen
+                activeKidMemberId={kidsModeMemberId}
+                onExit={handleExitKidsMode}
+                pinnedHeader
+                exitHintVisible={kidsSessionExitHintVisible}
+              />
             ) : insightsOpen ? (
-              <InsightsScreen onClose={() => setInsightsOpen(false)} />
+              <InsightsScreen onClose={() => setInsightsOpen(false)} pinnedHeader />
             ) : settingsOpen ? (
               <SettingsScreen
+                pinnedHeader
                 onClose={() => setSettingsOpen(false)}
                 onOpenFamilySettings={() => {
                   setSettingsOpen(false);
@@ -797,7 +1416,7 @@ function AppShell() {
           </Animated.View>
           </ScrollAssistContext.Provider>
         </ScrollView>
-        {enteredApp && authMode !== "signed_out" && !kidsMode && !showKidsModePicker && !familySettingsOpen && !insightsOpen && !settingsOpen ? (
+        {showTabBar ? (
           <View style={styles.tabBar}>
             {activeTab === "home" ? (
               <Pressable
@@ -855,8 +1474,10 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: "stretch",
+    paddingVertical: spacing.lg
+  },
+  contentWithTabBar: {
     flexGrow: 1,
-    paddingVertical: spacing.lg,
     paddingBottom: 168
   },
   pinnedHeaderBar: {
@@ -881,6 +1502,23 @@ const styles = StyleSheet.create({
   pinnedHeaderGlyph: {
     fontSize: 15
   },
+  pinnedHeaderDateChip: {
+    alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderColor: "rgba(193,125,60,0.24)",
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3
+  },
+  pinnedHeaderDateChipText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.2
+  },
   pinnedHeaderTitle: {
     color: colors.ink,
     fontFamily: fonts.display,
@@ -902,6 +1540,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700"
   },
+  kidsSessionExitChip: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  kidsSessionExitChipPressed: {
+    opacity: 0.84
+  },
+  kidsSessionExitChipText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "800"
+  },
   pinnedHeaderAvatar: {
     alignItems: "center",
     backgroundColor: colors.primarySoft,
@@ -918,6 +1575,29 @@ const styles = StyleSheet.create({
   pinnedHeaderAvatarText: {
     color: colors.primary,
     fontSize: 12,
+    fontWeight: "800"
+  },
+  pinnedHeaderChildRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  pinnedHeaderAvatarSmall: {
+    alignItems: "center",
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.pill,
+    height: 28,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 28
+  },
+  pinnedHeaderAvatarSmallImage: {
+    height: "100%",
+    width: "100%"
+  },
+  pinnedHeaderAvatarSmallText: {
+    color: colors.gold,
+    fontSize: 11,
     fontWeight: "800"
   },
   pinnedHeaderElevation: {
@@ -991,6 +1671,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: spacing.sm
+  },
+  childDeviceActionWrap: {
+    marginTop: spacing.lg,
+    maxWidth: 420,
+    width: "100%"
+  },
+  childDeviceDismiss: {
+    alignItems: "center",
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm
+  },
+  childDeviceDismissLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
   },
   assistantShortcut: {
     alignItems: "center",

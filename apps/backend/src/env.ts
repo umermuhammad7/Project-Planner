@@ -116,13 +116,22 @@ export function getCalendarSyncStatus() {
   return {
     googleOAuthConfigured,
     googleConnectImplemented: googleOAuthConfigured && tokenEncryptionConfigured,
-    icalImportImplemented: true,
     message: googleOAuthConfigured
       ? tokenEncryptionConfigured
-        ? "Google OAuth credentials are present. Connect Google Calendar or save an iCal feed, then use Sync now to import future events manually."
+        ? "Google OAuth credentials are present. Connect Google Calendar, then use Sync now to import future events manually."
         : "Google OAuth credentials are present, but CALENDAR_TOKEN_ENCRYPTION_KEY is still missing. Google Calendar connect stays off until tokens can be stored safely."
-      : "External calendar sync can import iCal feeds manually. Google OAuth is not configured on this server yet."
+      : "Google Calendar is not configured on this server yet."
   };
+}
+
+function normalizeRedirectUri(value: string): string {
+  try {
+    const url = new URL(value);
+    url.pathname = url.pathname.replace(/\/{2,}/gu, "/");
+    return url.toString();
+  } catch {
+    return value;
+  }
 }
 
 export function getGoogleOAuthConfig() {
@@ -136,9 +145,9 @@ export function getGoogleOAuthConfig() {
     return null;
   }
 
-  const redirectUri =
-    configuredRedirectUri ||
-    `http://localhost:${env.PORT}/api/v1/calendar-sync/google/callback`;
+  const redirectUri = normalizeRedirectUri(
+    configuredRedirectUri || `http://localhost:${env.PORT}/api/v1/calendar-sync/google/callback`
+  );
 
   return {
     clientId: env.GOOGLE_OAUTH_CLIENT_ID,

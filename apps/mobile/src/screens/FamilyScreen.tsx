@@ -572,7 +572,7 @@ export function FamilyScreen({
       setBillingPackages([]);
       setBillingSummaries([]);
       setBillingManagementUrl(null);
-      setBillingMessage("Only the household admin manages billing. Other adults join with the adult invite code.");
+      setBillingMessage("This needs admin access. Ask a household admin to promote you from People.");
       return;
     }
 
@@ -771,19 +771,17 @@ export function FamilyScreen({
                 {childProfiles.length === 1 ? "" : "s"}
               </Text>
             </View>
-            {isFamilyAdmin ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={showHouseholdDetails ? "Close name editor" : "Edit household name"}
-                hitSlop={8}
-                onPress={() => setShowHouseholdDetails((value) => !value)}
-                style={({ pressed }) => [styles.householdEditBadge, pressed && styles.householdEditBadgePressed]}
-              >
-                <Ionicons name={showHouseholdDetails ? "close" : "create"} size={15} color={colors.primary} />
-              </Pressable>
-            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showHouseholdDetails ? "Close name editor" : "Edit household name"}
+              hitSlop={8}
+              onPress={() => setShowHouseholdDetails((value) => !value)}
+              style={({ pressed }) => [styles.householdEditBadge, pressed && styles.householdEditBadgePressed]}
+            >
+              <Ionicons name={showHouseholdDetails ? "close" : "create"} size={15} color={colors.primary} />
+            </Pressable>
           </View>
-          {isFamilyAdmin && showHouseholdDetails ? (
+          {showHouseholdDetails ? (
             <View style={styles.householdEditRow}>
               <TextInput
                 style={styles.householdEditInput}
@@ -836,8 +834,8 @@ export function FamilyScreen({
           <WidgetTile
             emoji="📱"
             tone="mint"
-            label="Devices"
-            meta={isLoadingDevices ? "Loading" : `${activeDeviceCount} active`}
+            label="Child devices"
+            meta={isLoadingDevices ? "Loading" : activeDeviceCount > 0 ? `${activeDeviceCount} active` : "Pair a device"}
             active={activeWidget === "devices"}
             onPress={() => {
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -888,7 +886,7 @@ export function FamilyScreen({
               }}
             />
           </View>
-          {isFamilyAdmin && !showRegenerateConfirm ? (
+          {!showRegenerateConfirm ? (
             <ActionButton
               emoji="🔄"
               label="Regenerate"
@@ -897,12 +895,16 @@ export function FamilyScreen({
               disabled={isRegeneratingInvite || !backendConnected}
               onPress={() => {
                 if (isRegeneratingInvite || !backendConnected) return;
+                if (!isFamilyAdmin) {
+                  setInviteFeedback("This needs admin access. Ask a household admin to promote you from People.");
+                  return;
+                }
                 setShowRegenerateConfirm(true);
               }}
             />
           ) : null}
         </View>
-        {isFamilyAdmin && showRegenerateConfirm ? (
+        {showRegenerateConfirm ? (
           <View style={styles.inlineConfirm}>
             <Text style={styles.warningText}>Replaces the current code immediately.</Text>
             <View style={styles.memberButtonRow}>
@@ -944,6 +946,37 @@ export function FamilyScreen({
               }`}
         </Text>
         {pairingFeedback ? <Text style={styles.pairingFeedback}>{pairingFeedback}</Text> : null}
+        {Object.keys(activePairingCodes).length > 0 ? (
+          <View style={styles.deviceList}>
+            {Object.entries(activePairingCodes).map(([memberId, entry]) => (
+              <View key={memberId} style={[styles.pairingCodeCard, styles.pairingCodeCardInGroup]}>
+                <Text style={styles.pairingCodeLabel}>Pairing code · {entry.memberName}</Text>
+                <Text
+                  selectable
+                  style={styles.pairingCodeValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
+                  {entry.code}
+                </Text>
+                <Text style={styles.pairingCodeHint}>
+                  {formatPairingExpiry(entry.expiresAt)} · Enter on Welcome → Set up child's device
+                </Text>
+                <ActionButton
+                  emoji="📋"
+                  label="Copy code"
+                  tone="primary"
+                  onPress={() => {
+                    void handleCopyPairingCode(entry.code);
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.pairingStat}>No active codes yet — open a child's profile in People to generate one.</Text>
+        )}
         {childDevices.length > 0 ? (
           <View style={styles.deviceList}>
             {[...childDevices]
@@ -958,7 +991,7 @@ export function FamilyScreen({
                       {formatChildDeviceStatus(device)}
                     </Text>
                   </View>
-                  {isFamilyAdmin && !device.revokedAt ? (
+                  {!device.revokedAt ? (
                     <ActionButton
                       emoji="🔌"
                       label="Revoke"
@@ -986,28 +1019,26 @@ export function FamilyScreen({
           title="People"
           meta={`${adultMembers.length + childProfiles.length}`}
           right={
-            isFamilyAdmin ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={showAddChildForm ? "Hide add child form" : "Add child profile"}
-                hitSlop={8}
-                onPress={() => {
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                  setShowAddChildForm((value) => !value);
-                }}
-                style={styles.cardHeaderAction}
-              >
-                <Ionicons
-                  color={colors.primary}
-                  name={showAddChildForm ? "close" : "person-add"}
-                  size={16}
-                />
-              </Pressable>
-            ) : undefined
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showAddChildForm ? "Hide add child form" : "Add child profile"}
+              hitSlop={8}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowAddChildForm((value) => !value);
+              }}
+              style={styles.cardHeaderAction}
+            >
+              <Ionicons
+                color={colors.primary}
+                name={showAddChildForm ? "close" : "person-add"}
+                size={16}
+              />
+            </Pressable>
           }
         />
 
-        {isFamilyAdmin && showAddChildForm ? (
+        {showAddChildForm ? (
           <View style={styles.addChildPanel}>
             <View style={styles.compactFormRow}>
               <TextInput
@@ -1127,7 +1158,7 @@ export function FamilyScreen({
             </View>
           ) : null}
           {childProfiles.map((member) => {
-            const canManage = isFamilyAdmin && member.isVirtual;
+            const canManage = member.isVirtual;
             const isExpanded = expandedMemberId === member.id;
 
             return (
@@ -1633,10 +1664,10 @@ const styles = StyleSheet.create({
   widgetTileIconBadge: {
     alignItems: "center",
     borderRadius: radii.pill,
-    height: 32,
+    height: 36,
     justifyContent: "center",
     marginBottom: 2,
-    width: 32
+    width: 36
   },
   widgetTileIconBadgeIdle: {
     backgroundColor: colors.surface
@@ -1662,7 +1693,7 @@ const styles = StyleSheet.create({
   },
   widgetTileLabel: {
     color: colors.ink,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "800",
     marginTop: 2
   },

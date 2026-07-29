@@ -62,6 +62,7 @@ type ChildDeviceState = {
   uploadAvatar: (imageBase64: string, mimeType: string) => Promise<{ ok: boolean; message: string }>;
   registerPushToken: () => Promise<void>;
   unpair: () => Promise<void>;
+  clearStatusMessage: () => void;
 };
 
 const memoryTokenStore = new Map<string, string>();
@@ -244,7 +245,10 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
 
       const [meResult, choresResult] = await Promise.all([fetchChildDeviceSession(), fetchChildDeviceChores()]);
       if (!meResult.data) {
-        await get().unpair();
+        // A genuinely invalid/revoked token is already handled by the unauthorized
+        // handler above (it resets mode/session with a specific explanation). Anything
+        // else here is a transient failure (network blip, server hiccup) — don't punt
+        // a legitimately paired child out of their session over that.
         return;
       }
 
@@ -256,7 +260,7 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
           avatarUrl: meResult.data.member.avatarUrl ?? null,
           starBalance: meResult.data.member.starBalance
         },
-        chores: mapChores(choresResult.data)
+        chores: choresResult.data ? mapChores(choresResult.data) : get().chores
       });
     },
     completeChore: async (choreId) => {
@@ -317,6 +321,9 @@ export const useChildDeviceStore = create<ChildDeviceState>((set, get) => {
         chores: [],
         statusMessage: "Device unpaired."
       });
+    },
+    clearStatusMessage: () => {
+      set({ statusMessage: null });
     }
   };
 });

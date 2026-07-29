@@ -1,10 +1,24 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View
+} from "react-native";
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { Card, PrimaryButton } from "../components/Primitives";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { legalCopy, legalLinks } from "../constants/legalContent";
 import { colors, fonts, radii, spacing } from "../constants/theme";
 import { pickAndUploadAvatar } from "../services/avatarUpload";
 import {
@@ -45,14 +59,20 @@ function feedbackTone(message: string): "success" | "error" | "info" {
   return "success";
 }
 
+function isPlaceholderLink(value: string) {
+  return value.includes("{{") || value.includes("}}");
+}
+
 export function SettingsScreen({
   onClose,
   onOpenFamilySettings,
-  onOpenInsights
+  onOpenInsights,
+  pinnedHeader = false
 }: {
   onClose: () => void;
   onOpenFamilySettings: () => void;
   onOpenInsights?: () => void;
+  pinnedHeader?: boolean;
 }) {
   const authMode = useAuthStore((state) => state.mode);
   const userId = useAuthStore((state) => state.userId);
@@ -86,6 +106,7 @@ export function SettingsScreen({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(avatarUrl);
   const [avatarImageFailed, setAvatarImageFailed] = useState(false);
+  const [openLegalDoc, setOpenLegalDoc] = useState<"support" | null>(null);
 
   const backendConnected = syncSource === "api";
   const initials = useMemo(() => buildInitials(displayName, email), [displayName, email]);
@@ -289,18 +310,45 @@ export function SettingsScreen({
     onClose();
   }
 
+  async function handleOpenLegalLink(url: string, label: string) {
+    if (isPlaceholderLink(url)) {
+      setFormMessage(`${label} needs the final production URL before launch.`);
+      return;
+    }
+
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      setFormMessage(`Could not open ${label}.`);
+      return;
+    }
+
+    await Linking.openURL(url);
+  }
+
   return (
     <View style={styles.screen}>
-      <ScreenHeader
-        eyebrow="Settings"
-        title="Your account"
-        subtitle="Profile, notifications, and household links."
-        variant="admin"
-        actionLabel="Back"
-        onActionPress={onClose}
-        badgeLabel={backendConnected ? "Synced" : "Offline"}
-        badgeTone={backendConnected ? "mint" : "coral"}
-      />
+      {pinnedHeader ? (
+        <View style={styles.largeTitleBlock}>
+          <View style={styles.largeTitleRow}>
+            <View style={styles.largeTitleIcon}>
+              <Text style={styles.largeTitleGlyph}>⚙️</Text>
+            </View>
+            <Text style={styles.largeTitleText}>Your account</Text>
+          </View>
+          <Text style={styles.largeTitleSubtitle}>Profile, notifications, and household links.</Text>
+        </View>
+      ) : (
+        <ScreenHeader
+          eyebrow="Settings"
+          title="Your account"
+          subtitle="Profile, notifications, and household links."
+          variant="admin"
+          actionLabel="Back"
+          onActionPress={onClose}
+          badgeLabel={backendConnected ? "Synced" : "Offline"}
+          badgeTone={backendConnected ? "mint" : "coral"}
+        />
+      )}
 
       <Card>
         <View style={styles.profileHero}>
@@ -408,12 +456,12 @@ export function SettingsScreen({
                 onPress={onOpenInsights}
                 style={({ pressed }) => [
                   styles.householdTile,
-                  styles.householdTileGhost,
+                  styles.householdTileGold,
                   pressed && styles.householdTilePressed
                 ]}
               >
                 <Text style={styles.householdTileGlyph}>📊</Text>
-                <Text style={styles.householdTileLabel}>Open insights</Text>
+                <Text style={[styles.householdTileLabel, styles.householdTileLabelGold]}>Open insights</Text>
               </Pressable>
             ) : null}
           </View>
@@ -424,15 +472,19 @@ export function SettingsScreen({
           {authMode === "dev_token" ? (
             <Text style={styles.cardText}>Developer session — password controls are unavailable.</Text>
           ) : authProvider === "google" ? (
-            <View style={styles.providerCard}>
-              <View style={styles.providerIconBadge}>
-                <Ionicons name="logo-google" size={16} color={colors.primary} />
-              </View>
-              <View style={styles.providerCopy}>
-                <Text style={styles.providerTitle}>Signed in with Google</Text>
-                <Text style={styles.providerSubtitle}>Password changes stay with your Google account.</Text>
-              </View>
-            </View>
+            <ProviderCard
+              icon="logo-google"
+              iconColor={colors.primary}
+              title="Signed in with Google"
+              subtitle="Password changes stay with your Google account."
+            />
+          ) : authProvider === "apple" ? (
+            <ProviderCard
+              icon="logo-apple"
+              iconColor={colors.ink}
+              title="Signed in with Apple"
+              subtitle="Password changes stay with your Apple account."
+            />
           ) : (
             <>
               <Text style={styles.label}>New password</Text>
@@ -553,18 +605,62 @@ export function SettingsScreen({
       </Card>
 
       <Card>
-        <GroupCaption icon="⚠️" title="Delete account" tone="danger" />
+        <GroupCaption icon="⚖️" title={legalCopy.settingsCard.title} />
+        <Text style={styles.cardText}>{legalCopy.settingsCard.body}</Text>
+        <View style={styles.legalLinkStack}>
+          <LegalLinkRow
+            icon="🔒"
+            tone="mint"
+            title={legalCopy.settingsCard.actions.privacy}
+            subtitle="How HomeThread handles household and child data."
+            onPress={() => void handleOpenLegalLink(legalLinks.privacyPolicyUrl, legalCopy.settingsCard.actions.privacy)}
+          />
+          <LegalLinkRow
+            icon="📜"
+            tone="gold"
+            title={legalCopy.settingsCard.actions.terms}
+            subtitle="The rules for accounts, households, subscriptions, and AI."
+            onPress={() => void handleOpenLegalLink(legalLinks.termsOfServiceUrl, legalCopy.settingsCard.actions.terms)}
+          />
+          <LegalLinkRow
+            icon="💬"
+            tone="coral"
+            title={legalCopy.settingsCard.actions.support}
+            subtitle="Get help or request privacy/account support."
+            onPress={() => setOpenLegalDoc("support")}
+          />
+        </View>
+        <Text style={styles.helperText}>Account deletion is available below for signed-in production accounts.</Text>
+      </Card>
+
+      <LegalDocumentModal
+        visible={openLegalDoc === "support"}
+        title={legalCopy.settingsCard.actions.support}
+        onClose={() => setOpenLegalDoc(null)}
+      >
+        <Text style={styles.docParagraph}>{legalCopy.support.body}</Text>
+        <Text style={[styles.docParagraph, styles.docCode]}>{legalLinks.supportEmail}</Text>
+        <View style={styles.docSupportAction}>
+          <PrimaryButton
+            label={legalCopy.support.buttonLabel}
+            icon="mail"
+            onPress={() => void handleOpenLegalLink(legalLinks.supportUrl, legalCopy.settingsCard.actions.support)}
+          />
+        </View>
+      </LegalDocumentModal>
+
+      <Card>
+        <GroupCaption icon="⚠️" title={legalCopy.settingsCard.actions.deleteAccount} tone="danger" />
         <View style={styles.dangerPanel}>
           {authMode === "supabase" ? (
             <>
-              <Text style={styles.cardText}>This permanently removes your HomeThread profile. Only use it if the account is no longer needed.</Text>
+              <Text style={styles.cardText}>{legalCopy.deleteAccountDialog.body}</Text>
               {!backendConnected ? (
                 <Text style={styles.helperText}>Account deletion requires a connected session. Refresh and try again when sync is back.</Text>
               ) : null}
-              <Text style={styles.dangerText}>This action is destructive and cannot be undone from the app.</Text>
               <View style={styles.cardActions}>
                 <PrimaryButton
-                  label={isDeletingAccount ? "Deleting..." : "Delete account"}
+                  label={isDeletingAccount ? "Deleting..." : legalCopy.settingsCard.actions.deleteAccount}
                   icon="trash"
                   tone="dark"
                   loading={isDeletingAccount}
@@ -581,6 +677,108 @@ export function SettingsScreen({
           )}
         </View>
       </Card>
+
+      <Text style={styles.footerNote}>Your data stays private and synced only within your household.</Text>
+    </View>
+  );
+}
+
+const legalToneStyles = StyleSheet.create({
+  mint: { backgroundColor: "rgba(95, 168, 136, 0.14)" },
+  gold: { backgroundColor: "rgba(214, 168, 74, 0.16)" },
+  coral: { backgroundColor: "rgba(224, 122, 95, 0.14)" }
+});
+
+function LegalLinkRow({
+  icon,
+  tone,
+  title,
+  subtitle,
+  onPress
+}: {
+  icon: string;
+  tone: "mint" | "gold" | "coral";
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={title}
+      onPress={onPress}
+      style={({ pressed }) => [styles.legalLinkRow, pressed ? styles.legalLinkPressed : null]}
+    >
+      <View style={[styles.legalLinkIcon, legalToneStyles[tone]]}>
+        <Text style={styles.legalLinkGlyph}>{icon}</Text>
+      </View>
+      <View style={styles.legalLinkCopy}>
+        <Text style={styles.legalLinkTitle}>{title}</Text>
+        <Text style={styles.legalLinkSubtitle}>{subtitle}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
+function LegalDocumentModal({
+  visible,
+  title,
+  onClose,
+  children
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <SafeAreaView style={styles.docSafe}>
+        <View style={styles.docHeader}>
+          <Text numberOfLines={1} style={styles.docHeaderTitle}>{title}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={8}
+            onPress={onClose}
+            style={({ pressed }) => [styles.docCloseHit, pressed && styles.docClosePressed]}
+          >
+            <Ionicons name="close" size={18} color={colors.primary} />
+            <Text style={styles.docCloseText}>Close</Text>
+          </Pressable>
+        </View>
+        <ScrollView
+          contentContainerStyle={styles.docScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {children}
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+function ProviderCard({
+  icon,
+  iconColor,
+  title,
+  subtitle
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <View style={styles.providerCard}>
+      <View style={styles.providerIconBadge}>
+        <Ionicons name={icon} size={16} color={iconColor} />
+      </View>
+      <View style={styles.providerCopy}>
+        <Text style={styles.providerTitle}>{title}</Text>
+        <Text style={styles.providerSubtitle}>{subtitle}</Text>
+      </View>
     </View>
   );
 }
@@ -744,6 +942,48 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 16
   },
+  largeTitleBlock: {
+    alignItems: "center",
+    gap: spacing.xs
+  },
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center"
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
+  },
+  largeTitleSubtitle: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    textAlign: "center"
+  },
+  footerNote: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    textAlign: "center"
+  },
   groupBlockFirst: {
     paddingBottom: spacing.md
   },
@@ -821,6 +1061,110 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.md
   },
+  legalLinkStack: {
+    gap: spacing.sm,
+    marginTop: spacing.md
+  },
+  legalLinkRow: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  legalLinkPressed: {
+    backgroundColor: colors.surfaceRaised
+  },
+  legalLinkIcon: {
+    alignItems: "center",
+    borderRadius: radii.pill,
+    height: 36,
+    justifyContent: "center",
+    width: 36
+  },
+  legalLinkGlyph: {
+    fontSize: 16,
+    lineHeight: 20
+  },
+  legalLinkCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
+  },
+  legalLinkTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 19
+  },
+  legalLinkSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
+  },
+  docSafe: {
+    backgroundColor: colors.canvas,
+    flex: 1
+  },
+  docHeader: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
+  },
+  docHeaderTitle: {
+    color: colors.ink,
+    flex: 1,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700"
+  },
+  docCloseHit: {
+    alignItems: "center",
+    backgroundColor: colors.canvas,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    minHeight: 36,
+    paddingHorizontal: spacing.sm
+  },
+  docClosePressed: {
+    backgroundColor: colors.surfaceRaised
+  },
+  docCloseText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  docScrollContent: {
+    paddingBottom: spacing.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg
+  },
+  docParagraph: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: spacing.sm
+  },
+  docCode: {
+    color: colors.primary,
+    fontWeight: "700"
+  },
+  docSupportAction: {
+    marginTop: spacing.lg
+  },
   householdGrid: {
     flexDirection: "row",
     gap: spacing.sm
@@ -840,9 +1184,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
     borderColor: "rgba(139,107,74,0.18)"
   },
-  householdTileGhost: {
-    backgroundColor: colors.surface,
-    borderColor: colors.lineStrong
+  householdTileGold: {
+    backgroundColor: colors.goldSoft,
+    borderColor: "rgba(193,125,60,0.24)"
   },
   householdTilePressed: {
     opacity: 0.85
@@ -859,6 +1203,9 @@ const styles = StyleSheet.create({
   },
   householdTileLabelPrimary: {
     color: colors.primary
+  },
+  householdTileLabelGold: {
+    color: colors.gold
   },
   providerCard: {
     alignItems: "center",

@@ -330,12 +330,11 @@ export const calendarConnections = pgTable(
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     syncToken: text("sync_token"),
-    icalUrl: text("ical_url"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
-    providerCheck: check("calendar_connections_provider_check", sql`${table.provider} in ('google', 'apple', 'outlook', 'ical')`),
+    providerCheck: check("calendar_connections_provider_check", sql`${table.provider} in ('google', 'apple', 'outlook')`),
     userIdx: index("idx_calendar_connections_user").on(table.userId),
     familyIdx: index("idx_calendar_connections_family").on(table.familyId)
   })

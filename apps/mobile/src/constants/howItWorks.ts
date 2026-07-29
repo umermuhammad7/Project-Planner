@@ -16,7 +16,7 @@ export type HowItWorksSlide = {
 /** Shared How it works slides for Welcome + Home. */
 export const HOW_IT_WORKS_SLIDES: HowItWorksSlide[] = [
   {
-    title: "Create a household",
+    title: "Start a household",
     body: "The first adult starts the home for everyone.",
     icon: "home",
     accent: colors.primary,

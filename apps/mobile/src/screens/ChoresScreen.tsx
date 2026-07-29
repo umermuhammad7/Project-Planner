@@ -17,6 +17,7 @@ import {
 
 import { ActionFeedback } from "../components/ActionFeedback";
 import { FieldError, MemberAvatar, Pill, PrimaryButton } from "../components/Primitives";
+import { RewardCelebrationBanner, useRewardCelebration } from "../components/RewardCelebration";
 import { TimeField } from "../components/TimeField";
 import { colors, fonts, radii, shadow, spacing } from "../constants/theme";
 import { useScrollAssist } from "../context/ScrollAssistContext";
@@ -45,6 +46,8 @@ export function ChoresScreen({ pinnedHeader = false }: { pinnedHeader?: boolean 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
   const [completionTone, setCompletionTone] = useState<"success" | "error" | "info">("success");
+  const { celebration, scale: celebrationScale, opacity: celebrationOpacity, triggerCelebration } =
+    useRewardCelebration();
   const [titleError, setTitleError] = useState<string | null>(null);
   const openChores = useMemo(() => chores.filter((chore) => !chore.completed), [chores]);
   const completedChores = useMemo(() => chores.filter((chore) => chore.completed), [chores]);
@@ -227,6 +230,9 @@ export function ChoresScreen({ pinnedHeader = false }: { pinnedHeader?: boolean 
   }
 
   async function handleCompleteChore(choreId: string) {
+    const target = chores.find((chore) => chore.id === choreId);
+    const assignedMember = target ? members.find((member) => member.id === target.assignedTo) : null;
+
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const outcome = await completeChore(choreId);
     if (!outcome) {
@@ -244,10 +250,21 @@ export function ChoresScreen({ pinnedHeader = false }: { pinnedHeader?: boolean 
     setExpandedChoreId(null);
     setCompletionTone(outcome.kind === "local" ? "info" : "success");
     setCompletionMessage(outcome.message);
+    if (target && assignedMember?.role === "kid") {
+      triggerCelebration(target.stars);
+    }
   }
 
   return (
     <View style={styles.screen}>
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>🧹</Text>
+          </View>
+          <Text style={styles.largeTitleText}>Chores</Text>
+        </View>
+      ) : null}
       {/* Header card */}
       <View style={styles.plannerCard}>
         <View style={styles.header}>
@@ -331,6 +348,7 @@ export function ChoresScreen({ pinnedHeader = false }: { pinnedHeader?: boolean 
           tone={completionTone}
           visible={Boolean(completionMessage)}
         />
+        <RewardCelebrationBanner celebration={celebration} scale={celebrationScale} opacity={celebrationOpacity} />
 
         {tabMembers.length > 0 ? (
           <ScrollView
@@ -581,6 +599,14 @@ export function ChoresScreen({ pinnedHeader = false }: { pinnedHeader?: boolean 
         </View>
       ) : null}
 
+      {/* Footer note */}
+      <View style={styles.footerNote}>
+        <Ionicons name="repeat" size={13} color={colors.muted} />
+        <Text style={styles.footerNoteText}>
+          Chores repeat daily — completing one adds stars to that person's balance.
+        </Text>
+      </View>
+
       {/* Chore form modal */}
       <Modal
         visible={showForm}
@@ -750,6 +776,32 @@ const styles = StyleSheet.create({
   screen: {
     gap: 0,
     paddingBottom: 96
+  },
+  // Large title (collapses into the pinned bar on scroll)
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
   },
   // Header card
   plannerCard: {
@@ -1192,6 +1244,23 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     lineHeight: 18,
     marginTop: 4
+  },
+  // Footer note
+  footerNote: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs
+  },
+  footerNoteText: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    textAlign: "center"
   },
   // Form modal
   composeSafe: {

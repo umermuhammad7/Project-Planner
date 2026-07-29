@@ -59,12 +59,14 @@ export function MoreScreen({
   onOpen,
   onOpenFamilySettings,
   onOpenInsights,
-  onOpenSettings
+  onOpenSettings,
+  pinnedHeader = false
 }: {
   onOpen: (destination: MoreDestination) => void;
   onOpenFamilySettings?: () => void;
   onOpenInsights?: () => void;
   onOpenSettings?: () => void;
+  pinnedHeader?: boolean;
 }) {
   const meals = useHomeThreadStore((state) => state.meals);
   const textUpdates = useHomeThreadStore((state) => state.textUpdates);
@@ -142,12 +144,21 @@ export function MoreScreen({
   ];
   return (
     <View>
-      <ScreenHeader
-        eyebrow="More"
-        title="Tools & household"
-        subtitle="Planning tools, settings, and admin live here."
-        density="compact"
-      />
+      {pinnedHeader ? (
+        <View style={styles.largeTitleRow}>
+          <View style={styles.largeTitleIcon}>
+            <Text style={styles.largeTitleGlyph}>🧭</Text>
+          </View>
+          <Text style={styles.largeTitleText}>More hub</Text>
+        </View>
+      ) : (
+        <ScreenHeader
+          eyebrow="More"
+          title="More hub"
+          subtitle="Planning tools, settings, and admin live here."
+          density="compact"
+        />
+      )}
 
       <SectionTitle title="Planning tools" />
       <View style={styles.linkGroup}>
@@ -184,14 +195,14 @@ export function MoreScreen({
       </View>
 
       {adminItems.length > 0 ? (
-        <>
-          <SectionTitle title="Account & household" />
-          <View style={[styles.adminShortcutGrid, styles.adminShortcutGridTrailing]}>
+        <View style={styles.adminCard}>
+          <Text style={styles.adminCardTitle}>Account & household</Text>
+          <View style={styles.adminShortcutGrid}>
             {adminItems.map((item) => (
               <AdminNavRow key={item.key} item={item} />
             ))}
           </View>
-        </>
+        </View>
       ) : null}
     </View>
   );
@@ -224,16 +235,35 @@ const adminToneStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  stack: {
+  largeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
     gap: spacing.sm,
-    marginBottom: spacing.lg
+    justifyContent: "center"
+  },
+  largeTitleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  largeTitleGlyph: {
+    fontSize: 20
+  },
+  largeTitleText: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.3
   },
   linkGroup: {
     backgroundColor: colors.surface,
     borderColor: colors.lineStrong,
     borderRadius: radii.lg,
     borderWidth: 1,
-    marginBottom: spacing.lg,
     overflow: "hidden",
     ...shadow.card
   },
@@ -276,32 +306,42 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 24
   },
+  adminCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    ...shadow.card
+  },
+  adminCardTitle: {
+    color: colors.ink,
+    fontFamily: fonts.display,
+    fontSize: 20,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    marginBottom: spacing.md
+  },
   adminShortcutGrid: {
     alignItems: "flex-start",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm
   },
-  adminShortcutGridTrailing: {
-    marginBottom: spacing.lg
-  },
   adminShortcutTile: {
-    backgroundColor: colors.surface,
-    borderColor: colors.lineStrong,
+    backgroundColor: colors.canvas,
     borderRadius: radii.md,
-    borderWidth: 1,
     flexBasis: "47%",
     flexGrow: 1,
-    gap: 3,
+    gap: spacing.xs,
     minWidth: 0,
-    padding: spacing.md,
-    ...shadow.card
+    padding: spacing.md
   },
   adminShortcutTop: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 2
+    justifyContent: "space-between"
   },
   adminShortcutIcon: {
     alignItems: "center",
@@ -311,7 +351,7 @@ const styles = StyleSheet.create({
     width: 34
   },
   adminShortcutCopy: {
-    gap: 1,
+    gap: spacing.xs,
     minWidth: 0
   },
   adminShortcutGlyph: {
@@ -334,8 +374,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontWeight: "600",
-    lineHeight: 16,
-    marginTop: 1
+    lineHeight: 16
   },
   linkTitle: {
     color: colors.ink,

@@ -13,7 +13,7 @@ import { db } from "../db/client.js";
 import { familyMembers, listItems, lists } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
 import { requireAuth } from "../plugins/auth.js";
-import { requireFamilyAdmin, requireFamilyMember } from "../plugins/familyAccess.js";
+import { requireFamilyMember } from "../plugins/familyAccess.js";
 
 const familyParamsSchema = z.object({
   familyId: uuidSchema
@@ -68,7 +68,7 @@ export async function listsRoutes(app: FastifyInstance) {
   app.post("/", async (request, reply) => {
     const currentUser = request.currentUser!;
     const { familyId } = familyParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const body = createListSchema.parse(request.body);
@@ -90,7 +90,7 @@ export async function listsRoutes(app: FastifyInstance) {
 
   app.patch("/:listId", async (request, reply) => {
     const { familyId, listId } = listParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const body = updateListSchema.parse(request.body);
@@ -111,7 +111,7 @@ export async function listsRoutes(app: FastifyInstance) {
 
   app.delete("/:listId", async (request, reply) => {
     const { familyId, listId } = listParamsSchema.parse(request.params);
-    const membership = await requireFamilyAdmin(request, reply, familyId);
+    const membership = await requireFamilyMember(request, reply, familyId);
     if (!membership) return;
 
     const deleted = await db

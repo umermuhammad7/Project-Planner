@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from "vite
 
 import { buildApp } from "../src/app.js";
 import { db } from "../src/db/client.js";
-import { childDevices, childPairingAttempts } from "../src/db/schema.js";
+import { childDevices, childPairingAttempts, familyMembers } from "../src/db/schema.js";
 import { deliverHouseholdNotification } from "../src/lib/pushNotifications.js";
 import { env } from "../src/env.js";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -13,6 +13,14 @@ const authHeaders = {
 
 const parkerFamilyId = "00000000-0000-4000-8000-000000000201";
 const julesMemberId = "00000000-0000-4000-8000-000000000102";
+const devUserId = "00000000-0000-4000-8000-000000000001";
+
+async function downgradeDevToMember(familyId: string) {
+  await db
+    .update(familyMembers)
+    .set({ role: "member" })
+    .where(and(eq(familyMembers.familyId, familyId), eq(familyMembers.userId, devUserId)));
+}
 
 async function createPairingCode() {
   const app = buildApp();
@@ -285,6 +293,66 @@ describe("child device routes", () => {
     });
     expect(activeDevices).toHaveLength(1);
     expect(activeDevices[0]?.deviceToken).toBe(secondToken);
+  });
+  it("lets a plain household member generate a pairing code, list it, and unpair a device", async () => {
+    const app = buildApp();
+    const createFamilyResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Member Pairing Test Home" }
+    });
+    expect(createFamilyResponse.statusCode).toBe(201);
+    const familyId = createFamilyResponse.json().family.id as string;
+
+    const createChildResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyId}/members`,
+      headers: authHeaders,
+      payload: {
+        displayName: "Test Kid",
+        color: "#F9735B",
+        role: "child",
+        isVirtual: true
+      }
+    });
+    expect(createChildResponse.statusCode).toBe(201);
+    const childMemberId = createChildResponse.json().member.id as string;
+
+    await downgradeDevToMember(familyId);
+
+    const codeResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyId}/members/${childMemberId}/child-pairing-code`,
+      headers: authHeaders
+    });
+    expect(codeResponse.statusCode).toBe(201);
+    const pairingCode = codeResponse.json().pairingCode as string;
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/families/${familyId}/child-pairing-codes`,
+      headers: authHeaders
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toMatchObject({
+      pairingCodes: [{ pairingCode, memberId: childMemberId }]
+    });
+
+    const pairResponse = await pairDevice(pairingCode);
+    expect(pairResponse.statusCode).toBe(201);
+    const device = await db.query.childDevices.findFirst({
+      where: and(eq(childDevices.familyId, familyId), eq(childDevices.memberId, childMemberId))
+    });
+    expect(device).toBeTruthy();
+
+    const unpairResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${familyId}/child-devices/${device!.id}`,
+      headers: authHeaders
+    });
+    expect(unpairResponse.statusCode).toBe(200);
+    expect(unpairResponse.json()).toEqual({ revoked: true });
   });
 });
 

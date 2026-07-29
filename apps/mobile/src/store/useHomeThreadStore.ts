@@ -618,7 +618,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Sign in to sync your household before regenerating invite codes." };
     }
     if (!state.isFamilyAdmin) {
-      return { ok: false, message: "Only family admins can regenerate invite codes." };
+      return {
+        ok: false,
+        message: "This needs admin access. Ask a household admin to promote you from People."
+      };
     }
 
     set({ isSaving: true, saveScope: "family", saveMessage: "Regenerating invite code..." });
@@ -650,7 +653,10 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       return { ok: false, message: "Sign in to sync your household before renaming the family." };
     }
     if (!state.isFamilyAdmin) {
-      return { ok: false, message: "Only family admins can rename the household." };
+      return {
+        ok: false,
+        message: "This needs admin access. Ask a household admin to promote you from People."
+      };
     }
 
     set({ isSaving: true, saveScope: "family", saveMessage: "Saving family name..." });
@@ -743,9 +749,6 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     if (state.syncSource !== "api" || !state.familyId) {
       return { ok: false, message: "Sign in to sync your household before adding members." };
     }
-    if (!state.isFamilyAdmin) {
-      return { ok: false, message: "Only family admins can add members." };
-    }
 
     const memberColors = ["#F9735B", "#2DAA84", "#F4B740", "#A85576", "#3A91C9", "#3157D5"];
     const color = memberColors[state.members.length % memberColors.length];
@@ -777,10 +780,17 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         ? `${trimmedName} added as a child profile. Open Kids mode from Home when you're ready.`
         : `${trimmedName} added to your household.`;
 
-    set({
+    set((current) => ({
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: role === "child" ? `Added child profile: ${trimmedName}` : `Added member: ${trimmedName}`
+        }),
+        ...current.textUpdates
+      ],
       isSaving: false, saveScope: null,
       saveMessage: successMessage
-    });
+    }));
     void get().refreshFromBackend();
     return { ok: true };
   },
@@ -792,9 +802,6 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     }
     if (state.syncSource !== "api" || !state.familyId) {
       return { ok: false, message: "Sign in to sync your household before editing members." };
-    }
-    if (!state.isFamilyAdmin) {
-      return { ok: false, message: "Only family admins can edit members." };
     }
 
     const member = state.members.find((item) => item.id === memberId);
@@ -810,7 +817,6 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
         body: JSON.stringify({
           displayName: trimmedName,
           color: member.color,
-          role: member.role === "kid" ? "child" : "member",
           isVirtual: true
         })
       }
@@ -839,9 +845,6 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
     if (state.syncSource !== "api" || !state.familyId) {
       return { ok: false, message: "Sign in to sync your household before removing members." };
     }
-    if (!state.isFamilyAdmin) {
-      return { ok: false, message: "Only family admins can remove members." };
-    }
 
     const member = state.members.find((item) => item.id === memberId);
     if (!member?.isVirtual) {
@@ -867,10 +870,17 @@ export const useHomeThreadStore = create<HomeThreadState>((set, get) => ({
       };
     }
 
-    set({
+    set((current) => ({
+      textUpdates: [
+        makeActivityUpdate({
+          author: "HomeThread",
+          body: `Removed ${member.role === "kid" ? "child profile" : "member"}: ${member.name}`
+        }),
+        ...current.textUpdates
+      ],
       isSaving: false, saveScope: null,
       saveMessage: `${member.name} removed from your household.`
-    });
+    }));
     void get().refreshFromBackend();
     return { ok: true };
   },

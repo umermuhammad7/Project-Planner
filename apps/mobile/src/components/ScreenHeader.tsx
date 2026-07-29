@@ -13,6 +13,7 @@ export function ScreenHeader({
   icon,
   badgeLabel,
   badgeTone = "neutral",
+  subtitleLines = 2,
   actionLabel,
   actionIcon = "chevron-back",
   onActionPress,
@@ -25,6 +26,7 @@ export function ScreenHeader({
   icon?: IconName;
   badgeLabel?: string;
   badgeTone?: "neutral" | "primary" | "mint" | "coral" | "gold";
+  subtitleLines?: number;
   actionLabel?: string;
   actionIcon?: IconName;
   onActionPress?: () => void;
@@ -44,7 +46,7 @@ export function ScreenHeader({
         <Text style={[styles.title, isAdmin && styles.titleAdmin, isCompact && styles.titleCompact]}>{title}</Text>
         {subtitle ? (
           <Text
-            numberOfLines={2}
+            numberOfLines={subtitleLines}
             style={[styles.subtitle, isAdmin && styles.subtitleAdmin, isCompact && styles.subtitleCompact]}
           >
             {subtitle}
