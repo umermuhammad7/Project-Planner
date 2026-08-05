@@ -12,6 +12,7 @@ import { db } from "../db/client.js";
 import { families, familyMembers, rewards, users } from "../db/schema.js";
 import { sendError } from "../lib/http.js";
 import { countFamilyAdmins } from "../lib/householdAdmins.js";
+import { withUniqueInviteCodeRetry } from "../lib/inviteCode.js";
 import { ensureUserProfile } from "../lib/userProvisioning.js";
 import { isChildPairingCode } from "../lib/childPairing.js";
 import { requireAuth } from "../plugins/auth.js";
@@ -34,14 +35,17 @@ export async function familiesRoutes(app: FastifyInstance) {
     });
 
     const result = await db.transaction(async (tx) => {
-      const [family] = await tx
-        .insert(families)
-        .values({
-          name: body.name,
-          avatarUrl: body.avatarUrl,
-          createdBy: currentUser.id
-        })
-        .returning();
+      const [family] = await withUniqueInviteCodeRetry((inviteCode) =>
+        tx
+          .insert(families)
+          .values({
+            name: body.name,
+            avatarUrl: body.avatarUrl,
+            createdBy: currentUser.id,
+            inviteCode
+          })
+          .returning()
+      );
 
       const [member] = await tx
         .insert(familyMembers)
@@ -177,13 +181,9 @@ export async function familiesRoutes(app: FastifyInstance) {
     const membership = await requireFamilyAdmin(request, reply, id);
     if (!membership) return;
 
-    const [family] = await db
-      .update(families)
-      .set({
-        inviteCode: sql<string>`substr(md5(random()::text), 0, 9)`
-      })
-      .where(eq(families.id, id))
-      .returning();
+    const [family] = await withUniqueInviteCodeRetry((inviteCode) =>
+      db.update(families).set({ inviteCode }).where(eq(families.id, id)).returning()
+    );
 
     return { inviteCode: family.inviteCode };
   });

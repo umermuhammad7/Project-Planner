@@ -124,6 +124,39 @@ describe("family setup routes", () => {
     });
   });
 
+  it("finds the family by invite code immediately after an admin regenerates it", async () => {
+    const app = buildApp();
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Regen Then Join Home" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const familyId = createResponse.json().family.id as string;
+
+    const regenResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyId}/invite`,
+      headers: authHeaders
+    });
+    expect(regenResponse.statusCode).toBe(200);
+    const regeneratedCode = regenResponse.json().inviteCode as string;
+
+    const joinResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families/join",
+      headers: authHeaders,
+      payload: { inviteCode: regeneratedCode }
+    });
+
+    expect(joinResponse.statusCode).toBe(200);
+    expect(joinResponse.json()).toMatchObject({
+      family: { id: familyId, inviteCode: regeneratedCode },
+      alreadyMember: true
+    });
+  });
+
   it("rejects unknown invite codes", async () => {
     const app = buildApp();
     const response = await app.inject({
