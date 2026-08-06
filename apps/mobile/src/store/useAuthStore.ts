@@ -32,6 +32,7 @@ type AuthState = {
   userId: string | null;
   email: string | null;
   displayName: string | null;
+  displayNameSetByUser: boolean;
   avatarUrl: string | null;
   authProvider: string | null;
   familyId: string | null;
@@ -81,6 +82,7 @@ const signedOutState = {
   userId: null,
   email: null,
   displayName: null,
+  displayNameSetByUser: false,
   avatarUrl: null,
   authProvider: null,
   familyId: null,
@@ -196,6 +198,7 @@ async function loadMembership(accessToken: string) {
     userId: result.data.user.id,
     email: result.data.user.email ?? null,
     displayName: result.data.user.displayName ?? null,
+    displayNameSetByUser: result.data.user.displayNameSetByUser ?? false,
     avatarUrl: sanitizeAvatarUrl(result.data.user.avatarUrl),
     familyId: primaryMembership?.family.id ?? null,
     pushToken: result.data.user.pushToken ?? null,
@@ -215,6 +218,7 @@ async function applySupabaseSession(accessToken: string, authProvider: string | 
     userId: membership.userId,
     email: membership.email,
     displayName: membership.displayName,
+    displayNameSetByUser: membership.displayNameSetByUser,
     avatarUrl: membership.avatarUrl,
     authProvider,
     familyId: membership.familyId,
@@ -307,6 +311,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   userId: null,
   email: null,
   displayName: null,
+  displayNameSetByUser: false,
   avatarUrl: null,
   authProvider: null,
   familyId: null,
@@ -400,6 +405,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         userId: membership.userId,
         email: membership.email,
         displayName: membership.displayName,
+        displayNameSetByUser: membership.displayNameSetByUser,
         avatarUrl: membership.avatarUrl,
         authProvider: data.session.user.app_metadata?.provider ?? null,
         familyId: membership.familyId,
@@ -601,6 +607,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       displayName: membership.displayName,
+      displayNameSetByUser: membership.displayNameSetByUser,
       avatarUrl: membership.avatarUrl,
       familyId: membership.familyId,
       pushToken: membership.pushToken,
@@ -638,6 +645,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({
       displayName: result.data.user.displayName ?? trimmedName,
+      displayNameSetByUser: true,
       avatarUrl: sanitizeAvatarUrl(result.data.user.avatarUrl ?? avatarUrl)
     });
 
@@ -717,6 +725,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       userId: membership.userId,
       email: membership.email,
       displayName: membership.displayName,
+      displayNameSetByUser: membership.displayNameSetByUser,
       avatarUrl: membership.avatarUrl,
       authProvider: "dev_token",
       familyId: membership.familyId,

@@ -120,6 +120,47 @@ describe("auth guard", () => {
     });
   });
 
+  it("flips displayNameSetByUser to true only once the user submits their own name", async () => {
+    const app = buildApp();
+    const devUserId = "00000000-0000-4000-8000-000000000001";
+
+    // Force the fixture user back to its auto-provisioned default so this test is
+    // deterministic regardless of what earlier runs left in the shared dev DB.
+    await ensureUserProfile(devUserId, "dev@homethread.local");
+    await db.update(users).set({ displayNameSetByUser: false }).where(eq(users.id, devUserId));
+
+    const beforeResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/auth/me",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      }
+    });
+
+    expect(beforeResponse.json()).toMatchObject({
+      user: { displayNameSetByUser: false }
+    });
+
+    const afterResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/profile",
+      headers: {
+        Authorization: `Bearer ${env.DEV_AUTH_TOKEN}`
+      },
+      payload: {
+        displayName: "Umar K",
+        avatarUrl: null,
+        phone: null,
+        timezone: "UTC",
+        locale: "en"
+      }
+    });
+
+    expect(afterResponse.json()).toMatchObject({
+      user: { displayName: "Umar K", displayNameSetByUser: true }
+    });
+  });
+
   it("saves notification preferences for the authenticated user", async () => {
     const app = buildApp();
     const response = await app.inject({

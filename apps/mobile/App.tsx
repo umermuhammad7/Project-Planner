@@ -28,6 +28,7 @@ import { CalendarSyncScreen } from "./src/screens/CalendarSyncScreen";
 import { ChildDeviceSetupScreen } from "./src/screens/ChildDeviceSetupScreen";
 import { ChildDeviceShellScreen } from "./src/screens/ChildDeviceShellScreen";
 import { ChoresScreen } from "./src/screens/ChoresScreen";
+import { DisplayNameScreen } from "./src/screens/DisplayNameScreen";
 import { FamilyScreen } from "./src/screens/FamilyScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { InsightsScreen } from "./src/screens/InsightsScreen";
@@ -189,6 +190,7 @@ function AppShell() {
     []
   );
   const homeDisplayName = useAuthStore((state) => state.displayName);
+  const displayNameSetByUser = useAuthStore((state) => state.displayNameSetByUser);
   const homeEmail = useAuthStore((state) => state.email);
   const homeAvatarUrl = useAuthStore((state) => state.avatarUrl);
   const homeProfileLabel = useMemo(
@@ -574,6 +576,7 @@ function AppShell() {
     isHydrating &&
     !entryHydrateSettled.current;
   const showWelcome = authMode === "loading" || authMode === "signed_out" || !enteredApp;
+  const showDisplayNamePrompt = enteredApp && !showWelcome && !showConnecting && !displayNameSetByUser;
   const screenKey = [
     activeTab,
     moreDestination,
@@ -584,7 +587,8 @@ function AppShell() {
     insightsOpen ? "insights" : "insights-closed",
     settingsOpen ? "settings" : "settings-closed",
     showWelcome ? "welcome" : "app",
-    showConnecting ? "connecting" : "ready"
+    showConnecting ? "connecting" : "ready",
+    showDisplayNamePrompt ? "name-prompt" : "name-set"
   ].join(":");
 
   useEffect(() => {
@@ -829,7 +833,8 @@ function AppShell() {
     !showKidsModePicker &&
     !familySettingsOpen &&
     !insightsOpen &&
-    !settingsOpen;
+    !settingsOpen &&
+    !showDisplayNamePrompt;
   const showPlanPinnedBar = canShowPinnedBar && activeTab === "plan" && !planShowCalendarSync;
   const showCalendarSyncPinnedBar =
     enteredApp && authMode !== "signed_out" && activeTab === "plan" && planShowCalendarSync;
@@ -1360,6 +1365,8 @@ function AppShell() {
                   <Text style={styles.connectingSubtitle}>{syncMessage}</Text>
                 </View>
               </View>
+            ) : showDisplayNamePrompt ? (
+              <DisplayNameScreen />
             ) : showKidsModePicker ? (
               <KidsModePickerScreen
                 pinnedHeader

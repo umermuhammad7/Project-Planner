@@ -314,6 +314,7 @@ export type AuthMeResponse = {
     id: string;
     email?: string;
     displayName?: string | null;
+    displayNameSetByUser?: boolean;
     avatarUrl?: string | null;
     pushToken?: string | null;
     notificationPrefs?: NotificationPrefs;

@@ -33,6 +33,7 @@ export async function authRoutes(app: FastifyInstance) {
       .set({
         email: currentUser.email,
         displayName: body.displayName,
+        displayNameSetByUser: true,
         avatarUrl: body.avatarUrl,
         phone: body.phone,
         timezone: body.timezone,

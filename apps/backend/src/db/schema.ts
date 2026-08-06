@@ -28,6 +28,7 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().references(() => authUsers.id, { onDelete: "cascade" }),
   email: text("email").notNull().unique(),
   displayName: text("display_name").notNull(),
+  displayNameSetByUser: boolean("display_name_set_by_user").notNull().default(false),
   avatarUrl: text("avatar_url"),
   phone: text("phone"),
   timezone: text("timezone").notNull().default("UTC"),

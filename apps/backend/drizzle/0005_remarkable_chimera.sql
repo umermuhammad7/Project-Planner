@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "display_name_set_by_user" boolean DEFAULT false NOT NULL;
