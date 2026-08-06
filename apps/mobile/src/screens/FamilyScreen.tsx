@@ -24,6 +24,7 @@ import { safeText } from "../utils/safeRender";
 import { MobileSubscriptionStatus, FamilyMember } from "../types";
 import { getAdultMemberAccountLabel, getCurrentUserAccessLabel, getEffectiveFamilyCreatorId, getMemberAccessKind, getMemberAccessLabel } from "../utils/memberAccessLabel";
 import { copyText } from "../utils/copyText";
+import { dismissPromoteNudge, readDismissedPromoteNudgeIds } from "../utils/promoteNudgeStorage";
 import { useAuthStore } from "../store/useAuthStore";
 
 function formatPairingExpiry(expiresAt: string) {
@@ -271,6 +272,7 @@ export function FamilyScreen({
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [pendingRemoveMemberId, setPendingRemoveMemberId] = useState<string | null>(null);
   const [promotingMemberId, setPromotingMemberId] = useState<string | null>(null);
+  const [dismissedPromoteNudgeIds, setDismissedPromoteNudgeIds] = useState<string[]>([]);
   const [activePairingCodes, setActivePairingCodes] = useState<
     Record<string, { code: string; expiresAt: string; memberName: string }>
   >({});
@@ -312,6 +314,15 @@ export function FamilyScreen({
   const billingStatus = getBillingStatus();
   const adultMembers = members.filter((member) => member.role !== "kid");
   const childProfiles = members.filter((member) => member.role === "kid");
+  const promoteNudgeMember = isFamilyAdmin
+    ? adultMembers.find(
+        (member) =>
+          member.role === "caregiver" &&
+          member.userId &&
+          !member.isVirtual &&
+          !dismissedPromoteNudgeIds.includes(member.id)
+      )
+    : undefined;
   const effectiveFamilyCreatedBy = getEffectiveFamilyCreatorId(familyCreatedBy, members);
   const householdAdminCount = members.filter((member) => member.role === "parent").length;
   const isSoleAdmin = isFamilyAdmin && householdAdminCount <= 1;
@@ -381,6 +392,11 @@ export function FamilyScreen({
     if (!result.ok) {
       setFormMessage(result.message ?? "Could not promote that adult.");
     }
+  }
+
+  function handleDismissPromoteNudge(memberId: string) {
+    setDismissedPromoteNudgeIds((current) => [...current, memberId]);
+    void dismissPromoteNudge(memberId);
   }
 
   async function loadActivePairingCodes() {
@@ -659,6 +675,10 @@ export function FamilyScreen({
   }, []);
 
   useEffect(() => {
+    void readDismissedPromoteNudgeIds().then(setDismissedPromoteNudgeIds);
+  }, []);
+
+  useEffect(() => {
     setEditedFamilyName(familyName);
   }, [familyName]);
 
@@ -763,10 +783,12 @@ export function FamilyScreen({
                 />
                 <View style={styles.syncStatusRow}>
                   <View style={[styles.syncDot, backendConnected ? styles.syncDotOn : styles.syncDotOff]} />
-                  <Text style={styles.syncStatusText}>{backendConnected ? "Connected" : "Local-only"}</Text>
+                  <Text style={styles.syncStatusText} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+                    {backendConnected ? "Connected" : "Local-only"}
+                  </Text>
                 </View>
               </View>
-              <Text style={styles.householdHeroMeta} numberOfLines={1}>
+              <Text style={styles.householdHeroMeta} numberOfLines={1} maxFontSizeMultiplier={1.4}>
                 {adultMembers.length} adult{adultMembers.length === 1 ? "" : "s"} · {childProfiles.length} child profile
                 {childProfiles.length === 1 ? "" : "s"}
               </Text>
@@ -1076,6 +1098,38 @@ export function FamilyScreen({
               tone={feedbackTone(childFormMessage ?? "")}
               visible={Boolean(childFormMessage)}
             />
+          </View>
+        ) : null}
+
+        {promoteNudgeMember ? (
+          <View style={styles.promoteNudgeCard}>
+            <Text style={styles.promoteNudgeText}>
+              {promoteNudgeMember.name} joined as a caregiver. Give them full admin access too?
+            </Text>
+            <View style={styles.memberButtonRow}>
+              <ActionButton
+                emoji="🛡️"
+                label={promotingMemberId === promoteNudgeMember.id ? "Promoting..." : "Make admin"}
+                tone="gold"
+                solid
+                loading={promotingMemberId === promoteNudgeMember.id}
+                disabled={isSavingFamily || promotingMemberId === promoteNudgeMember.id || !backendConnected}
+                onPress={() => {
+                  if (isSavingFamily || promotingMemberId === promoteNudgeMember.id || !backendConnected) return;
+                  void handlePromoteMember(promoteNudgeMember.id);
+                }}
+              />
+              <ActionButton
+                emoji="✋"
+                label="Not now"
+                tone="gold"
+                disabled={promotingMemberId === promoteNudgeMember.id}
+                onPress={() => {
+                  if (promotingMemberId === promoteNudgeMember.id) return;
+                  handleDismissPromoteNudge(promoteNudgeMember.id);
+                }}
+              />
+            </View>
           </View>
         ) : null}
 
@@ -1613,7 +1667,9 @@ const styles = StyleSheet.create({
   syncStatusRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 6
+    flexShrink: 1,
+    gap: 6,
+    minWidth: 0
   },
   syncDot: {
     borderRadius: radii.pill,
@@ -1628,8 +1684,10 @@ const styles = StyleSheet.create({
   },
   syncStatusText: {
     color: colors.muted,
+    flexShrink: 1,
     fontSize: 12,
-    fontWeight: "700"
+    fontWeight: "700",
+    minWidth: 0
   },
   householdHeroMeta: {
     color: colors.muted,
@@ -2131,6 +2189,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 19,
     marginTop: spacing.md
+  },
+  promoteNudgeCard: {
+    backgroundColor: colors.goldSoft,
+    borderRadius: radii.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.md
+  },
+  promoteNudgeText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19
   },
   inlineConfirm: {
     gap: spacing.sm,

@@ -64,7 +64,9 @@ export function Pill({
   return (
     <View style={[styles.pill, styles[`${tone}Pill`]]}>
       {icon ? <Ionicons name={icon} size={14} color={toneColor(tone)} /> : null}
-      <Text style={[styles.pillText, { color: toneColor(tone) }]}>{label}</Text>
+      <Text style={[styles.pillText, { color: toneColor(tone) }]} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -381,7 +383,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     borderRadius: radii.pill,
     flexDirection: "row",
+    flexShrink: 1,
     gap: spacing.xs,
+    minWidth: 0,
     paddingHorizontal: spacing.md,
     paddingVertical: 7
   },
@@ -401,8 +405,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.goldSoft
   },
   pillText: {
+    flexShrink: 1,
     fontSize: 12,
-    fontWeight: "700"
+    fontWeight: "700",
+    minWidth: 0
   },
   avatar: {
     alignItems: "center",

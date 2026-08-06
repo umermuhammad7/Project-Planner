@@ -924,6 +924,7 @@ const styles = StyleSheet.create({
     borderColor: colors.lineStrong,
     borderRadius: radii.xl,
     borderWidth: 1,
+    flex: 1,
     overflow: "hidden",
     width: "100%",
     ...shadow.card
