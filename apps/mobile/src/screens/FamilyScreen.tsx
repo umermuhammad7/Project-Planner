@@ -1418,7 +1418,7 @@ export function FamilyScreen({
             emoji="💳"
             tone="gold"
             label="Billing"
-            meta="Preview"
+            meta={billingStatus.available ? "Store" : "Preview"}
             active={activeAccountWidget === "billing"}
             onPress={() => {
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -1442,9 +1442,15 @@ export function FamilyScreen({
       {activeAccountWidget === "billing" ? (
       <Card>
       <View style={styles.groupBlockFirst}>
-        <CardHeader icon="card" tone="gold" title="Plans and billing" meta="Preview" />
+        <CardHeader
+          icon="card"
+          tone="gold"
+          title="Plans and billing"
+          meta={billingStatus.available ? "Store" : "Preview"}
+        />
         <Text style={styles.helperText}>
-          Plan: {subscriptionStatus?.subscriptionStatus ?? "free preview"} · No payment in this build
+          Plan: {subscriptionStatus?.subscriptionStatus ?? "free preview"}
+          {billingStatus.available ? "" : " · No payment in this build"}
         </Text>
         <ActionFeedback
           message={subscriptionMessage ?? ""}
@@ -1474,7 +1480,9 @@ export function FamilyScreen({
               ))}
             </View>
             <Text style={styles.previewBillingNote}>
-              Store checkout and subscriptions are not live in this preview. Purchases and restore are disabled.
+              {billingStatus.available
+                ? "Store checkout is connected. Store products still need to be configured before checkout works."
+                : "Store checkout and subscriptions are not live in this preview. Purchases and restore are disabled."}
             </Text>
           </>
         ) : null}

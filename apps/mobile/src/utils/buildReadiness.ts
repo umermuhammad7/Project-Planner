@@ -80,9 +80,10 @@ export function getClientBuildReadiness(): BuildReadinessItem[] {
     {
       key: "apple-sign-in",
       label: "Sign in with Apple",
-      ready: false,
-      detail:
-        "Required for App Store when Google sign-in is offered. Needs Apple Developer account and auth provider setup before code can ship."
+      ready: isSignInConfigured(),
+      detail: isSignInConfigured()
+        ? "Sign in with Apple is configured in this build."
+        : "Sign-in is not configured in this build."
     },
     {
       key: "sentry",

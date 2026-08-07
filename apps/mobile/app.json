@@ -47,7 +47,8 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "expo-web-browser"
     ],
     "experiments": {
       "autolinkingModuleResolution": true
