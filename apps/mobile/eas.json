@@ -12,7 +12,8 @@
         "EXPO_PUBLIC_API_URL": "https://homethread-backend-production-dc0b.up.railway.app/api/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://ivzzdtqoawywluedqpay.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Q3-BWNEmoHgt1NQyc61fkA_8KFrzgQb",
-        "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "preview": {
@@ -21,7 +22,8 @@
         "EXPO_PUBLIC_API_URL": "https://homethread-backend-production-dc0b.up.railway.app/api/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://ivzzdtqoawywluedqpay.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Q3-BWNEmoHgt1NQyc61fkA_8KFrzgQb",
-        "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "production": {
@@ -30,7 +32,8 @@
         "EXPO_PUBLIC_API_URL": "https://homethread-backend-production-dc0b.up.railway.app/api/v1",
         "EXPO_PUBLIC_SUPABASE_URL": "https://ivzzdtqoawywluedqpay.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Q3-BWNEmoHgt1NQyc61fkA_8KFrzgQb",
-        "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091"
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "c0560be0-2c73-43bc-81ad-aa85cd2e7091",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }
   },
