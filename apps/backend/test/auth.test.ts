@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
 import { db } from "../src/db/client.js";
-import { authUsers, families, familyMembers, notifications, users } from "../src/db/schema.js";
+import { authUsers, chores, events, families, familyMembers, lists, notifications, recipes, users } from "../src/db/schema.js";
 import { env } from "../src/env.js";
 import { ensureUserProfile } from "../src/lib/userProvisioning.js";
 
@@ -188,6 +188,87 @@ describe("auth guard", () => {
         }
       }
     });
+  });
+
+  it("lets a user's account be deleted after they created household content, without breaking the content", async () => {
+    // Uses its own dedicated fixture user/family (never the shared DEV_AUTH_TOKEN user
+    // id, and no HTTP round-trip through /auth/account) so this test can't destabilize
+    // other test files that authenticate as the shared dev user concurrently.
+    const userId = "00000000-0000-4000-8000-0000000000c1";
+    const familyId = "00000000-0000-4000-8000-0000000000c2";
+    const memberId = "00000000-0000-4000-8000-0000000000c3";
+    const eventId = "00000000-0000-4000-8000-0000000000c4";
+    const choreId = "00000000-0000-4000-8000-0000000000c5";
+    const listId = "00000000-0000-4000-8000-0000000000c6";
+    const recipeId = "00000000-0000-4000-8000-0000000000c7";
+    const email = "deletable-account@homethread.test";
+
+    await db.delete(events).where(eq(events.id, eventId));
+    await db.delete(chores).where(eq(chores.id, choreId));
+    await db.delete(lists).where(eq(lists.id, listId));
+    await db.delete(recipes).where(eq(recipes.id, recipeId));
+    await db.delete(familyMembers).where(eq(familyMembers.id, memberId));
+    await db.delete(families).where(eq(families.id, familyId));
+    await db.delete(users).where(eq(users.id, userId));
+    await db.delete(authUsers).where(eq(authUsers.id, userId));
+
+    await ensureUserProfile(userId, email);
+    await db.insert(families).values({ id: familyId, name: "Deletable Account Family", createdBy: userId });
+    await db.insert(familyMembers).values({
+      id: memberId,
+      familyId,
+      userId,
+      displayName: "Deletable User",
+      color: "#3157D5",
+      role: "admin",
+      isVirtual: false
+    });
+    await db.insert(events).values({
+      id: eventId,
+      familyId,
+      title: "Soccer practice",
+      startAt: new Date("2026-06-15T16:00:00.000Z"),
+      endAt: new Date("2026-06-15T17:00:00.000Z"),
+      createdBy: userId
+    });
+    await db.insert(chores).values({ id: choreId, familyId, title: "Take out trash", createdBy: userId });
+    await db.insert(lists).values({ id: listId, familyId, title: "Groceries", createdBy: userId });
+    await db.insert(recipes).values({
+      id: recipeId,
+      familyId,
+      title: "Pancakes",
+      ingredients: [{ name: "Flour" }],
+      createdBy: userId
+    });
+
+    // Mirrors the exact deletion sequence in DELETE /auth/account (auth.ts), minus the
+    // deleteSupabaseUser() call, which is a live external API call out of scope here.
+    await expect(
+      (async () => {
+        await db.delete(familyMembers).where(eq(familyMembers.userId, userId));
+        await db.delete(users).where(eq(users.id, userId));
+      })()
+    ).resolves.not.toThrow();
+
+    const survivingEvent = await db.query.events.findFirst({ where: eq(events.id, eventId) });
+    expect(survivingEvent).toBeDefined();
+    expect(survivingEvent?.createdBy).toBeNull();
+
+    const survivingChore = await db.query.chores.findFirst({ where: eq(chores.id, choreId) });
+    expect(survivingChore?.createdBy).toBeNull();
+
+    const survivingList = await db.query.lists.findFirst({ where: eq(lists.id, listId) });
+    expect(survivingList?.createdBy).toBeNull();
+
+    const survivingRecipe = await db.query.recipes.findFirst({ where: eq(recipes.id, recipeId) });
+    expect(survivingRecipe?.createdBy).toBeNull();
+
+    const survivingFamily = await db.query.families.findFirst({ where: eq(families.id, familyId) });
+    expect(survivingFamily).toBeDefined();
+    expect(survivingFamily?.createdBy).toBeNull();
+
+    const deletedUser = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    expect(deletedUser).toBeUndefined();
   });
 
   it("creates the local auth shadow user before provisioning a profile", async () => {

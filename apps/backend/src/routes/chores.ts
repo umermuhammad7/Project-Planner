@@ -152,6 +152,10 @@ export async function choresRoutes(app: FastifyInstance) {
       .where(and(eq(chores.familyId, familyId), eq(chores.id, choreId)))
       .returning();
 
+    if (!chore) {
+      return sendError(reply, 404, "Chore not found", "CHORE_NOT_FOUND");
+    }
+
     await syncChoreReminderSchedule(chore);
 
     return { chore };

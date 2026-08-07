@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { revenueCatWebhookSchema } from "@homethread/shared";
 import { eq, or } from "drizzle-orm";
 import { FastifyInstance } from "fastify";
@@ -6,6 +8,15 @@ import { db } from "../db/client.js";
 import { families } from "../db/schema.js";
 import { env } from "../env.js";
 import { sendError } from "../lib/http.js";
+
+function isValidWebhookSecret(header: string | undefined, secret: string): boolean {
+  if (!header) {
+    return false;
+  }
+  const headerBuffer = Buffer.from(header, "utf8");
+  const secretBuffer = Buffer.from(secret, "utf8");
+  return headerBuffer.length === secretBuffer.length && timingSafeEqual(headerBuffer, secretBuffer);
+}
 
 export async function webhookRoutes(app: FastifyInstance) {
   app.post("/revenuecat", async (request, reply) => {
@@ -20,7 +31,7 @@ export async function webhookRoutes(app: FastifyInstance) {
     }
 
     const header = request.headers.authorization?.replace(/^Bearer\s+/u, "");
-    if (!header || header !== secret) {
+    if (!isValidWebhookSecret(header, secret)) {
       return sendError(reply, 401, "RevenueCat webhook secret is invalid", "WEBHOOK_FORBIDDEN");
     }
 

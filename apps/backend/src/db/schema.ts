@@ -57,7 +57,7 @@ export const families = pgTable(
       .notNull()
       .unique()
       .default(sql`substr(md5(random()::text), 0, 9)`),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     subscriptionStatus: text("subscription_status").notNull().default("free"),
     subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true }),
     revenueCatId: text("revenue_cat_id"),
@@ -114,7 +114,7 @@ export const events = pgTable(
     externalSource: text("external_source"),
     importedFrom: text("imported_from"),
     countdownLabel: text("countdown_label"),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
@@ -148,7 +148,7 @@ export const chores = pgTable(
     recurrenceRule: text("recurrence_rule"),
     dueTime: time("due_time"),
     isActive: boolean("is_active").notNull().default(true),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -213,7 +213,7 @@ export const lists = pgTable(
     color: text("color"),
     icon: text("icon"),
     isShared: boolean("is_shared").notNull().default(true),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -233,7 +233,7 @@ export const listItems = pgTable(
     checkedBy: uuid("checked_by").references(() => familyMembers.id),
     checkedAt: timestamp("checked_at", { withTimezone: true }),
     sortOrder: integer("sort_order").notNull().default(0),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -247,7 +247,7 @@ export const mealPlans = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
     weekStart: date("week_start").notNull(),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -272,7 +272,7 @@ export const recipes = pgTable(
     tags: text("tags").array(),
     nutrition: jsonb("nutrition"),
     isFavorite: boolean("is_favorite").notNull().default(false),
-    createdBy: uuid("created_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -364,7 +364,7 @@ export const childPairingCodes = pgTable(
     familyId: uuid("family_id").notNull().references(() => families.id, { onDelete: "cascade" }),
     memberId: uuid("member_id").notNull().references(() => familyMembers.id, { onDelete: "cascade" }),
     code: text("code").notNull().unique(),
-    createdBy: uuid("created_by").notNull().references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),

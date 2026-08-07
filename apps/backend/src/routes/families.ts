@@ -25,6 +25,11 @@ const idParamsSchema = z.object({
 export async function familiesRoutes(app: FastifyInstance) {
   app.addHook("preHandler", requireAuth);
 
+  const joinFamilyRateLimit = {
+    max: 8,
+    timeWindow: "1 minute"
+  } as const;
+
   app.post("/", async (request, reply) => {
     const currentUser = request.currentUser!;
     const body = createFamilySchema.parse(request.body);
@@ -125,7 +130,7 @@ export async function familiesRoutes(app: FastifyInstance) {
     return { family };
   });
 
-  app.post("/join", async (request, reply) => {
+  app.post("/join", { config: { rateLimit: joinFamilyRateLimit } }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const body = joinFamilySchema.parse({
       ...(request.body as Record<string, unknown>),

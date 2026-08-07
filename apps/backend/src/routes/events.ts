@@ -309,6 +309,6 @@ export async function eventsRoutes(app: FastifyInstance) {
   });
 }
 
-function canManageEvent(memberRole: string, currentUserId: string, createdBy: string) {
+function canManageEvent(memberRole: string, currentUserId: string, createdBy: string | null) {
   return memberRole === "admin" || currentUserId === createdBy;
 }

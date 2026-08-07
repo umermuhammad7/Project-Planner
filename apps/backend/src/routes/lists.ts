@@ -106,6 +106,10 @@ export async function listsRoutes(app: FastifyInstance) {
       .where(and(eq(lists.familyId, familyId), eq(lists.id, listId)))
       .returning();
 
+    if (!list) {
+      return sendError(reply, 404, "List not found", "LIST_NOT_FOUND");
+    }
+
     return { list };
   });
 

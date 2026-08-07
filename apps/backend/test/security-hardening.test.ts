@@ -340,6 +340,333 @@ describe("security hardening", () => {
     await app.close();
   });
 
+  it("rejects cross-family list and list-item access, and 404s instead of silently no-oping", async () => {
+    const app = buildApp();
+
+    const familyAResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "List Family A" }
+    });
+    const familyAId = familyAResponse.json().family.id as string;
+
+    const familyBResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "List Family B" }
+    });
+    const familyBId = familyBResponse.json().family.id as string;
+
+    const listResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/lists`,
+      headers: authHeaders,
+      payload: { title: "Groceries", type: "grocery", isShared: true }
+    });
+    expect(listResponse.statusCode).toBe(201);
+    const listId = listResponse.json().list.id as string;
+
+    const itemResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/lists/${listId}/items`,
+      headers: authHeaders,
+      payload: { content: "Milk" }
+    });
+    expect(itemResponse.statusCode).toBe(201);
+    const itemId = itemResponse.json().item.id as string;
+
+    const crossPatchResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyBId}/lists/${listId}`,
+      headers: authHeaders,
+      payload: { title: "Hijacked" }
+    });
+    expect(crossPatchResponse.statusCode).toBe(404);
+    expect(crossPatchResponse.json()).toEqual({ error: "List not found", code: "LIST_NOT_FOUND" });
+
+    const crossItemPatchResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyBId}/lists/${listId}/items/${itemId}`,
+      headers: authHeaders,
+      payload: { content: "Hijacked" }
+    });
+    expect(crossItemPatchResponse.statusCode).toBe(404);
+    expect(crossItemPatchResponse.json()).toEqual({ error: "List not found", code: "LIST_NOT_FOUND" });
+
+    const crossDeleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${familyBId}/lists/${listId}`,
+      headers: authHeaders
+    });
+    expect(crossDeleteResponse.statusCode).toBe(404);
+
+    const untouchedResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/families/${familyAId}/lists`,
+      headers: authHeaders
+    });
+    expect(untouchedResponse.json().lists[0].title).toBe("Groceries");
+
+    await app.close();
+  });
+
+  it("rejects cross-family chore access, and 404s instead of crashing", async () => {
+    const app = buildApp();
+
+    const familyAResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Chore Family A" }
+    });
+    const familyAId = familyAResponse.json().family.id as string;
+
+    const familyBResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Chore Family B" }
+    });
+    const familyBId = familyBResponse.json().family.id as string;
+
+    const choreResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/chores`,
+      headers: authHeaders,
+      payload: {
+        title: "Take out trash",
+        starsValue: 1,
+        isActive: true
+      }
+    });
+    expect(choreResponse.statusCode).toBe(201);
+    const choreId = choreResponse.json().chore.id as string;
+
+    const crossPatchResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyBId}/chores/${choreId}`,
+      headers: authHeaders,
+      payload: { title: "Hijacked" }
+    });
+    expect(crossPatchResponse.statusCode).toBe(404);
+    expect(crossPatchResponse.json()).toEqual({ error: "Chore not found", code: "CHORE_NOT_FOUND" });
+
+    await app.close();
+  });
+
+  it("rejects cross-family recipe mutations and cross-family recipe/meal grocery resolution", async () => {
+    const app = buildApp();
+
+    const familyAResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Recipe Family A" }
+    });
+    const familyAId = familyAResponse.json().family.id as string;
+
+    const familyBResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Recipe Family B" }
+    });
+    const familyBId = familyBResponse.json().family.id as string;
+
+    const recipeResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/recipes`,
+      headers: authHeaders,
+      payload: {
+        title: "Pancakes",
+        ingredients: [{ name: "Flour", amount: "2", unit: "cup" }]
+      }
+    });
+    expect(recipeResponse.statusCode).toBe(201);
+    const recipeId = recipeResponse.json().recipe.id as string;
+
+    const crossPatchResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/families/${familyBId}/recipes/${recipeId}`,
+      headers: authHeaders,
+      payload: { title: "Hijacked" }
+    });
+    expect(crossPatchResponse.statusCode).toBe(404);
+    expect(crossPatchResponse.json()).toEqual({ error: "Recipe not found", code: "RECIPE_NOT_FOUND" });
+
+    const crossGroceryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyBId}/meals/to-grocery`,
+      headers: authHeaders,
+      payload: { recipeId }
+    });
+    expect(crossGroceryResponse.statusCode).toBe(404);
+    expect(crossGroceryResponse.json()).toEqual({ error: "Recipe or meal not found", code: "RECIPE_NOT_FOUND" });
+
+    const mealPlanResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/meals`,
+      headers: authHeaders,
+      payload: {
+        weekStart: "2026-06-15",
+        items: [{ dayOfWeek: 1, mealType: "dinner", customTitle: "Leftovers" }]
+      }
+    });
+    expect(mealPlanResponse.statusCode).toBe(201);
+    const mealPlanItemId = mealPlanResponse.json().items[0].id as string;
+
+    const crossMealGroceryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyBId}/meals/to-grocery`,
+      headers: authHeaders,
+      payload: { mealPlanItemId }
+    });
+    expect(crossMealGroceryResponse.statusCode).toBe(404);
+    expect(crossMealGroceryResponse.json()).toEqual({ error: "Recipe or meal not found", code: "MEAL_NOT_FOUND" });
+
+    await app.close();
+  });
+
+  it("blocks non-members from insights and subscription-status endpoints", async () => {
+    const app = buildApp();
+
+    const familyResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Gated Reads Family" }
+    });
+    const familyId = familyResponse.json().family.id as string;
+
+    const { db } = await import("../src/db/client.js");
+    const { familyMembers } = await import("../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(familyMembers).where(eq(familyMembers.familyId, familyId));
+
+    const insightsResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/families/${familyId}/insights/weekly`,
+      headers: authHeaders
+    });
+    expect(insightsResponse.statusCode).toBe(403);
+    expect(insightsResponse.json()).toEqual({
+      error: "You are not a member of this family",
+      code: "FAMILY_FORBIDDEN"
+    });
+
+    const subscriptionResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/subscriptions/status?familyId=${familyId}`,
+      headers: authHeaders
+    });
+    expect(subscriptionResponse.statusCode).toBe(403);
+    expect(subscriptionResponse.json()).toEqual({
+      error: "You are not a member of this family",
+      code: "FAMILY_FORBIDDEN"
+    });
+
+    await app.close();
+  });
+
+  it("never marks another user's notification as read", async () => {
+    const app = buildApp();
+    const { db } = await import("../src/db/client.js");
+    const { notifications } = await import("../src/db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    const { ensureUserProfile } = await import("../src/lib/userProvisioning.js");
+
+    const otherUserId = "00000000-0000-4000-8000-000000000099";
+    await ensureUserProfile(otherUserId, "other.member@homethread.test");
+
+    const [otherNotification] = await db
+      .insert(notifications)
+      .values({
+        userId: otherUserId,
+        type: "daily_digest",
+        title: "Not yours",
+        body: "This belongs to another user."
+      })
+      .returning();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/notifications/mark-read",
+      headers: authHeaders,
+      payload: { notificationIds: [otherNotification.id] }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ updated: 0 });
+
+    const stillUnread = await db.query.notifications.findFirst({
+      where: eq(notifications.id, otherNotification.id)
+    });
+    expect(stillUnread?.readAt).toBeNull();
+
+    await app.close();
+  });
+
+  it("rejects deleting a child device that belongs to another family", async () => {
+    const app = buildApp();
+
+    const familyAResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Child Device Family A" }
+    });
+    const familyAId = familyAResponse.json().family.id as string;
+
+    const familyBResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/families",
+      headers: authHeaders,
+      payload: { name: "Child Device Family B" }
+    });
+    const familyBId = familyBResponse.json().family.id as string;
+
+    const childMemberResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/families/${familyAId}/members`,
+      headers: authHeaders,
+      payload: {
+        displayName: "Kid A",
+        color: "#3157D5",
+        role: "child",
+        isVirtual: true
+      }
+    });
+    expect(childMemberResponse.statusCode).toBe(201);
+    const memberId = childMemberResponse.json().member.id as string;
+
+    const { db } = await import("../src/db/client.js");
+    const { childDevices } = await import("../src/db/schema.js");
+    const [device] = await db
+      .insert(childDevices)
+      .values({
+        familyId: familyAId,
+        memberId,
+        deviceToken: `test-device-token-${Date.now()}`
+      })
+      .returning();
+
+    const crossDeleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/families/${familyBId}/child-devices/${device.id}`,
+      headers: authHeaders
+    });
+
+    expect(crossDeleteResponse.statusCode).toBe(404);
+    expect(crossDeleteResponse.json()).toEqual({
+      error: "Child device not found",
+      code: "CHILD_DEVICE_NOT_FOUND"
+    });
+
+    await app.close();
+  });
+
   it("blocks AI routes when plus entitlement is required", async () => {
     const previousRequirePlus = process.env.REQUIRE_PLUS;
     try {
